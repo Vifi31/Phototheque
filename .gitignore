@@ -1,0 +1,18 @@
+# Dépendances
+node_modules/
+
+# Données locales (base, vignettes, sauvegardes, versions)
+data/
+Sauvegardes/
+Versions/
+Rapports/
+
+# Environnement local
+.env
+
+# OS / éditeurs
+Thumbs.db
+.DS_Store
+*.swp
+.vscode/
+.idea/

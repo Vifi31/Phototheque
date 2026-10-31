@@ -1,0 +1,8 @@
+/* Administration — styles complémentaires (cohérents avec style.css). */
+#view.adm { max-width: none; }
+details summary { cursor: pointer; font-weight: 600; margin: 6px 0; }
+.table-wrap.tall { max-height: 560px; overflow: auto; }
+.table-wrap.tall thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+code { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12.5px; }
+.crumb { font-size: 13px; font-weight: 500; color: var(--muted); }

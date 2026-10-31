@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photothèque</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><span class="brand-icon">📷</span><span class="brand-name">Photothèque</span></div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot" id="sidebarFoot"></div>
+  </aside>
+  <main id="main">
+    <header id="topbar">
+      <button id="menuToggle" class="icon-btn" title="Afficher/masquer le menu">☰</button>
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Rechercher : mots-clés, appareil, titre…" autocomplete="off">
+        <div id="suggest" class="suggest" hidden></div>
+      </div>
+      <div class="topbar-actions" id="topbarActions"></div>
+    </header>
+    <div id="view"></div>
+    <footer id="statusbar"></footer>
+  </main>
+</div>
+<div id="lightbox" class="lightbox" hidden><div class="lb-inner"><img id="lbImg" alt=""><div id="lbMeta" class="lb-meta"></div></div><button id="lbClose" class="lb-close">✕</button><button id="lbPrev" class="lb-nav lb-prev">‹</button><button id="lbNext" class="lb-nav lb-next">›</button></div>
+<div id="toast" class="toast" hidden></div>
+<script src="/ui.js"></script>
+<script src="/app.js"></script>
+<script src="/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "Phototheque",
+  "slug": "phototheque",
+  "env": "PHOTOTHEQUE",
+  "product": "Photothèque",
+  "holder": "Vincent Fillaux",
+  "description": "Gestion d'un fonds photographique personnel : import, indexation sans copie, recherche, mots-clés, supports, albums, sauvegardes",
+  "tagline": "Photothèque",
+  "icon": "📷",
+  "port": 3212,
+  "features": [
+    "Indexation sans copie (vos originaux ne sont jamais modifiés)",
+    "Importation physique avec détection de doublons",
+    "Lecture des métadonnées EXIF / IPTC / XMP",
+    "Mots-clés et recherche multi-critères",
+    "Gestion des supports de stockage et reconnexion",
+    "Vignettes et visionneuse",
+    "Sauvegardes et restauration",
+    "Gestion des versions et journal des modifications",
+    "Licence, manifeste, base de données"
+  ]
+}
