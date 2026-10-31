@@ -6,6 +6,28 @@ Toutes les versions notables de Photothèque. Format suivi :
 
 ## [0.1.1] — 2026-10-31
 
+### Ajouté
+
+- **Recherche plein texte FTS5** (`lib/search.mjs`) : index `photos_fts`
+  insensible à la casse et aux accents, adapté aux gros volumes, tenu à jour
+  par trois déclencheurs. Les saisies contenant de la syntaxe FTS5 (`"`, `*`,
+  `(`, `:`…) sont neutralisées au lieu de provoquer une erreur. Repli `LIKE`
+  si le SQLite fourni n'a pas FTS5.
+- **Critères de recherche avancés** sur `GET /api/photos` : ET / OU / NON sur
+  le texte (`q`, `anyText`, `excludeText`) et les mots-clés (`keywords`,
+  `anyKeywords`, `excludeKeywords`), avec ou sans mot-clé, avec ou sans
+  légende, orientation, dimensions, objectif, auteur, intégrité du fichier,
+  doublons, GPS. Ces critères ne sont pas encore proposés dans l'interface.
+- **Tests** : 110 vérifications (69 en 0.1.0), dont l'index FTS5, les
+  accents, les saisies hostiles, la synchronisation de l'index et les
+  critères avancés.
+
+### Modifié
+
+- **Schéma de la base en version 2** : la migration crée l'index FTS5 et y
+  reverse les photos existantes. La base d'avant migration a été conservée
+  dans `data/phototheque.avant-migration-v2.db`.
+
 ### Corrigé
 
 - **Lanceur Windows** (`Phototheque.bat`) : la variable `PHOTOTHEQUE_PORT`

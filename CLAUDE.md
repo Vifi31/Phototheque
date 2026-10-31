@@ -106,9 +106,11 @@ bibliothèque).
 - `sharp` et `exifr` se chargent **en `await import(...)`** (modules ESM
   lourds) — ne pas les importer en haut de fichier si le module peut être
   chargé sans eux.
-- La recherche plein texte (`q`) utilise `LIKE` : sensible à la casse pour les
-  caractères non ASCII ; la recherche par mot-clé utilise une colonne
-  normalisée (minuscules + sans accents) et est fiable.
+- La recherche plein texte (`q`) passe par l'index FTS5 `photos_fts`
+  (schéma v2, `lib/search.mjs`) : insensible à la casse et aux accents. La
+  saisie n'est jamais injectée brute dans `MATCH` (`toMatch`). Repli `LIKE`
+  seulement si le SQLite fourni n'a pas FTS5. L'index est tenu à jour par
+  trois déclencheurs `photos_fts_*`.
 - `indexFile` rattache un fichier de même empreinte à la fiche photo existante
   (doublon) au lieu d'en créer une nouvelle.
 - Avant toute restauration, `lib/backup.mjs` crée une sauvegarde de sécurité.
