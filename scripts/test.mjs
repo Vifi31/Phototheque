@@ -647,6 +647,47 @@ group('Albums : export PDF (impression et aperçu)');
   check('PDF en planches : boîte de coupe sur deux pages', pl.t.includes(`/TrimBox [8.504 8.504 ${Math.round((400 + BLEED_MM) / 25.4 * 72 * 1000) / 1000} `), true, 0);
   ALB.remove(sp.id);
 
+  // --- annuler / rétablir ---
+  let u = ALB.create({ name: 'Annulable', format: 'carre-20' });
+  check('annulation : rien au départ', `${u.history.undo}|${u.history.redo}`, 'null|null');
+  u = ALB.updatePage(u.id, 1, { caption: 'Sous-titre' });
+  check('annulation : étape nommée', u.history.undo, 'Page 1 : texte');
+  check('annulation : modification sans effet ignorée', ALB.updatePage(u.id, 1, { caption: 'Sous-titre' }).history.undoCount, 1, 0);
+  let r2 = ALB.undo(u.id);
+  check('annuler : texte rétabli', `${r2.done}|${r2.album.pages[0].caption}`, 'Page 1 : texte|');
+  check('annuler : étape disponible pour rétablir', r2.album.history.redo, 'Page 1 : texte');
+  r2 = ALB.redo(u.id);
+  check('rétablir : texte remis', r2.album.pages[0].caption, 'Sous-titre');
+  u = ALB.fill(u.id, [ids[0], ids[1], ids[2]], 'une').album;
+  check('remplissage annulable', ALB.undo(u.id).album.pages.length, 1, 0);
+  u = ALB.addPage(u.id, { layout: 'deux-cote' });
+  check('nouvelle modification : plus rien à rétablir', u.history.redo, null);
+  u = ALB.update(u.id, { spreads: true });
+  check('vue en planches : pas une étape', u.history.undo, "Ajout d'une page");
+  u = ALB.update(u.id, { name: 'Renommé', format: 'a4-paysage' });
+  u = ALB.undo(u.id).album;
+  check('annuler : nom et format rétablis', `${u.name}|${u.width_mm}x${u.height_mm}`, 'Annulable|200x200');
+  check('annuler : la vue en planches est conservée', u.spreads, true, 0);
+  // déplacement d'une photo entre deux pages (avec son recadrage) : une seule étape
+  ALB.updatePage(u.id, 2, { slots: [ids[0], ids[1]], crops: [{ x: 0.2, y: 0.5, zoom: 2 }, null] });
+  u = ALB.addPage(u.id, { layout: 'une' });
+  u = ALB.updatePage(u.id, 3, { slots: [ids[2]] });
+  u = ALB.movePhoto(u.id, { page: 2, slot: 0 }, { page: 3, slot: 0 });
+  check('déplacement : photos échangées entre pages', `${u.pages[1].slots[0] === ids[2]}|${u.pages[2].slots[0] === ids[0]}`, 'true|true');
+  check('déplacement : le recadrage suit la photo', `${u.pages[2].crops[0]?.zoom}|${u.pages[1].crops[0]}`, '2|null');
+  check('déplacement : une seule étape', u.history.undo, "Déplacement d'une photo");
+  u = ALB.undo(u.id).album;
+  check('annuler le déplacement : les deux pages rétablies', `${u.pages[1].slots[0] === ids[0]}|${u.pages[2].slots[0] === ids[2]}|${u.pages[1].crops[0]?.zoom}`, 'true|true|2');
+  let e2 = null; try { ALB.movePhoto(u.id, { page: 1, slot: 0 }, { page: 2, slot: 0 }); } catch (x) { e2 = x.message; }
+  check('déplacement depuis un cadre vide refusé, sans étape', `${e2}|${ALB.get(u.id).history.redo}`, "Aucune photo à déplacer|Déplacement d'une photo");
+  for (let k = 0; k < 55; k++) ALB.updatePage(u.id, 1, { caption: 'v' + k });
+  check('annulation : 50 étapes au plus', ALB.get(u.id).history.undoCount, 50, 0);
+  while (ALB.get(u.id).history.undo) ALB.undo(u.id);
+  e2 = null; try { ALB.undo(u.id); } catch (x) { e2 = x.message; }
+  check('rien à annuler signalé', e2, 'Rien à annuler');
+  check('annulation : historique de l’opération', DB.prepare("SELECT COUNT(*) n FROM history WHERE kind = 'album.undo'").get().n > 0, true, 0);
+  ALB.remove(u.id);
+
   let err = null; try { await APDF.render('inconnu', { write: () => {} }); } catch (x) { err = x.message; }
   check('album inconnu refusé', err, 'Album inconnu');
   ALB.remove(a.id);

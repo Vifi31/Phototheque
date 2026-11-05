@@ -183,6 +183,13 @@ enregistrement ; il sert au filtre `albumId` de la recherche.
   page 1 est une page de droite ; une double page doit commencer sur un
   numéro pair (sinon alerte). `albums.data.spreads` = vue en planches dans
   l'éditeur (préférence d'affichage seulement).
+* Annuler / rétablir (v0.8.0) : chaque modification passe par `mutate()`,
+  qui mémorise l'état précédent (album + pages, hors préférence `spreads`)
+  si l'album a réellement changé. Piles en mémoire, 50 étapes par album,
+  perdues au redémarrage du serveur (choix délibéré : pas de migration de
+  schéma, et l'annulation sert pendant l'édition). Routes
+  `POST …/undo`, `…/redo` ; `…/move-photo` échange deux cadres en une
+  étape.
 * Contrôles : photo introuvable (retirée du catalogue, la référence est
   conservée pour être signalée), photo indisponible, résolution effective
   sous 150 ppp (bloquant) ou 240 ppp (limite), photos hors gabarit, cadres
@@ -229,5 +236,5 @@ les images en mémoire.
   enregistré dans `exports` (`kind = 'album-pdf'`).
 
 Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures,
-annulation/rétablissement, gestion des couleurs (CMJN, profils ICC), traits
+gestion des couleurs (CMJN, profils ICC), traits
 de coupe, modèles graphiques personnalisés, réimport d'un projet.

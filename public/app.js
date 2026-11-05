@@ -557,6 +557,9 @@ const App = (() => {
   // ---------- Albums : liste + éditeur de pages ----------
   // Formats et gabarits viennent du serveur (lib/albums.mjs) : l'interface ne fait que les dessiner.
   let albumMeta = null;
+  // raccourcis clavier de l'éditeur d'album (Ctrl+Z / Ctrl+Y) : un seul écouteur, branché sur l'album ouvert
+  let keyHandler = null;
+  document.addEventListener('keydown', e => keyHandler?.(e));
   // même règle que le PDF (lib/pdf.mjs, textColorOn) : texte foncé sur fond clair, blanc sur fond foncé
   const inkOn = bg => { const v = parseInt(String(bg).slice(1), 16) || 0xffffff; const l = [v >> 16, (v >> 8) & 255, v & 255].map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2] > 0.25 ? '#1e293b' : '#ffffff'; };
   const loadAlbumMeta = async () => (albumMeta ??= await api('/albums'));
@@ -623,16 +626,24 @@ const App = (() => {
     async function dropOn(n, s) {
       if (!drag || (drag.page === n && drag.slot === s)) return;
       const from = drag; drag = null;
-      const moving = album.pages[from.page - 1].slots[from.slot], target = album.pages[n - 1].slots[s] ?? null;
-      const movingCrop = cropsOf(from.page)[from.slot] ?? null, targetCrop = cropsOf(n)[s] ?? null;
-      if (from.page === n) {
-        const sl = setSlot(n, s, moving); sl[from.slot] = target;
-        const cr = setCrop(cropsOf(n), s, movingCrop); cr[from.slot] = targetCrop;
-        await change(pageUrl(n), 'PUT', { slots: sl, crops: cr }); return;
-      }
-      await api(base + pageUrl(n), 'PUT', { slots: setSlot(n, s, moving), crops: setCrop(cropsOf(n), s, movingCrop) }).catch(e => toast(e.message, 'bad'));
-      await change(pageUrl(from.page), 'PUT', { slots: setSlot(from.page, from.slot, target), crops: setCrop(cropsOf(from.page), from.slot, targetCrop) });
+      // échange fait côté serveur en une seule étape (photo + recadrage), donc annulable d'un coup
+      await change('/move-photo', 'POST', { from: { page: from.page, slot: from.slot }, to: { page: n, slot: s } });
     }
+
+    // ---- Annuler / rétablir (piles tenues par le serveur, lib/albums.mjs) ----
+    async function undoRedo(kind) {
+      const r = await change('/' + kind, 'POST');
+      if (r?.done) toast(`${kind === 'undo' ? 'Annulé' : 'Rétabli'} : ${r.done}`);
+    }
+    // raccourcis Ctrl+Z / Ctrl+Y (ou Ctrl+Maj+Z), hors des champs de saisie et des fenêtres ouvertes
+    keyHandler = e => {
+      if (state.view !== 'album' || state.albumId !== album.id) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('.modal')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); if (album.history?.undo) undoRedo('undo'); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); if (album.history?.redo) undoRedo('redo'); }
+    };
 
     // ---- Recadrage manuel : même calcul que cropWindow (lib/albums.mjs) ----
     // r = largeur/hauteur de l'image, A = largeur/hauteur du cadre ; renvoie la place de l'image
@@ -764,6 +775,7 @@ const App = (() => {
 
     function render() {
       const sc = document.getElementById('main'), top = sc.scrollTop;
+      title.textContent = album.name; // une annulation peut rendre son ancien nom à l'album
       const used = new Set(album.pages.flatMap(p => p.slots).filter(Boolean)).size;
       const alerts = album.issues.filter(i => i.level !== 'info');
       const empties = album.issues.filter(i => i.level === 'info').length;
@@ -773,6 +785,8 @@ const App = (() => {
       const addWrap = h('div.album-page-wrap.add', h('div.form', field('Nouvelle page', addSel), h('div.field', h('label', ' '), h('button', { onclick: () => change('/pages', 'POST', { layout: addSel.value }) }, 'Ajouter une page'))));
       mount(body,
         h('div.row', h('span.dim', `${album.formatLabel} · ${album.width_mm} × ${album.height_mm} mm · ${album.printedPages} page(s) · ${used} photo(s)`), h('div.spacer'),
+          h('button.ghost.small', { disabled: !album.history?.undo, title: album.history?.undo ? `Annuler : ${album.history.undo} (Ctrl+Z)` : 'Rien à annuler', onclick: () => undoRedo('undo') }, '↶ Annuler'),
+          h('button.ghost.small', { disabled: !album.history?.redo, title: album.history?.redo ? `Rétablir : ${album.history.redo} (Ctrl+Y)` : 'Rien à rétablir', onclick: () => undoRedo('redo') }, '↷ Rétablir'),
           h('label.row', { style: { gap: '6px' }, title: 'Présenter les pages en vis-à-vis, comme dans le livre (la page 1 est seule, à droite)' }, spreads, 'Vue en planches'),
           h('label.row', { style: { gap: '6px' } }, guides, 'Marges de sécurité')),
         alerts.length || empties ? card(h('div.sect', alerts.length ? `⚠ ${alerts.length} alerte(s)` : 'Contrôles'),

@@ -130,6 +130,8 @@ bibliothèque).
    (`lib/albumpdf.mjs` + `lib/pdf.mjs`, sans dépendance). Recadrage manuel
    livré en v0.6.0 (`cropWindow`, même calcul éditeur / contrôles / PDF).
    Doubles pages et vue en planches en v0.7.0 (gabarits `spread`,
-   `folios`). Reste : annulation.
+   `folios`). Annuler / rétablir en v0.8.0 (piles en mémoire,
+   `mutate()` dans `lib/albums.mjs` : toute nouvelle modification d'album
+   doit passer par ce wrapper pour être annulable).
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

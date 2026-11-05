@@ -4,6 +4,33 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.8.0] — 2026-11-05
+
+### Ajouté
+
+- **Annuler / rétablir dans l'éditeur d'album** (`lib/albums.mjs`) :
+  - boutons « ↶ Annuler » et « ↷ Rétablir » (l'infobulle nomme l'étape,
+    par exemple « Pages 4–5 : gabarit ») et raccourcis **Ctrl+Z**,
+    **Ctrl+Y** ou **Ctrl+Maj+Z** (hors champs de saisie et fenêtres) ;
+  - toutes les modifications d'un album sont annulables : propriétés et
+    format, ajout, déplacement, duplication et suppression de pages,
+    gabarit, fond, textes, photos, recadrage, remplissage automatique ;
+  - une modification sans effet ne crée pas d'étape ; une nouvelle
+    modification vide la pile « rétablir » ; 50 étapes au plus par album ;
+  - la vue en planches est une préférence d'affichage : elle n'est pas une
+    étape et une annulation ne la change pas ;
+  - les piles vivent en mémoire le temps de la session du serveur (elles
+    sont perdues à son redémarrage) ; chaque annulation est notée dans
+    l'historique des opérations.
+- **Déplacement d'une photo entre deux cadres en une seule opération**
+  (`POST /api/albums/<id>/move-photo`) : photo et recadrage échangés côté
+  serveur, même entre deux pages, donc annulables d'un coup (l'interface
+  envoyait auparavant deux requêtes).
+- **API :** `POST /api/albums/<id>/undo` et `…/redo` ; la fiche d'un album
+  porte `history` (libellés de la prochaine annulation et du prochain
+  rétablissement, nombre d'étapes).
+- **Tests :** 284 vérifications (19 nouvelles pour l'annulation).
+
 ## [0.7.0] — 2026-11-05
 
 ### Ajouté

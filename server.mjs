@@ -244,6 +244,9 @@ async function api(req, res, url) {
       rs.on('close', () => fs.rmSync(tmp, { force: true }));
       return rs.pipe(res);
     }
+    if (sub === 'undo' && m === 'POST') return json(res, 200, albums.undo(id));
+    if (sub === 'redo' && m === 'POST') return json(res, 200, albums.redo(id));
+    if (sub === 'move-photo' && m === 'POST') { const b = await body(); return json(res, 200, { album: albums.movePhoto(id, b.from, b.to) }); }
     if (sub === 'fill' && m === 'POST') {
       const b = await body();
       let ids = b.photoIds;
