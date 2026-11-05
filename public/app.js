@@ -557,6 +557,8 @@ const App = (() => {
   // ---------- Albums : liste + éditeur de pages ----------
   // Formats et gabarits viennent du serveur (lib/albums.mjs) : l'interface ne fait que les dessiner.
   let albumMeta = null;
+  // même règle que le PDF (lib/pdf.mjs, textColorOn) : texte foncé sur fond clair, blanc sur fond foncé
+  const inkOn = bg => { const v = parseInt(String(bg).slice(1), 16) || 0xffffff; const l = [v >> 16, (v >> 8) & 255, v & 255].map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2] > 0.25 ? '#1e293b' : '#ffffff'; };
   const loadAlbumMeta = async () => (albumMeta ??= await api('/albums'));
   const formatSelect = (current = 'carre-30') => h('select', {}, ...Object.entries(albumMeta.formats).map(([k, f]) => h('option', { value: k, selected: k === current }, f.label)));
   const layoutSelect = (current = 'une', { withTitle = true } = {}) => h('select', {},
@@ -628,7 +630,7 @@ const App = (() => {
       const issues = album.issues.filter(i => i.page === n && i.level !== 'info');
       const lay = L[pg.layout];
       // largeur bornée pour qu'une page en hauteur ne dépasse pas 420 px sans être déformée
-      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : ''), { style: { aspectRatio: `${album.width_mm} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * album.width_mm / album.height_mm)}px)`, background: pg.background } });
+      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : ''), { style: { aspectRatio: `${album.width_mm} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * album.width_mm / album.height_mm)}px)`, background: pg.background, color: inkOn(pg.background) } });
       lay.frames.forEach((fr, s) => {
         const id = pg.slots[s], ph = id ? album.photos[id] : null;
         const bad = album.issues.find(i => i.page === n && i.slot === s && i.level !== 'info');
@@ -731,6 +733,60 @@ const App = (() => {
       ] });
     }
 
+    // ---- PDF : aperçu (150 ppp, dans la page) et export d'impression (téléchargement) ----
+    async function fetchPdf(params) {
+      const res = await fetch('/api' + base + '/pdf?' + new URLSearchParams(params));
+      if (!res.ok) { let msg = 'Échec de la production du PDF'; try { msg = (await res.json()).error || msg; } catch { /* corps non JSON */ } throw new Error(msg); }
+      let report = null;
+      try { report = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(res.headers.get('X-Pdf-Report') || ''), c => c.charCodeAt(0)))); } catch { /* compte rendu absent */ }
+      return { blob: await res.blob(), report };
+    }
+    function pdfSummary(r) {
+      if (!r) return [];
+      const out = [h('p', `${r.pages} page(s), ${r.images} image(s), ${fmtBytes(r.bytes)} · ${r.width_mm} × ${r.height_mm} mm${r.bleed ? ` + fonds perdus ${albumMeta.bleedMm} mm` : ''}`)];
+      const where = l => l.slice(0, 6).map(x => `p. ${x.page}`).join(', ') + (l.length > 6 ? '…' : '');
+      const lost = r.unfilled.filter(u => u.reason !== 'cadre vide'), empty = r.unfilled.length - lost.length;
+      if (lost.length) out.push(h('div.album-alert.bad', `${lost.length} cadre(s) sans photo lisible (${where(lost)})`));
+      if (r.fromPreview.length) out.push(h('div.album-alert.warn', `${r.fromPreview.length} photo(s) prise(s) sur l'aperçu en cache, original indisponible : qualité réduite (${where(r.fromPreview)})`));
+      if (r.fromCopy.length) out.push(h('div.album-alert', `${r.fromCopy.length} photo(s) prise(s) sur une copie identique, original indisponible (${where(r.fromCopy)})`));
+      if (r.lowDpi.length) out.push(h('div.album-alert.warn', `${r.lowDpi.length} photo(s) sous la résolution visée (${where(r.lowDpi)})`));
+      if (empty) out.push(h('p.dim', `${empty} cadre(s) vide(s)${r.quality === 'screen' ? ', grisés dans l’aperçu' : ', laissés au fond de page'}.`));
+      return out;
+    }
+    async function previewPdf() {
+      toast('Préparation de l’aperçu…');
+      try {
+        const { blob, report } = await fetchPdf({ quality: 'screen', inline: 1 });
+        const src = URL.createObjectURL(blob);
+        const m = modal({ title: `Aperçu — ${album.name}`, wide: true, body: h('div', ...pdfSummary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })),
+          actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), h('button', { onclick: () => { m.close(); exportPdf(); } }, 'Exporter pour l’impression…')] });
+        new MutationObserver((_, o) => { if (!m.box.isConnected) { URL.revokeObjectURL(src); o.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
+      } catch (e) { toast(e.message, 'bad'); }
+    }
+    function exportPdf() {
+      const prof = h('select', {}, ...Object.entries(albumMeta.pdfProfiles).map(([k, p]) => h('option', { value: k }, p.label)));
+      const bleed = h('input', { type: 'checkbox' });
+      const bad = album.issues.filter(i => i.level === 'bad');
+      const status = h('div');
+      const go2 = h('button', { onclick: async () => {
+        go2.disabled = true; mount(status, h('p.dim', 'Production du PDF… (les photos sont rééchantillonnées depuis les originaux)'));
+        try {
+          const { blob, report } = await fetchPdf({ quality: prof.value, bleed: bleed.checked ? 1 : 0 });
+          const a = h('a', { href: URL.createObjectURL(blob), download: (album.name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'album') + '.pdf' });
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+          mount(status, h('p', '✓ PDF enregistré dans le dossier de téléchargement du navigateur.'), ...pdfSummary(report));
+          toast('PDF produit');
+        } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+        go2.disabled = false;
+      } }, 'Produire le PDF');
+      const m = modal({ title: 'Exporter en PDF', body: h('div',
+        h('div.form', field('Qualité', prof)),
+        h('label.row', { style: { gap: '6px' } }, bleed, `Ajouter des fonds perdus de ${albumMeta.bleedMm} mm (imprimeur : la page est agrandie, les photos pleine page débordent, la coupe se fait au format)`),
+        bad.length ? h('div.album-alert.bad', `${bad.length} alerte(s) bloquante(s) dans l’album : ${bad[0].message}${bad.length > 1 ? '…' : ''}`) : null,
+        h('p.dim', 'Les originaux sont lus sans être modifiés. Une photo n’est jamais agrandie au-delà de sa résolution réelle.'),
+        status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), go2] });
+    }
+
     const title = h('h2.page-title', album.name);
     mount(v,
       h('div.row', title, h('div.spacer'),
@@ -738,6 +794,8 @@ const App = (() => {
         h('button.ghost.small', { onclick: editProps }, 'Propriétés…'),
         h('button.ghost.small', { onclick: fillFromCollection }, 'Remplir depuis une collection…'),
         h('button.ghost.small', { onclick: () => { state.q = ''; state.facet = { albumId: album.id }; state.page = 0; go('photos'); } }, 'Voir ses photos'),
+        h('button.ghost.small', { onclick: previewPdf }, 'Aperçu'),
+        h('button.small', { onclick: exportPdf }, 'Exporter en PDF…'),
         h('a.btn.ghost.small', { href: '/api' + base + '/export', download: '' }, 'Exporter le projet'),
         h('button.danger.small', { onclick: async () => { if (await confirmDialog("Supprimer l'album", `Supprimer « ${album.name} » ? Les photos restent dans la photothèque ; seul l'album disparaît.`)) { await api(base, 'DELETE'); toast('Album supprimé (photos conservées)'); go('albums'); } } }, 'Supprimer')),
       body);

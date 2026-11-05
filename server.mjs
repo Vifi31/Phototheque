@@ -5,6 +5,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { ROOT, DATA_DIR, THUMBS_DIR, PORT, INSTALLED } from './lib/paths.mjs';
 import { setupExtra } from './lib/extra.mjs';
 import { setupAdmin, licenseBrief } from './lib/admin.mjs';
@@ -18,6 +19,7 @@ import { createLibrary } from './lib/library.mjs';
 import { createImports } from './lib/imports.mjs';
 import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
 import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN } from './lib/albums.mjs';
+import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -30,6 +32,7 @@ const library = createLibrary(db, store, supports, keywords);
 const imports = createImports(db, store, library, keywords);
 const collections = createCollections(db, library);
 const albums = createAlbums(db, library);
+const albumPdf = createAlbumPdf(db, library, albums);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -203,7 +206,7 @@ async function api(req, res, url) {
   }
 
   // ---- Albums (références aux photos, pages à gabarits) ----
-  if (p === '/api/albums' && m === 'GET') return json(res, 200, { list: albums.list(), formats: FORMATS, layouts: LAYOUTS, formatVersion: ALBUM_FORMAT_VERSION, dpiAdvised: DPI_WARN });
+  if (p === '/api/albums' && m === 'GET') return json(res, 200, { list: albums.list(), formats: FORMATS, layouts: LAYOUTS, formatVersion: ALBUM_FORMAT_VERSION, dpiAdvised: DPI_WARN, pdfProfiles: PDF_PROFILES, bleedMm: BLEED_MM });
   if (p === '/api/albums' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, { album: albums.create(b) }); }
   if (p.startsWith('/api/albums/')) {
     if (!albums.get(id)) return json(res, 404, { error: 'Album inconnu' });
@@ -219,6 +222,26 @@ async function api(req, res, url) {
       const file = (proj.album.name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'album') + '.album.json';
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file)}` });
       return res.end(JSON.stringify(proj, null, 2));
+    }
+    if (sub === 'pdf' && m === 'GET') {
+      // PDF produit dans un fichier temporaire (les images ne restent pas en mémoire), puis envoyé et effacé.
+      const quality = PDF_PROFILES[url.searchParams.get('quality')] ? url.searchParams.get('quality') : 'print';
+      const bleed = url.searchParams.get('bleed') === '1';
+      const tmp = path.join(os.tmpdir(), `phototheque-album-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
+      const fd = fs.openSync(tmp, 'w');
+      let report;
+      try { report = await albumPdf.render(id, { quality, bleed, write: buf => fs.writeSync(fd, buf) }); }
+      catch (e) { fs.closeSync(fd); fs.rmSync(tmp, { force: true }); throw e; }
+      fs.closeSync(fd);
+      const file = (albums.get(id).name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'album') + '.pdf';
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf', 'Content-Length': report.bytes,
+        'Content-Disposition': `${url.searchParams.get('inline') === '1' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file)}`,
+        'X-Pdf-Report': Buffer.from(JSON.stringify(report)).toString('base64'),
+      });
+      const rs = fs.createReadStream(tmp);
+      rs.on('close', () => fs.rmSync(tmp, { force: true }));
+      return rs.pipe(res);
     }
     if (sub === 'fill' && m === 'POST') {
       const b = await body();

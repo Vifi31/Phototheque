@@ -4,6 +4,43 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.5.0] — 2026-11-05
+
+### Ajouté
+
+- **Export PDF des albums** (`lib/albumpdf.mjs`, sur un écrivain PDF sans
+  dépendance `lib/pdf.mjs`) :
+  - une page PDF par page d'album, au format exact de l'album ;
+  - deux qualités : **impression** (300 ppp, JPEG 90) et **écran / aperçu**
+    (150 ppp, cadres vides grisés) ;
+  - option **fonds perdus de 3 mm** : la page est agrandie, les photos
+    posées au bord (gabarit pleine page) débordent, et la boîte de coupe
+    (`TrimBox`) reste au format de l'album ;
+  - photos recadrées et centrées comme dans l'éditeur, rééchantillonnées
+    depuis les originaux (lus sans modification) et **jamais agrandies**
+    au-delà de leur résolution réelle ; une photo utilisée plusieurs fois
+    au même format n'est écrite qu'une fois ;
+  - si l'original est indisponible : repli sur une copie de même empreinte,
+    puis sur l'aperçu en cache (qualité réduite), toujours signalé ;
+  - textes (titre, sous-titre, légende, numéro de page) en Helvetica avec
+    accents, couleur adaptée au fond (claire sur fond foncé) ;
+  - compte rendu : pages, images, taille, photos prises sur une copie ou
+    sur l'aperçu, résolution insuffisante, cadres vides ou illisibles ;
+  - chaque export est enregistré dans la table `exports` et l'historique.
+- **API :** `GET /api/albums/<id>/pdf?quality=print|screen&bleed=1&inline=1`
+  (le PDF est produit dans un fichier temporaire, envoyé puis effacé).
+- **Interface :** boutons « Aperçu » (PDF affiché dans la page avec son
+  compte rendu) et « Exporter en PDF… » (qualité, fonds perdus, rappel des
+  alertes bloquantes) dans l'éditeur d'album. Le texte des pages de
+  l'éditeur suit la même règle de contraste que le PDF.
+- **Tests :** 229 vérifications (31 nouvelles pour l'export PDF).
+
+### Non encore réalisé
+
+Recadrage manuel, rotation, doubles pages, annulation/rétablissement,
+profils de couleur (le PDF est en RVB sRGB, sans conversion CMJN), traits
+de coupe, réimport d'un projet exporté.
+
 ## [0.4.0] — 2026-11-05
 
 ### Ajouté

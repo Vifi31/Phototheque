@@ -126,7 +126,8 @@ bibliothèque).
 3. Albums et mises en page — **première version livrée (v0.4.0)**,
    `lib/albums.mjs` : formats, pages à gabarits, glisser-déposer entre
    cadres, textes, contrôles, export JSON du projet (format documenté dans
-   `docs/ARCHITECTURE.md` §9). Restent : recadrage manuel, doubles pages,
-   annulation, aperçu et export d'impression (PDF).
+   `docs/ARCHITECTURE.md` §9). Aperçu et export PDF livrés en v0.5.0
+   (`lib/albumpdf.mjs` + `lib/pdf.mjs`, sans dépendance). Restent :
+   recadrage manuel, doubles pages, annulation.
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

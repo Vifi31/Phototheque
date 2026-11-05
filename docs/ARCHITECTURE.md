@@ -52,6 +52,8 @@ lib/
   keywords.mjs     Gestionnaire de mots-clés (hiérarchie, fusion, suggestions)
   collections.mjs  Sélections statiques et recherches enregistrées (dynamiques)
   albums.mjs       Albums : formats, pages à gabarits, contrôles, export du projet (§9)
+  albumpdf.mjs     Albums : export PDF d'impression / d'aperçu (§9)
+  pdf.mjs          Écriture PDF minimale sans dépendance (JPEG, Helvetica WinAnsi)
   search.mjs       Moteur de recherche (FTS5, critères avancés, critères enregistrés)
   duplicates.mjs   Doublons exacts (empreintes) et similaires (empreintes visuelles)
   backup.mjs       Sauvegardes / vérification / restauration
@@ -187,7 +189,28 @@ L'export (`GET /api/albums/<id>/export`, fichier `*.album.json`) produit :
 Toute évolution incompatible de cette structure incrémente
 `ALBUM_FORMAT_VERSION`.
 
+### Export PDF (v0.5.0)
+
+`GET /api/albums/<id>/pdf?quality=print|screen&bleed=1` produit le PDF
+(`lib/albumpdf.mjs`) avec un écrivain PDF 1.4 maison (`lib/pdf.mjs`) :
+images JPEG insérées telles quelles (`DCTDecode`), polices standard
+Helvetica / Helvetica-Bold en `WinAnsiEncoding` (pas de police embarquée),
+objets écrits au fil de l'eau dans un fichier temporaire pour ne pas garder
+les images en mémoire.
+
+* Profils `PDF_PROFILES` : `print` 300 ppp / JPEG 90, `screen` 150 ppp /
+  JPEG 80 (cadres vides grisés).
+* Recadrage « couvrir » centré, comme l'éditeur ; une image plus petite que
+  le cadre à la résolution visée est gardée à sa résolution réelle (le
+  lecteur PDF l'agrandit, le compte rendu le signale).
+* Fonds perdus (`BLEED_MM` = 3) : `MediaBox` et `BleedBox` agrandies,
+  `TrimBox` au format ; un bord de cadre posé sur le bord de la page déborde.
+* Source d'une photo : premier fichier de la fiche (original), sinon autre
+  fichier de même empreinte, sinon aperçu en cache (1600 px).
+* Compte rendu renvoyé dans l'en-tête `X-Pdf-Report` (JSON en base64) et
+  enregistré dans `exports` (`kind = 'album-pdf'`).
+
 Non encore réalisé (cahier des charges §13) : recadrage manuel dans les
-cadres, rotation, placement libre, bordures, doubles pages, fonds perdus
-au-delà du gabarit `plein`, annulation/rétablissement, aperçu et export
-d'impression (PDF), modèles graphiques personnalisés, réimport d'un projet.
+cadres, rotation, placement libre, bordures, doubles pages,
+annulation/rétablissement, gestion des couleurs (CMJN, profils ICC), traits
+de coupe, modèles graphiques personnalisés, réimport d'un projet.

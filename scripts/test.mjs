@@ -6,6 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import sharp from 'sharp';
+import crypto from 'crypto';
 
 // isole les données dans un dossier temporaire AVANT d'importer les modules qui lisent .env/paths
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'phototheque-test-'));
@@ -18,6 +19,8 @@ const { createLibrary, isImage, IMAGE_EXTS } = await import('../lib/library.mjs'
 const { createImports, uniqueName } = await import('../lib/imports.mjs');
 const { createCollections } = await import('../lib/collections.mjs');
 const { createAlbums, LAYOUTS, SAFETY_MARGIN, ALBUM_FORMAT_VERSION } = await import('../lib/albums.mjs');
+const { createAlbumPdf, BLEED_MM } = await import('../lib/albumpdf.mjs');
+const Pdf = await import('../lib/pdf.mjs');
 const { createBackupService } = await import('../lib/backup.mjs');
 const { openDb, dbStatus, integrity, tableRows, isTable, ftsStatus } = await import('../lib/db.mjs');
 const Search = await import('../lib/search.mjs');
@@ -475,6 +478,96 @@ group('Albums : pages, gabarits, références, contrôles');
   check('pages supprimées', DB.prepare('SELECT COUNT(*) n FROM album_pages WHERE album_id = ?').get(a.id).n, 0, 0);
   for (const x of ALB.list()) ALB.remove(x.id);
   check('intégrité après albums', integrity(DB)[0], 'ok', 0);
+}
+
+// ===================================================================
+group('Albums : export PDF (impression et aperçu)');
+// ===================================================================
+{
+  // --- écriture PDF : encodage, chasses, coupure, contraste ---
+  check('WinAnsi : accents, euro, œ', [...Pdf.winAnsi('éÀ€œ')].join(','), '233,192,128,156');
+  check('WinAnsi : caractère hors table ramené à sa base', Pdf.winAnsi('ő').toString('latin1'), 'o');
+  check('chasse Helvetica : « A » corps 10', Pdf.textWidth('A', 10), 6.67);
+  check('chasse d’une lettre accentuée = lettre de base', Pdf.textWidth('é', 10), Pdf.textWidth('e', 10));
+  check('coupure en lignes', Pdf.wrapText('un deux trois quatre', 10, Pdf.textWidth('trois quatre', 10)).join('|'), 'un deux|trois quatre');
+  check('texte clair sur fond foncé', Pdf.textColorOn('#101820'), '#ffffff');
+  check('texte foncé sur fond clair', Pdf.textColorOn('#ffeedd'), '#1e293b');
+
+  const ALB = createAlbums(DB, LIB), APDF = createAlbumPdf(DB, LIB, ALB);
+  // ordre déterministe : une photo présente en deux fichiers (doublon fabriqué ici) entre deux photos uniques
+  const ids = [];
+  for (const [k, [w, hh, color]] of [[1200, 800, { r: 200, g: 60, b: 40 }], [900, 600, { r: 30, g: 160, b: 90 }], [800, 600, { r: 240, g: 200, b: 40 }]].entries()) {
+    const f = path.join(TMP, 'pdf', `photo-${k}.jpg`);
+    await makeImage(f, { w, h: hh, color, date: `2023:0${k + 1}:01 10:00:00` });
+    await LIB.indexFile(f, {});
+    ids.push(DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(f).photo_id);
+  }
+  const dupId = ids[1], dupCopy = path.join(TMP, 'pdf', 'copie-photo-1.jpg');
+  fs.copyFileSync(path.join(TMP, 'pdf', 'photo-1.jpg'), dupCopy);
+  await LIB.indexFile(dupCopy, {});
+  check('PDF : photo en double préparée', DB.prepare('SELECT COUNT(*) n FROM files WHERE photo_id = ?').get(dupId).n, 2, 0);
+  const a = ALB.create({ name: 'Résumé (été)', format: 'a4-portrait' });
+  ALB.updatePage(a.id, 1, { caption: 'Sous-titre « accentué »' });
+  ALB.fill(a.id, [ids[0], ids[1], ids[2]], 'deux-pile');          // pages 2 (2 photos) et 3 (1 photo + 1 vide)
+  ALB.addPage(a.id, { layout: 'plein' });
+  ALB.updatePage(a.id, 4, { slots: [ids[0]] });                    // même photo, autre taille de cadre
+  ALB.updatePage(a.id, 2, { caption: 'Une légende assez longue pour la page deux, avec des accents : « déjà vu ».' });
+  const orig = DB.prepare("SELECT path FROM files WHERE photo_id = ? AND kind = 'original'").get(ids[0]).path;
+  const sumBefore = crypto.createHash('sha256').update(fs.readFileSync(orig)).digest('hex');
+
+  const render = async opts => { const chunks = []; const rep = await APDF.render(a.id, { ...opts, write: b => chunks.push(Buffer.from(b)) }); return { rep, buf: Buffer.concat(chunks) }; };
+  const { rep, buf } = await render({ quality: 'print' });
+  const txt = buf.toString('latin1');
+  check('PDF : en-tête et fin de fichier', txt.startsWith('%PDF-1.4') && txt.trimEnd().endsWith('%%EOF'), true, 0);
+  const count = needle => txt.split(needle).length - 1;
+  check('PDF : une page par page d’album', count('/Type /Page '), 4, 0);
+  check('PDF : compte rendu = taille réelle', rep.bytes, buf.length, 0);
+  const sx = +txt.slice(txt.lastIndexOf('startxref') + 10).trim().split(/\s/)[0];
+  const xref = txt.slice(sx).split('\n').slice(2).filter(l => / [nf] $/.test(l));
+  check('PDF : table des références cohérente', xref.length > 5 && xref.every((l, k) => !l.endsWith('n ') || txt.startsWith(`${k} 0 obj`, +l.slice(0, 10))), true, 0);
+  check('PDF : format A4 en points', txt.includes('/MediaBox [0 0 595.276 841.89]'), true, 0);
+  check('PDF : 4 images (photo réutilisée à deux tailles)', rep.images, 4, 0);
+  check('PDF : images en JPEG', count('/Filter /DCTDecode'), 4, 0);
+  const widths = [...txt.matchAll(/\/Subtype \/Image \/Width (\d+) \/Height (\d+)/g)].map(m => +m[1]);
+  const real = ids.slice(0, 3).map(i => LIB.detail(i)), maxW = Math.max(...real.map(d => d.width));
+  check('PDF : jamais agrandie au-delà de la résolution réelle', widths.length === 4 && widths.every(w => w <= maxW), true, 0);
+  check('PDF : pleine page recadrée au format sans agrandissement', txt.includes(`/Width ${Math.round(real[0].height * 210 / 297)} /Height ${real[0].height}`), true, 0);
+  check('PDF : résolution faible signalée', rep.lowDpi.length > 0, true, 0);
+  check('PDF : cadre vide signalé', rep.unfilled.some(u => u.page === 3 && u.reason === 'cadre vide'), true, 0);
+  check('PDF : titre accentué encodé', txt.includes('(R\\351sum\\351 \\(\\351t\\351\\))'), true, 0);
+  check('PDF : polices Helvetica WinAnsi', txt.includes('/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding'), true, 0);
+  check('PDF : titre du document', txt.includes('/Title (R\\351sum\\351'), true, 0);
+  check('PDF : original non modifié', crypto.createHash('sha256').update(fs.readFileSync(orig)).digest('hex'), sumBefore);
+  check('PDF : export journalisé', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'album-pdf'").get().n, 1, 0);
+
+  // --- fonds perdus : page agrandie de 3 mm, boîte de coupe au format exact ---
+  const bl = await render({ quality: 'screen', bleed: true });
+  const bt = bl.buf.toString('latin1'), e = (297 + 2 * BLEED_MM) / 25.4 * 72;
+  check('fonds perdus : boîte média agrandie', bt.includes(`/MediaBox [0 0 ${Math.round((210 + 2 * BLEED_MM) / 25.4 * 72 * 1000) / 1000} ${Math.round(e * 1000) / 1000}]`), true, 0);
+  check('fonds perdus : boîte de coupe au format', bt.includes('/TrimBox [8.504 8.504 603.78 850.394]'), true, 0);
+  check('aperçu écran : plus léger que l’impression', bl.buf.length < buf.length, true, 0);
+
+  // --- original indisponible : repli sur une copie de même empreinte, sinon sur l'aperçu en cache ---
+  const off = pid => { const fl = DB.prepare('SELECT id, path FROM files WHERE photo_id = ?').all(pid); for (const f of fl) DB.prepare('UPDATE files SET path = ? WHERE id = ?').run(path.join(TMP, 'absent', f.id + '.jpg'), f.id); return () => { for (const f of fl) DB.prepare('UPDATE files SET path = ? WHERE id = ?').run(f.path, f.id); }; };
+  const nFiles = pid => DB.prepare('SELECT COUNT(*) n FROM files WHERE photo_id = ?').get(pid).n;
+  const dup = ids.slice(0, 3).find(pid => nFiles(pid) > 1);
+  if (dup) {
+    const first = DB.prepare("SELECT id, path FROM files WHERE photo_id = ? ORDER BY CASE kind WHEN 'original' THEN 0 ELSE 1 END, indexed_at").get(dup);
+    DB.prepare('UPDATE files SET path = ? WHERE id = ?').run(path.join(TMP, 'absent', 'nulle-part.jpg'), first.id);
+    const fc = await render({ quality: 'screen' });
+    check('original absent → copie de même empreinte utilisée', fc.rep.fromCopy.length > 0 && fc.rep.fromPreview.length === 0, true, 0);
+    DB.prepare('UPDATE files SET path = ? WHERE id = ?').run(first.path, first.id);
+  } else check('original absent → copie de même empreinte utilisée (photo en double attendue)', false, true, 0);
+  const single = ids.slice(0, 3).find(pid => nFiles(pid) === 1);
+  const restore = off(single);
+  const fb = await render({ quality: 'screen' });
+  check('aucun fichier accessible → aperçu en cache utilisé', fb.rep.fromPreview.length > 0, true, 0);
+  check('aucun fichier accessible → cadres toujours remplis', fb.rep.unfilled.filter(u => u.reason !== 'cadre vide').length, 0, 0);
+  restore();
+
+  let err = null; try { await APDF.render('inconnu', { write: () => {} }); } catch (x) { err = x.message; }
+  check('album inconnu refusé', err, 'Album inconnu');
+  ALB.remove(a.id);
 }
 
 // ===================================================================
