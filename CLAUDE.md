@@ -145,4 +145,5 @@ bibliothèque).
    **première version livrée (v0.11.0)**, `lib/duplicates.mjs` : exacts,
    potentiels, similaires (dHash + couleur moyenne, arbre BK), rafales ;
    référence / variantes, groupes écartés, fichier de référence. Jamais de
-   suppression automatique.
+   suppression automatique. Variantes masquées dans la Photothèque en
+   v0.12.0 (critères `hideVariants` / `variants` / `variantsOf`).

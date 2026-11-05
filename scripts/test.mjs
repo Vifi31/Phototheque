@@ -913,6 +913,30 @@ group('Doublons et photos similaires : exacts, potentiels, similaires, rafales')
   check('fichier de référence : la copie devient l’original', LIB.search({}, { limit: 1000 }).rows.find(p => p.id === a)?.path, Acopy);
   check('fichier de référence : l’autre fichier reste indexé comme copie', DB.prepare('SELECT kind FROM files WHERE path = ?').get(A).kind, 'copy');
 
+  // variantes masquées dans la Photothèque (critères hideVariants / variants / variantsOf)
+  DUP.setReference([a, as], a);
+  const ids = f => LIB.search(f, { limit: 1000 }).rows.map(p => p.id);
+  const hid = LIB.search({ hideVariants: true }, { limit: 1000 });
+  check('masquer les variantes : la variante disparaît, la référence reste', `${hid.rows.some(p => p.id === as)}|${hid.rows.some(p => p.id === a)}`, 'false|true');
+  check('masquer les variantes : nombre de variantes masquées renvoyé', hid.hiddenVariants, 1);
+  check('masquer les variantes : les autres photos restent visibles', hid.total, LIB.search({}, { limit: 1 }).total - 1);
+  check('masquer + autre critère : variantes masquées comptées dans ce périmètre seulement', LIB.search({ hideVariants: true, format: 'png' }, { limit: 1 }).hiddenVariants, 0);
+  check('seulement les variantes', ids({ variants: true }).join(), as);
+  check('référence et ses variantes', ids({ variantsOf: a }).sort().join(), [a, as].sort().join());
+  const card = id => LIB.search({ variantsOf: a }, { limit: 10 }).rows.find(p => p.id === id);
+  check('carte : nombre de variantes de la référence', card(a).variants, 1);
+  check('carte : référence de la variante', `${card(as).variantOf === a}|${card(a).variantOf}`, 'true|null');
+  check('critères enregistrables (recherche sauvegardée)', JSON.stringify(Search.cleanFilters({ hideVariants: 'true', variants: '0', variantsOf: a })), JSON.stringify({ variantsOf: a, hideVariants: true }));
+  const plan = DB.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM photos v WHERE json_extract(v.data, '$.duplicate.reference') = ?`).all(a).map(r => r.detail).join(' ');
+  check('index des variantes utilisé (ix_photos_variant)', /ix_photos_variant/.test(plan), true, 0);
+  // référence retirée de l'index : sa variante n'est plus masquée (jamais introuvable)
+  const bData = DB.prepare('SELECT data FROM photos WHERE id = ?').get(b).data;
+  DB.prepare('UPDATE photos SET data = ? WHERE id = ?').run(JSON.stringify({ ...JSON.parse(bData), duplicate: { reference: 'photo-retiree' } }), b);
+  check('référence absente : la variante reste visible', `${ids({ hideVariants: true }).includes(b)}|${ids({ variants: true }).includes(b)}`, 'true|false');
+  DB.prepare('UPDATE photos SET data = ? WHERE id = ?').run(bData, b);
+  DUP.clearReference([a, as]);
+  check('référence annulée : plus rien de masqué', LIB.search({ hideVariants: true }, { limit: 1 }).hiddenVariants, 0);
+
   // empreintes manquantes
   DB.prepare('UPDATE photos SET perceptual_hash = NULL WHERE id = ?').run(as);
   check('empreinte manquante comptée', DUP.missingHashes() >= 1, true, 0);

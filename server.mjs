@@ -158,11 +158,11 @@ async function api(req, res, url) {
     const sp = url.searchParams;
     const f = {};
     // chaînes
-    for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity']) if (sp.get(k)) f[k] = sp.get(k);
+    for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf']) if (sp.get(k)) f[k] = sp.get(k);
     // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
     for (const k of ['rating', 'color', 'missing', 'hasGps', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
     // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère
-    for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
+    for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
     f.prefix = sp.get('prefix') !== 'false';
     // listes séparées par des virgules (ET / OU / NON)
     const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };

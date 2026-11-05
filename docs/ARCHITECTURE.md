@@ -315,3 +315,12 @@ dehors des décisions de l'utilisateur) :
   `{ reference: <id> }` ; paires « pas des doublons » dans `config`
   (clé `duplicates.ignored`) ; fichier de référence = `files.kind`
   `original` pour lui, `copy` pour les autres.
+* **Variantes dans la Photothèque (v0.12.0)** : critères de recherche
+  `hideVariants`, `variants` et `variantsOf` (`lib/search.mjs`, expression
+  `VARIANT_OF` = `json_extract(p.data, '$.duplicate.reference')`, indexée par
+  `ix_photos_variant` dans `lib/db.mjs`). Une variante n'est masquée que si sa
+  référence est encore indexée. `search()` renvoie `hiddenVariants` quand le
+  masquage est actif ; chaque carte porte `variantOf` et `variants` (nombre de
+  variantes d'une référence). Le choix masquer / afficher / seulement est une
+  préférence d'affichage de l'interface (`localStorage`), hors critères
+  enregistrés, sans effet dans une collection.

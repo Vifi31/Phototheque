@@ -4,6 +4,27 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.12.0] — 2026-11-05
+
+### Ajouté
+
+- **Variantes masquées dans la Photothèque** : les photos désignées comme
+  variantes dans l'outil Doublons sont masquées par défaut. Un sélecteur
+  propose « Masquer les variantes », « Afficher les variantes » ou
+  « Seulement les variantes » (choix mémorisé). Le nombre de variantes
+  masquées s'affiche sous les filtres : aucune photo ne disparaît sans
+  explication.
+- Badge « ⧉ n » sur une photo de référence et « variante » sur une variante ;
+  un clic affiche la référence et toutes ses variantes.
+- Critères de recherche `hideVariants`, `variants`, `variantsOf` (API
+  `/api/photos` et recherches enregistrées), index `ix_photos_variant`.
+
+### Sécurité des données
+
+- Une variante dont la référence a été retirée de l'index n'est plus
+  masquée. Dans une collection, toutes les photos qu'on y a mises restent
+  visibles. Rien n'est supprimé.
+
 ## [0.11.0] — 2026-11-05
 
 Étape 5 de la feuille de route (doublons avancés et outil dédié),

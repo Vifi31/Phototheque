@@ -8,6 +8,8 @@ const App = (() => {
     version: '', stats: {}, scan: {}, import: {},
     view: 'photos', facet: {}, q: '', sort: 'captured_desc',
     page: 0, pageSize: 60, total: 0, rows: [],
+    // variantes désignées dans l'outil Doublons : 'hide' (défaut) | 'show' | 'only' — préférence d'affichage locale
+    variants: (() => { try { return localStorage.getItem('phototheque.variants') || 'hide'; } catch { return 'hide'; } })(),
     selection: new Set(),
     supports: [], keywords: [], facets: { years: [], cameras: [], formats: [] },
   };
@@ -118,7 +120,14 @@ const App = (() => {
     // recherche avancée : critères ET / OU / NON et filtres fins (mêmes clés que lib/search.mjs)
     const advanced = advancedPanel(() => { state.page = 0; refresh(); });
 
-    mount(filterBar, yearSel, camSel, fmtSel, ratingSel, missSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
+    // variantes (outil Doublons) : préférence d'affichage, hors critères enregistrés ; sans effet dans une collection
+    // (une sélection montre ce qu'on y a mis) ni pendant « référence et variantes »
+    const varSel = h('select', { title: 'Variantes désignées dans l’outil Doublons (rien n’est supprimé)', onchange: () => {
+      state.variants = varSel.value; try { localStorage.setItem('phototheque.variants', state.variants); } catch {}
+      state.page = 0; refresh(); } },
+      ...[['hide', 'Masquer les variantes'], ['show', 'Afficher les variantes'], ['only', 'Seulement les variantes']].map(([v2, l]) => h('option', { value: v2, selected: state.variants === v2 }, l)));
+    varSel.hidden = !!coll;
+    mount(filterBar, yearSel, camSel, fmtSel, ratingSel, missSel, varSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
 
     // sélection multiple
     const selInfo = h('span.sel-count');
@@ -158,9 +167,14 @@ const App = (() => {
         if (p.missing) cell.appendChild(h('div.ph-miss', 'indisponible'));
         if (p.rating) cell.appendChild(h('div.ph-rating', '★'.repeat(p.rating)));
         if (p.edits) cell.appendChild(h('div.ph-edit', { title: `${p.edits} version(s) retouchée(s)` }, '✎'));
+        if (p.variants) cell.appendChild(h('div.ph-variants', { title: `Photo de référence : ${p.variants} variante(s) conservée(s). Cliquer pour les voir.`,
+          onclick: e => { e.stopPropagation(); showVariants(p.id); } }, `⧉ ${p.variants}`));
+        else if (p.variantOf) cell.appendChild(h('div.ph-variants.is-variant', { title: 'Variante d’une autre photo (outil Doublons). Cliquer pour voir la référence et ses variantes.',
+          onclick: e => { e.stopPropagation(); showVariants(p.variantOf); } }, 'variante'));
         grid.appendChild(cell);
       });
     }
+    function showVariants(refId) { state.facet = { variantsOf: refId }; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); }
     function toggleSel(id) { if (state.selection.has(id)) state.selection.delete(id); else state.selection.add(id); renderGrid(); refreshSelection(); }
     function openViewer(i) {
       lightboxOpen(state.rows, i, () => {}, p => [
@@ -172,9 +186,10 @@ const App = (() => {
       const params = new URLSearchParams({ limit: state.pageSize, offset: state.page * state.pageSize, sort: state.sort });
       if (state.q) params.set('q', state.q);
       for (const [k, val] of Object.entries(state.facet)) if (val) params.set(k, val);
+      if (!coll && !state.facet.variantsOf) { if (state.variants === 'hide') params.set('hideVariants', 'true'); else if (state.variants === 'only') params.set('variants', 'true'); }
       const r = await api('/photos?' + params.toString());
       state.rows = r.rows; state.total = r.total;
-      info.textContent = `${fmtNum(r.total)} photo(s)`;
+      info.textContent = `${fmtNum(r.total)} photo(s)` + (r.hiddenVariants ? ` · ${fmtNum(r.hiddenVariants)} variante(s) masquée(s)` : '');
       renderGrid(); refreshSelection(); renderPager(); refreshSaveBtn();
     }
 
@@ -274,7 +289,10 @@ const App = (() => {
     const collBar = coll ? h('div.row', h('span.dim', coll.kind === 'dynamic' ? 'Recherche enregistrée — ' + describeQuery(coll.query) : 'Sélection'),
       h('button.ghost.small', { onclick: () => { delete state.facet.collectionId; state.page = 0; go('photos'); } }, 'Quitter la collection'),
       h('button.ghost.small', { onclick: () => go('collections') }, 'Toutes les collections')) : null;
-    mount(v, title, collBar, filterBar, advanced, toolbar, info, grid, pager);
+    const varBar = state.facet.variantsOf ? h('div.row', h('span.dim', 'Photo de référence et ses variantes (outil Doublons) — rien n’est supprimé'),
+      h('button.ghost.small', { onclick: () => { delete state.facet.variantsOf; state.page = 0; go('photos'); } }, 'Revenir à la Photothèque'),
+      h('button.ghost.small', { onclick: () => go('duplicates') }, 'Ouvrir l’outil Doublons')) : null;
+    mount(v, title, collBar, varBar, filterBar, advanced, toolbar, info, grid, pager);
     await refresh();
   }
 
@@ -545,6 +563,7 @@ const App = (() => {
     rating: 'note ≥', color: 'couleur', missing: 'disponibilité', orientation: 'orientation', minWidth: 'largeur ≥', maxWidth: 'largeur ≤', minHeight: 'hauteur ≥', maxHeight: 'hauteur ≤',
     supportId: 'support', folderId: 'dossier', albumId: 'album', integrity: 'intégrité', hasGps: 'GPS',
     noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', duplicate: 'doublons',
+    hideVariants: 'sans les variantes', variants: 'seulement les variantes', variantsOf: 'référence et variantes de',
   };
   function describeQuery(q) {
     const kwName = id => state.keywords.find(k => k.id === id)?.name ?? id;

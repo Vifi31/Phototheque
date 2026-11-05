@@ -352,6 +352,9 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 .rt-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 button.on { outline: 2px solid var(--accent); }
 .photo-cell .ph-edit { position: absolute; right: 6px; bottom: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; }
+.photo-cell .ph-variants { position: absolute; right: 6px; top: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; cursor: pointer; }
+.photo-cell .ph-variants.is-variant { background: rgba(100, 116, 139, .85); font-size: 11px; }
+.photo-cell .ph-variants:hover { background: var(--accent, #2563eb); }
 .lb-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
 .album-frame .frame-edited { position: absolute; right: 4px; bottom: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; background: rgba(15, 23, 42, .6); color: #fff; border-radius: 4px; z-index: 2; pointer-events: none; }
 /* Doublons */
