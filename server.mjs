@@ -34,9 +34,9 @@ const keywords = createKeywords(db);
 const library = createLibrary(db, store, supports, keywords);
 const imports = createImports(db, store, library, keywords);
 const collections = createCollections(db, library);
-const albums = createAlbums(db, library);
-const albumPdf = createAlbumPdf(db, library, albums);
 const edits = createEdits(db, library);
+const albums = createAlbums(db, library, edits); // edits : recréer les retouches d'un projet réimporté
+const albumPdf = createAlbumPdf(db, library, albums);
 const exportsSvc = createExports(db, edits);
 const duplicates = createDuplicates(db, library);
 
@@ -272,6 +272,16 @@ async function api(req, res, url) {
   // ---- Albums (références aux photos, pages à gabarits) ----
   if (p === '/api/albums' && m === 'GET') return json(res, 200, { list: albums.list(), formats: FORMATS, layouts: LAYOUTS, formatVersion: ALBUM_FORMAT_VERSION, dpiAdvised: DPI_WARN, pdfProfiles: PDF_PROFILES, bleedMm: BLEED_MM });
   if (p === '/api/albums' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, { album: albums.create(b) }); }
+  // Réimport d'un projet exporté : analyse (sans écriture) puis import en nouvel album. Le projet n'est pas
+  // passé par sanitize() (qui tronquerait un album de plus de 200 photos) : albums.importProject le
+  // relit champ par champ avec ses propres nettoyages.
+  if ((p === '/api/albums/import/analyse' || p === '/api/albums/import') && m === 'POST') {
+    const b = await readBody(req);
+    try {
+      if (p.endsWith('/analyse')) return json(res, 200, { analysis: albums.analyseProject(b?.project) });
+      return json(res, 200, albums.importProject(b?.project, { name: typeof b?.name === 'string' ? b.name : undefined, withEdits: b?.withEdits !== false }));
+    } catch (e) { return json(res, 400, { error: e.message }); }
+  }
   if (p.startsWith('/api/albums/')) {
     if (!albums.get(id)) return json(res, 404, { error: 'Album inconnu' });
     const [sub, n, action] = p.split('/').slice(4);

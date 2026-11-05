@@ -853,8 +853,45 @@ const App = (() => {
       card(h('div.sect', 'Nouvel album'),
         h('p.dim', "Un album ne contient que des références à vos photos : aucun original n'est copié ni modifié."),
         h('div.form', field('Nom', name), fmt.el, h('div.field', h('label', ' '), h('button', { onclick: create }, 'Créer')))),
+      card(h('div.sect', 'Importer un projet'),
+        h('p.dim', "Réimporte un projet exporté (« Exporter le projet », fichier .album.json) comme nouvel album. Les photos sont retrouvées dans ce catalogue par identifiant, contenu (empreinte) ou chemin ; aucun album existant n'est remplacé."),
+        h('button.ghost', { onclick: importAlbumProject }, 'Importer un projet…')),
       card(h('div.sect', 'Mes albums'), wrap));
     await refresh();
+  }
+
+  // ---------- Réimport d'un projet d'album (lib/albums.mjs importProject) : analyse, puis confirmation ----------
+  function importAlbumProject() {
+    const input = h('input', { type: 'file', accept: '.json,application/json' });
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0]; if (!file) return;
+      let project;
+      try { project = JSON.parse(await file.text()); } catch { toast('Fichier illisible : ce n’est pas du JSON', 'bad'); return; }
+      let an;
+      try { an = (await api('/albums/import/analyse', 'POST', { project })).analysis; } catch (e) { toast(e.message, 'bad'); return; }
+      const name = h('input', { type: 'text', value: an.name });
+      const withEdits = h('input', { type: 'checkbox', checked: true });
+      const ph = an.photos, how = [ph.byId && `${ph.byId} par identifiant`, ph.bySha256 && `${ph.bySha256} par contenu`, ph.byPath && `${ph.byPath} par chemin`].filter(Boolean).join(', ');
+      const m = modal({ title: `Importer « ${an.name} »`, body: h('div.import-report',
+        field('Nom du nouvel album', name),
+        h('p', `${an.formatLabel} · ${an.printedPages} page(s) imprimée(s)`),
+        h('p', ph.total ? `${ph.found} photo(s) retrouvée(s) sur ${ph.total}` + (how ? ` (${how})` : '') : 'Aucune photo dans ce projet.'),
+        ph.missing.length ? h('div.import-missing', h('p', { style: { color: 'var(--warn)' } }, `⚠ ${ph.missing.length} photo(s) introuvable(s) dans ce catalogue : leurs cadres seront signalés dans l’album. Indexez le dossier qui les contient puis réimportez, ou remplacez-les dans l’éditeur.`),
+          h('ul.dim', ...ph.missing.slice(0, 20).map(x => h('li', x.title || x.path || x.id)), ph.missing.length > 20 ? h('li', `… et ${ph.missing.length - 20} autre(s)`) : null)) : null,
+        an.edits.total ? h('label.check', withEdits, ` Recréer les ${an.edits.total} retouche(s) du projet (${an.edits.same} déjà présente(s) ; une nouvelle version ne devient « par défaut » que si la photo n’en a aucune)`) : null,
+        h('p.dim', 'Les originaux ne sont jamais copiés ni modifiés.')), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => {
+          try {
+            const r = await api('/albums/import', 'POST', { project, name: name.value, withEdits: withEdits.checked });
+            m.close();
+            toast(`Album « ${r.name} » importé : ${r.photos.found}/${r.photos.total} photo(s)` + (r.edits.created ? `, ${r.edits.created} retouche(s) recréée(s)` : '') + (r.edits.notDefault ? ` (${r.edits.notDefault} à choisir comme version par défaut)` : ''));
+            openAlbum(r.album.id);
+          } catch (e) { toast(e.message, 'bad'); }
+        } }, 'Importer'),
+      ] });
+    });
+    input.click();
   }
   function openAlbum(id) { state.albumId = id; go('album'); }
 

@@ -133,7 +133,8 @@ bibliothèque).
    Doubles pages et vue en planches en v0.7.0 (gabarits `spread`,
    `folios`). Annuler / rétablir en v0.8.0 (piles en mémoire,
    `mutate()` dans `lib/albums.mjs` : toute nouvelle modification d'album
-   doit passer par ce wrapper pour être annulable).
+   doit passer par ce wrapper pour être annulable). Réimport d'un projet en
+   v0.14.0 (`analyseProject` / `importProject`, toujours un nouvel album).
 4. Retouches non destructives + exports — **première version livrée
    (v0.9.0)** : `lib/edits.mjs` (réglages JSON versionnés dans `edits`,
    versions, historique persistant, rendu sharp) et `lib/exports.mjs`

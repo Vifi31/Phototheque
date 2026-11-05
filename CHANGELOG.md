@@ -4,6 +4,31 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.14.0] — 2026-11-05
+
+### Ajouté
+
+- **Réimport d'un projet d'album** (page Albums → « Importer un
+  projet… ») : un fichier `.album.json` exporté devient un nouvel album.
+  Avant d'importer, un compte rendu indique le format, le nombre de pages,
+  les photos retrouvées (par identifiant, par contenu SHA-256 ou par chemin)
+  et la liste des photos introuvables.
+- Les photos introuvables gardent leur place : leurs cadres sont signalés
+  dans les contrôles de l'album, à remplacer dans l'éditeur.
+- Les retouches du projet peuvent être recréées comme nouvelles versions
+  (« … (import) ») ; une retouche identique déjà présente n'est pas
+  dupliquée.
+- L'export de projet mémorise aussi la vue en planches.
+
+### Sécurité des données
+
+- L'import crée toujours un nouvel album (nom suffixé « (importé) » si
+  besoin) : aucun album ni aucune version de retouche existants ne sont
+  modifiés, et une nouvelle version ne devient « par défaut » que si la
+  photo n'en avait aucune. Fichiers étrangers, JSON illisible et projets
+  d'un format plus récent sont refusés avec un message clair. Chaque champ
+  du projet est nettoyé comme dans l'éditeur.
+
 ## [0.13.0] — 2026-11-05
 
 ### Ajouté

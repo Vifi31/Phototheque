@@ -237,9 +237,33 @@ les images en mémoire.
 * Compte rendu renvoyé dans l'en-tête `X-Pdf-Report` (JSON en base64) et
   enregistré dans `exports` (`kind = 'album-pdf'`).
 
+### Réimport d'un projet (v0.14.0)
+
+`analyseProject(project)` (sans écriture) puis `importProject(project,
+{ name, withEdits })` dans `lib/albums.mjs` ; routes `POST
+/api/albums/import/analyse` et `POST /api/albums/import` (corps
+`{ project, name?, withEdits? }`, non passé par `sanitize()` qui tronquerait
+les gros albums : chaque champ est relu et nettoyé comme dans l'éditeur).
+
+* Refus clairs : autre format que `phototheque-album`, version de format
+  absente ou plus récente que `ALBUM_FORMAT_VERSION`, aucune page, plus de
+  500 pages ou de 5000 photos.
+* Toujours un **nouvel** album (`data.imported = { at, from, originalId,
+  missing }`) ; nom déjà pris → « (importé) », « (importé 2) »…
+* Photos retrouvées dans l'ordre : même `id` (et même `sha256` s'il est
+  connu des deux côtés), même `sha256`, même chemin de fichier. Une photo
+  introuvable garde sa référence dans le cadre et apparaît dans les
+  contrôles (« n'est plus au catalogue ») ; l'analyse en donne la liste.
+* Retouches (`photos.<id>.edit.params`) : réglages identiques à une version
+  existante → rien ; sinon nouvelle version « <nom> (import) », par défaut
+  seulement si la photo n'en avait aucune. Une version existante n'est
+  jamais modifiée.
+* L'export porte désormais `album.spreads` (vue en planches), champ
+  facultatif : le format reste en version 1.
+
 Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures,
 gestion des couleurs (CMJN, profils ICC), traits
-de coupe, modèles graphiques personnalisés, réimport d'un projet.
+de coupe, modèles graphiques personnalisés.
 
 ## 10. Retouche non destructive (v0.9.0)
 

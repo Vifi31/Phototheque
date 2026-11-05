@@ -18,7 +18,7 @@ const { createKeywords } = await import('../lib/keywords.mjs');
 const { createLibrary, isImage, IMAGE_EXTS } = await import('../lib/library.mjs');
 const { createImports, uniqueName } = await import('../lib/imports.mjs');
 const { createCollections } = await import('../lib/collections.mjs');
-const { createAlbums, LAYOUTS, SAFETY_MARGIN, ALBUM_FORMAT_VERSION } = await import('../lib/albums.mjs');
+const { createAlbums, LAYOUTS, SAFETY_MARGIN, ALBUM_FORMAT_VERSION, ZOOM_MAX: ALB_ZOOM_MAX } = await import('../lib/albums.mjs');
 const { createAlbumPdf, BLEED_MM } = await import('../lib/albumpdf.mjs');
 const Pdf = await import('../lib/pdf.mjs');
 const { createBackupService } = await import('../lib/backup.mjs');
@@ -818,6 +818,49 @@ group('Retouche non destructive et export de photos');
   const ad = alb.issues.find(i => i.page === 2 && i.dpi)?.dpi;
   check('album : résolution calculée sur la version retouchée', ad, Math.round(25.4 * Math.min(200 / (LAYOUTS.une.frames[0].w * 200), 400 / (LAYOUTS.une.frames[0].h * 200))), 0);
   check('projet exporté : réglages de la version retouchée', ALB2.exportProject(alb.id).photos[hid]?.edit?.params?.mono, 'bw');
+
+  // --- réimport d'un projet exporté (toujours un nouvel album, photos retrouvées, retouches recréées) ---
+  {
+    const ALB3 = createAlbums(DB, LIB, ED);
+    const proj = JSON.parse(JSON.stringify(ALB3.exportProject(alb.id)));
+    const before = JSON.stringify(ALB3.get(alb.id).pages);
+    const an = ALB3.analyseProject(proj);
+    check('import : analyse sans écriture', `${an.photos.found}/${an.photos.total}|${an.photos.byId}|${an.edits.same}|${DB.prepare('SELECT COUNT(*) n FROM albums').get().n}`, `1/1|1|1|${DB.prepare('SELECT COUNT(*) n FROM albums').get().n}`);
+    const imp = ALB3.importProject(proj);
+    check('import : nouvel album, nom distinct', `${imp.album.id !== alb.id}|${imp.name}`, 'true|Retouches (importé)');
+    check('import : pages et photos reprises', JSON.stringify(imp.album.pages.map(p => [p.layout, p.slots, p.title])), JSON.stringify(ALB3.get(alb.id).pages.map(p => [p.layout, p.slots, p.title])));
+    check('import : album d’origine intact', JSON.stringify(ALB3.get(alb.id).pages), before);
+    check('import : second import → suffixe numéroté', ALB3.importProject(proj).name, 'Retouches (importé 2)');
+    check('import : retouche identique non dupliquée', `${imp.edits.same}|${imp.edits.created}`, '1|0');
+    // photo identifiée autrement : par contenu, puis par chemin, sinon introuvable (référence gardée et signalée)
+    const swap = (pr, newId, patch = {}) => { const q = JSON.parse(JSON.stringify(pr)); q.photos = { [newId]: { ...q.photos[hid], ...patch } }; q.pages.forEach(p => { p.slots = p.slots.map(s => (s === hid ? newId : s)); }); return q; };
+    check('import : photo retrouvée par contenu (SHA-256)', ALB3.analyseProject(swap(proj, 'autre-id')).photos.bySha256, 1);
+    check('import : photo retrouvée par chemin', ALB3.analyseProject(swap(proj, 'autre-id', { sha256: 'f'.repeat(64) })).photos.byPath, 1);
+    const lost = ALB3.importProject(swap(proj, 'id-inconnu', { sha256: 'f'.repeat(64), path: 'Z:/nulle/part.jpg', title: 'Perdue' }));
+    check('import : photo introuvable listée', `${lost.photos.missing.length}|${lost.photos.missing[0]?.title}`, '1|Perdue');
+    check('import : cadre de la photo introuvable signalé', lost.album.issues.some(i => i.level === 'bad' && /n'est plus au catalogue/.test(i.message)), true, 0);
+    // retouche différente : nouvelle version, jamais « par défaut » si la photo en a déjà une
+    const nVer = DB.prepare('SELECT COUNT(*) n FROM edits WHERE photo_id = ?').get(hid).n;
+    const sep = JSON.parse(JSON.stringify(proj)); sep.photos[hid].edit = { name: 'Sépia', params: { rotate: 90, mono: 'sepia' } };
+    const ie = ALB3.importProject(sep);
+    const created = DB.prepare("SELECT name, is_default FROM edits WHERE photo_id = ? AND name LIKE '%(import)'").get(hid);
+    check('import : retouche recréée comme nouvelle version', `${ie.edits.created}|${DB.prepare('SELECT COUNT(*) n FROM edits WHERE photo_id = ?').get(hid).n - nVer}|${created?.name}|${created?.is_default}`, '1|1|Sépia (import)|0');
+    check('import : retouches ignorées sur demande', ALB3.importProject(sep, { withEdits: false }).edits.created, 0, 0);
+    // contenu nettoyé comme dans l'éditeur
+    const odd = JSON.parse(JSON.stringify(proj));
+    odd.pages[1].crops = [{ x: 5, y: -1, zoom: 99 }]; odd.pages.push({ layout: 'inconnu', background: 'rouge', slots: [42, hid], title: 'x'.repeat(900) });
+    const io = ALB3.importProject(odd), lastP = io.album.pages.at(-1);
+    check('import : recadrage borné', JSON.stringify(io.album.pages[1].crops[0]), JSON.stringify({ x: 1, y: 0, zoom: ALB_ZOOM_MAX }));
+    check('import : gabarit, fond, cadres et texte nettoyés', `${lastP.layout}|${lastP.background}|${JSON.stringify(lastP.slots)}|${lastP.title.length}`, `une|#ffffff|[null,"${hid}"]|300`);
+    let ef = null; try { ALB3.analyseProject({ format: 'autre' }); } catch (x) { ef = x.message; }
+    check('import : fichier étranger refusé', /pas un projet d’album/.test(ef ?? ''), true, 0);
+    let ev = null; try { ALB3.analyseProject({ ...proj, formatVersion: 99 }); } catch (x) { ev = x.message; }
+    check('import : format plus récent refusé', /plus récent/.test(ev ?? ''), true, 0);
+    let ej = null; try { ALB3.analyseProject('{ pas du json'); } catch (x) { ej = x.message; }
+    check('import : JSON illisible refusé', /illisible/.test(ej ?? ''), true, 0);
+    DB.prepare("DELETE FROM edits WHERE photo_id = ? AND name LIKE '%(import)'").run(hid);
+    for (const r of DB.prepare("SELECT id FROM albums WHERE name LIKE 'Retouches (%'").all()) ALB3.remove(r.id);
+  }
   const chunks2 = []; const prep = await APDF2.render(alb.id, { quality: 'screen', write: b3 => chunks2.push(Buffer.from(b3)) });
   const pdfBuf = Buffer.concat(chunks2), pt = pdfBuf.toString('latin1');
   check('PDF : photo imprimée dans sa version retouchée', `${prep.edited.length}|${prep.edited[0]?.version}`, '1|Tirage');
