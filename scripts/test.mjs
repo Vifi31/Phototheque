@@ -247,7 +247,21 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   check('mots-clés : ET insensible aux accents', n({ keywords: ['ete indien', 'FAMILLE'] }), 1, 0);
   check('mots-clés : OU', n({ anyKeywords: ['été  indien', 'introuvable'] }), 1, 0);
   check('mots-clés : NON', n({ excludeKeywords: ['Ete Indien'] }), LIB.stats().photos - 1, 0);
-  DB.prepare('DELETE FROM photo_keywords WHERE photo_id = ?').run(tagged);
+  // le texte cherché (keywords_text → FTS5) suit renommage, fusion et suppression des mots-clés
+  LIB.syncKeywordsText(tagged);
+  const ftsIds = q => LIB.search({ q }, { limit: 20 }).rows.map(p => p.id);
+  check('texte : mot-clé trouvé par la recherche libre', ftsIds('indien').includes(tagged), true, 0);
+  KW.update(KW.byName('Été indien').id, { name: 'Arrière-saison' });
+  check('renommage : ancien nom plus trouvé', ftsIds('indien').includes(tagged), false, 0);
+  check('renommage : nouveau nom trouvé', ftsIds('arriere').includes(tagged), true, 0);
+  const proches = KW.ensure('Proches'); KW.attach(tagged, proches.id); LIB.syncKeywordsText(tagged);
+  KW.merge([KW.byName('Famille').id], proches.id);
+  check('fusion : nom source plus trouvé', ftsIds('famille').includes(tagged), false, 0);
+  check('fusion : cible toujours trouvée', ftsIds('proches').includes(tagged), true, 0);
+  KW.remove(KW.byName('Arrière-saison').id);
+  check('suppression : nom plus trouvé', ftsIds('arriere').includes(tagged), false, 0);
+  check('suppression : les autres mots-clés restent', LIB.detail(tagged).keywords_text, 'Proches');
+  DB.prepare('DELETE FROM photo_keywords WHERE photo_id = ?').run(tagged); LIB.syncKeywordsText(tagged);
 
   // --- repli LIKE : même résultat si FTS5 n'existait pas ---
   const like = Search.buildQuery({ q: 'chalet' }, { fts: false });
@@ -266,6 +280,9 @@ group('Doublons : même empreinte → même fiche photo');
   await LIB.indexFile(copie, {});
   check('un doublon ne crée pas de nouvelle photo', LIB.stats().photos, before, 0);
   check('mais un second fichier est indexé', LIB.stats().files, 4, 0);
+  const dups = LIB.search({ duplicate: true }, { limit: 10 });
+  check('critère doublons : la photo à deux fichiers est trouvée', dups.total, 1, 0);
+  check('critère doublons : c\'est bien la photo copiée', LIB.detail(dups.rows[0].id).files.length, 2, 0);
 }
 
 // ===================================================================

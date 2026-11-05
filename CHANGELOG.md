@@ -4,6 +4,26 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.3.1] — 2026-11-05
+
+### Corrigé
+
+- **Recherche après modification d'un mot-clé** (`lib/keywords.mjs`) :
+  renommer, fusionner ou supprimer un mot-clé laissait l'ancien nom dans le
+  texte cherché des photos concernées (`photos.keywords_text`, index FTS5).
+  Ce texte est désormais réécrit pour ces photos ; la fonction de
+  réécriture est partagée avec `lib/library.mjs`.
+- **Critère « doublons »** (`lib/search.mjs`) : il ne cherchait que plusieurs
+  fiches de même empreinte, alors que l'indexation rattache une copie à la
+  fiche existante ; il ne trouvait donc presque rien. Il retient maintenant
+  aussi les photos présentes en plusieurs fichiers.
+
+### Ajouté
+
+- **Recherche avancée** : choix « Fichiers en double » (seulement les
+  doublons).
+- **Tests** : 154 vérifications (9 nouvelles).
+
 ## [0.3.0] — 2026-11-05
 
 ### Ajouté

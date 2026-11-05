@@ -250,7 +250,7 @@ const App = (() => {
   // Chaque contrôle écrit une clé de state.facet ; refresh() la transmet telle quelle à /api/photos,
   // et « Enregistrer la recherche… » l'emporte dans les critères de la collection.
   const ADV_KEYS = ['anyText', 'excludeText', 'keywords', 'anyKeywords', 'excludeKeywords', 'hasKeyword', 'noKeyword', 'hasCaption', 'noCaption',
-    'orientation', 'hasGps', 'from', 'to', 'minWidth', 'minHeight', 'lens', 'author'];
+    'orientation', 'hasGps', 'from', 'to', 'minWidth', 'minHeight', 'lens', 'author', 'duplicate'];
   function advancedPanel(onApply) {
     const f = state.facet;
     const text = (key, placeholder) => h('input', { type: 'text', value: f[key] ?? '', placeholder, dataset: { key } });
@@ -270,6 +270,7 @@ const App = (() => {
     const capSel = choice([['', 'Indifférent'], ['hasCaption', 'Avec légende'], ['noCaption', 'Sans légende']], f.hasCaption ? 'hasCaption' : f.noCaption ? 'noCaption' : '');
     const oriSel = choice([['', 'Toutes'], ['landscape', 'Paysage'], ['portrait', 'Portrait'], ['square', 'Carré']], f.orientation ?? '');
     const gpsSel = choice([['', 'Indifférent'], ['1', 'Avec position GPS'], ['0', 'Sans position GPS']], f.hasGps ?? '');
+    const dupSel = choice([['', 'Indifférent'], ['true', 'Seulement les doublons']], f.duplicate ? 'true' : '');
 
     const active = () => ADV_KEYS.filter(k => f[k] != null && f[k] !== '').length;
     const count = h('span.badge');
@@ -287,11 +288,12 @@ const App = (() => {
       if (capSel.value) f[capSel.value] = 'true';
       if (oriSel.value) f.orientation = oriSel.value;
       if (gpsSel.value) f.hasGps = gpsSel.value;
+      if (dupSel.value) f.duplicate = 'true';
       showCount(); onApply();
     }
     function reset() {
       for (const el of inputs) el.value = '';
-      for (const s of [kwSel, capSel, oriSel, gpsSel]) s.value = '';
+      for (const s of [kwSel, capSel, oriSel, gpsSel, dupSel]) s.value = '';
       apply();
     }
     for (const el of inputs) el.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
@@ -309,7 +311,7 @@ const App = (() => {
         field('Du', byKey.from), field('Au', byKey.to), field('Objectif', byKey.lens), field('Auteur', byKey.author)),
       group('Image',
         field('Orientation', oriSel), field('Largeur minimale', byKey.minWidth), field('Hauteur minimale', byKey.minHeight),
-        field('Légende', capSel), field('GPS', gpsSel)),
+        field('Légende', capSel), field('GPS', gpsSel), field('Fichiers en double', dupSel, 'même contenu à plusieurs endroits')),
       h('div.row', h('div.spacer'), h('button.ghost.small', { onclick: reset }, 'Effacer ces critères'), h('button.small', { onclick: apply }, 'Rechercher')),
       h('p.dim.adv-hint', 'Le texte de la barre du haut exige tous ses mots ; il se combine avec ces critères. Les listes se séparent par des virgules.'));
   }
