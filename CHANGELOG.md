@@ -4,6 +4,29 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.2.0] — 2026-11-05
+
+### Ajouté
+
+- **Collections** (`lib/collections.mjs`, étape 2 de la feuille de route) :
+  - **sélections** : listes de photos choisies à la main, dans l'ordre
+    d'ajout ; ajouter une photo déjà présente n'a aucun effet ;
+  - **recherches enregistrées** : critères sauvegardés dont le contenu est
+    recalculé à chaque consultation (les photos indexées plus tard y
+    apparaissent si elles correspondent). Seuls les critères connus du
+    moteur sont enregistrés (`cleanFilters` dans `lib/search.mjs`).
+  - Supprimer une collection ou en retirer une photo ne touche jamais aux
+    photos ni aux originaux ; une photo retirée de l'index disparaît des
+    sélections.
+- **API** : `GET/POST /api/collections`, `GET/PUT/DELETE /api/collections/<id>`,
+  `POST /api/collections/<id>/photos` (ajout) et `…/photos/remove` (retrait).
+  `GET /api/photos?collectionId=<id>` fonctionne pour les deux types et se
+  combine avec les autres filtres.
+- **Interface** : page Collections (création, consultation, renommage,
+  suppression) ; dans la Photothèque, « Ajouter à une collection… » sur la
+  sélection, « Retirer de la collection » et « Enregistrer la recherche… ».
+- **Tests** : 138 vérifications (110 en 0.1.1), dont 28 pour les collections.
+
 ## [0.1.1] — 2026-10-31
 
 ### Ajouté

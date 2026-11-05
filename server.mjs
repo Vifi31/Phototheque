@@ -16,6 +16,7 @@ import { createSupports, SUPPORT_KINDS, SUPPORT_ROLES } from './lib/supports.mjs
 import { createKeywords } from './lib/keywords.mjs';
 import { createLibrary } from './lib/library.mjs';
 import { createImports } from './lib/imports.mjs';
+import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -26,6 +27,7 @@ const supports = createSupports(db);
 const keywords = createKeywords(db);
 const library = createLibrary(db, store, supports, keywords);
 const imports = createImports(db, store, library, keywords);
+const collections = createCollections(db, library);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -156,7 +158,8 @@ async function api(req, res, url) {
     if (list('excludeKeywords')) f.excludeKeywords = list('excludeKeywords');
     if (list('anyText')) f.anyText = list('anyText');
     if (list('excludeText')) f.excludeText = list('excludeText');
-    const r = library.search(f, { limit: sp.get('limit'), offset: sp.get('offset'), sort: sp.get('sort') });
+    if (f.collectionId && !collections.get(f.collectionId)) return json(res, 404, { error: 'Collection inconnue' });
+    const r = library.search(collections.resolveFilters(f), { limit: sp.get('limit'), offset: sp.get('offset'), sort: sp.get('sort') });
     return json(res, 200, r);
   }
   if (p === '/api/photos' && m === 'PUT') { const b = await readBody(req); const d = library.update(b.id, sanitize(b) ?? {}); if (b.keywords) { db.prepare('DELETE FROM photo_keywords WHERE photo_id=?').run(b.id); keywords.attachNames(b.id, b.keywords); library.syncKeywordsText(b.id); } return json(res, 200, { photo: d }); }
@@ -180,6 +183,19 @@ async function api(req, res, url) {
   if (p.startsWith('/api/keywords/')) {
     if (m === 'PUT') { const b = await readBody(req); return json(res, 200, { keyword: keywords.update(id, b) }); }
     if (m === 'DELETE') { keywords.remove(id); return json(res, 200, { removed: id }); }
+  }
+
+  // ---- Collections (sélections statiques et recherches enregistrées) ----
+  if (p === '/api/collections' && m === 'GET') return json(res, 200, { list: collections.list(), kinds: COLLECTION_KINDS });
+  if (p === '/api/collections' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, { collection: collections.create(b) }); }
+  if (p.startsWith('/api/collections/')) {
+    const sub = p.split('/').slice(4).join('/');
+    if (!collections.get(id)) return json(res, 404, { error: 'Collection inconnue' });
+    if (sub === 'photos' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, collections.addPhotos(id, b.ids)); }
+    if (sub === 'photos/remove' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, collections.removePhotos(id, b.ids)); }
+    if (!sub && m === 'GET') return json(res, 200, { collection: collections.get(id) });
+    if (!sub && m === 'PUT') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, { collection: collections.update(id, b) }); }
+    if (!sub && m === 'DELETE') return json(res, 200, collections.remove(id));
   }
 
   // ---- Importation physique (copie) ----

@@ -121,7 +121,8 @@ bibliothèque).
 
 1. ✅ Socle : base, indexation sans copie, recherche, mots-clés, supports,
    import, sauvegardes, administration, interface, tests — **livré (v0.1.0)**.
-2. Collections (sélections statiques + recherches sauvegardées).
+2. ✅ Collections (sélections statiques + recherches sauvegardées) —
+   **livré (v0.2.0)**, `lib/collections.mjs`.
 3. Albums et mises en page (gabarits portrait/paysage).
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

@@ -88,6 +88,9 @@ const App = (() => {
   async function viewPhotos(v) {
     clear(v);
     const facets = await api('/facets'); state.facets = facets;
+    // consultation d'une collection : la grille est filtrée par collectionId (voir viewCollections)
+    const coll = state.facet.collectionId ? (await api('/collections/' + encodeURIComponent(state.facet.collectionId)).catch(() => ({}))).collection : null;
+    if (state.facet.collectionId && !coll) delete state.facet.collectionId;
     const toolbar = h('div.grid-toolbar');
     const filterBar = h('div.row');
     const grid = h('div.grid-photos');
@@ -122,12 +125,18 @@ const App = (() => {
         batchBar.append(
           h('button.small', { onclick: batchRate }, 'Noter…'),
           h('button.small.ghost', { onclick: batchKeyword }, 'Mot-clé…'),
+          h('button.small.ghost', { onclick: batchCollection }, 'Ajouter à une collection…'),
+          coll?.kind === 'static' ? h('button.small.ghost', { onclick: batchUncollect }, 'Retirer de la collection') : null,
           h('button.small.danger', { onclick: batchRemoveIndex }, "Retirer de l'index"),
           h('button.small.ghost', { onclick: () => { state.selection.clear(); renderGrid(); } }, 'Tout désélectionner'),
         );
       }
     }
-    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, h('div.spacer'), selInfo, batchBar);
+    // critères courants (texte + filtres), tels qu'enregistrés dans une recherche sauvegardée
+    const currentCriteria = () => { const c = { ...state.facet }; delete c.collectionId; if (state.q) c.q = state.q; return Object.fromEntries(Object.entries(c).filter(([, val]) => val !== '' && val != null)); };
+    const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
+    const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !Object.keys(currentCriteria()).length; };
+    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, h('div.spacer'), selInfo, batchBar);
 
     function renderGrid() {
       clear(grid);
@@ -156,7 +165,7 @@ const App = (() => {
       const r = await api('/photos?' + params.toString());
       state.rows = r.rows; state.total = r.total;
       info.textContent = `${fmtNum(r.total)} photo(s)`;
-      renderGrid(); refreshSelection(); renderPager();
+      renderGrid(); refreshSelection(); renderPager(); refreshSaveBtn();
     }
 
     const pager = h('div.row');
@@ -183,6 +192,42 @@ const App = (() => {
         h('button', { onclick: async () => { const kw = input.value.trim(); if (!kw) return; for (const id of state.selection) { const d = await api('/photos/' + id); const names = [...(d.photo.keywords || []).map(k => k.name), kw]; await api('/photos', 'PUT', { id, keywords: names }); } document.getElementById('modalRoot').replaceChildren(); toast('Mot-clé ajouté'); state.selection.clear(); refresh(); } }, 'Appliquer'),
       ] });
     }
+    async function batchCollection() {
+      const { list } = await api('/collections');
+      const statics = list.filter(c => c.kind === 'static');
+      const sel = h('select', {}, ...statics.map(c => h('option', { value: c.id }, `${c.name} (${c.photo_count})`)), h('option', { value: '' }, '➕ Nouvelle sélection…'));
+      const name = h('input', { type: 'text', placeholder: 'Nom de la nouvelle sélection' });
+      const nameField = field('Nom', name);
+      const sync = () => { nameField.hidden = !!sel.value; };
+      sel.addEventListener('change', sync); sync();
+      const m = modal({ title: `Ajouter ${state.selection.size} photo(s) à une collection`, body: h('div.form', field('Collection', sel), nameField), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => {
+          try {
+            const ids = [...state.selection];
+            if (sel.value) { const r = await api(`/collections/${encodeURIComponent(sel.value)}/photos`, 'POST', { ids }); toast(`${r.added} photo(s) ajoutée(s) à « ${r.collection.name} »`); }
+            else { const r = await api('/collections', 'POST', { name: name.value, kind: 'static', photoIds: ids }); toast(`Sélection « ${r.collection.name} » créée (${r.collection.photo_count} photo(s))`); }
+            m.close(); state.selection.clear(); renderGrid(); refreshSelection();
+          } catch (e) { toast(e.message, 'bad'); }
+        } }, 'Ajouter'),
+      ] });
+    }
+    async function batchUncollect() {
+      const r = await api(`/collections/${encodeURIComponent(coll.id)}/photos/remove`, 'POST', { ids: [...state.selection] });
+      toast(`${r.removed} photo(s) retirée(s) de « ${coll.name} ». Elles restent dans la photothèque.`); state.selection.clear(); refresh();
+    }
+    function saveSearch() {
+      const query = currentCriteria();
+      const name = h('input', { type: 'text', placeholder: 'Ex. : Vacances bien notées' });
+      const m = modal({ title: 'Enregistrer la recherche', body: h('div.form', field('Nom', name), h('p.dim', 'Critères : ' + describeQuery(query)), h('p.dim', 'Le contenu se met à jour seul : les photos indexées plus tard y apparaîtront si elles correspondent.')), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => {
+          try { const r = await api('/collections', 'POST', { name: name.value, kind: 'dynamic', query }); m.close(); toast(`Recherche « ${r.collection.name} » enregistrée (${r.collection.photo_count} photo(s))`); }
+          catch (e) { toast(e.message, 'bad'); }
+        } }, 'Enregistrer'),
+      ] });
+      name.focus();
+    }
     async function batchRemoveIndex() {
       const ok2 = await confirmDialog("Retirer de l'index", `${state.selection.size} photo(s) seront retirée(s) de l'index. Les fichiers originaux ne seront JAMAIS supprimés. Continuer ?`);
       if (!ok2) return;
@@ -190,7 +235,11 @@ const App = (() => {
       toast(`${r.removed} photo(s) retirée(s). Originaux intacts.`); state.selection.clear(); refresh();
     }
 
-    mount(v, h('h2.page-title', 'Photothèque'), filterBar, toolbar, info, grid, pager);
+    const title = coll ? h('h2.page-title', `Collection « ${coll.name} »`) : h('h2.page-title', 'Photothèque');
+    const collBar = coll ? h('div.row', h('span.dim', coll.kind === 'dynamic' ? 'Recherche enregistrée — ' + describeQuery(coll.query) : 'Sélection'),
+      h('button.ghost.small', { onclick: () => { delete state.facet.collectionId; state.page = 0; go('photos'); } }, 'Quitter la collection'),
+      h('button.ghost.small', { onclick: () => go('collections') }, 'Toutes les collections')) : null;
+    mount(v, title, collBar, filterBar, toolbar, info, grid, pager);
     await refresh();
   }
 
@@ -349,10 +398,59 @@ const App = (() => {
   // ---------- vues simples (Collections, Albums, Doublons) ----------
   async function viewCollections(v) {
     clear(v);
+    const wrap = h('div');
+    async function refresh() {
+      const { list, kinds } = await api('/collections');
+      if (!state.keywords.length) state.keywords = (await api('/keywords')).list; // noms des mots-clés dans les critères
+      clear(wrap);
+      if (!list.length) { wrap.appendChild(h('p.dim', 'Aucune collection. Créez une sélection ci-dessous, ou depuis la Photothèque : sélectionnez des photos puis « Ajouter à une collection… », ou cherchez puis « Enregistrer la recherche… ».')); return; }
+      wrap.appendChild(table({ columns: [
+        { label: 'Collection', format: r => h('div', h('b', r.name), r.kind === 'dynamic' ? h('div', h('small.dim', describeQuery(r.query))) : null) },
+        { label: 'Type', format: r => kinds[r.kind] ?? r.kind },
+        { label: 'Photos', key: 'photo_count', align: 'right' },
+        { label: 'Modifiée', format: r => fmtDate(r.updated_at) },
+        { label: '', align: 'right', format: r => h('div.row-actions',
+          h('button.ghost.small', { onclick: () => openCollection(r) }, 'Voir'),
+          h('button.ghost.small', { onclick: () => renameColl(r) }, 'Renommer'),
+          h('button.danger.small', { onclick: async () => { if (await confirmDialog('Supprimer la collection', `Supprimer « ${r.name} » ? Les photos restent dans la photothèque ; seule la collection disparaît.`)) { await api('/collections/' + encodeURIComponent(r.id), 'DELETE'); toast('Collection supprimée (photos conservées)'); refresh(); } } }, 'Supprimer')) },
+      ], rows: list }));
+    }
+    function renameColl(r) {
+      const input = h('input', { type: 'text', value: r.name });
+      const m = modal({ title: 'Renommer la collection', body: field('Nom', input), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => { try { await api('/collections/' + encodeURIComponent(r.id), 'PUT', { name: input.value }); m.close(); refresh(); } catch (e) { toast(e.message, 'bad'); } } }, 'Enregistrer'),
+      ] });
+    }
+    const newName = h('input', { type: 'text', placeholder: 'Nom de la sélection' });
+    const create = async () => { try { await api('/collections', 'POST', { name: newName.value, kind: 'static' }); newName.value = ''; refresh(); } catch (e) { toast(e.message, 'bad'); } };
     mount(v, h('h2.page-title', 'Collections'),
-      card(h('div.sect', 'Sélections et requêtes enregistrées'),
-        h('p.dim', 'Les collections (sélections statiques et recherches sauvegardées) seront disponibles à l\'étape suivante. Le moteur de recherche et les mots-clés sont déjà fonctionnels : utilisez la page Photothèque pour composer vos sélections.'),
-        h('div.warnbox', 'Fonctionnalité planifiée (étape 3) — non implémentée dans ce socle.')));
+      card(h('div.sect', 'Nouvelle sélection'),
+        h('p.dim', 'Une sélection contient les photos que vous y ajoutez (depuis la Photothèque). Une recherche enregistrée se crée depuis la Photothèque et se met à jour seule.'),
+        h('div.form', field('Nom', newName), h('div.field', h('label', ' '), h('button', { onclick: create }, 'Créer')))),
+      card(h('div.sect', 'Sélections et recherches enregistrées'), wrap));
+    await refresh();
+  }
+  function openCollection(c) { state.q = ''; document.getElementById('search').value = ''; state.facet = { collectionId: c.id }; state.page = 0; go('photos'); }
+
+  // Résumé lisible des critères d'une recherche enregistrée (mêmes clés que lib/search.mjs).
+  const CRITERIA = {
+    q: 'texte', anyText: 'un des textes', excludeText: 'sans le texte', keywords: 'mots-clés', anyKeywords: 'un des mots-clés', excludeKeywords: 'sans les mots-clés',
+    keywordId: 'mot-clé', year: 'année', from: 'depuis', to: "jusqu'au", camera: 'appareil', lens: 'objectif', author: 'auteur', format: 'format',
+    rating: 'note ≥', color: 'couleur', missing: 'disponibilité', orientation: 'orientation', minWidth: 'largeur ≥', maxWidth: 'largeur ≤', minHeight: 'hauteur ≥', maxHeight: 'hauteur ≤',
+    supportId: 'support', folderId: 'dossier', albumId: 'album', integrity: 'intégrité', hasGps: 'GPS',
+    noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', duplicate: 'doublons',
+  };
+  function describeQuery(q) {
+    const kwName = id => state.keywords.find(k => k.id === id)?.name ?? id;
+    const parts = Object.entries(q ?? {}).filter(([k]) => CRITERIA[k]).map(([k, val]) => {
+      if (val === true) return CRITERIA[k];
+      if (k === 'missing') return +val ? 'indisponibles' : 'présentes';
+      if (k === 'hasGps') return val ? 'avec GPS' : 'sans GPS';
+      if (k === 'keywordId') return `${CRITERIA[k]} « ${kwName(val)} »`;
+      return `${CRITERIA[k]} « ${[].concat(val).join(', ')} »`;
+    });
+    return parts.length ? parts.join(' · ') : 'aucun critère';
   }
   async function viewAlbums(v) {
     clear(v);

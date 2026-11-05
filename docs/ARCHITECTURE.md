@@ -50,6 +50,8 @@ lib/
   imports.mjs      Importation physique (copie) + détection de doublons
   supports.mjs     Inventaire des supports, détection/reconnexion
   keywords.mjs     Gestionnaire de mots-clés (hiérarchie, fusion, suggestions)
+  collections.mjs  Sélections statiques et recherches enregistrées (dynamiques)
+  search.mjs       Moteur de recherche (FTS5, critères avancés, critères enregistrés)
   duplicates.mjs   Doublons exacts (empreintes) et similaires (empreintes visuelles)
   backup.mjs       Sauvegardes / vérification / restauration
   zip.mjs          Mini ZIP sans dépendance

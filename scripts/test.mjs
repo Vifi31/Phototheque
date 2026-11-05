@@ -16,6 +16,7 @@ const { createSupports, fingerprint } = await import('../lib/supports.mjs');
 const { createKeywords } = await import('../lib/keywords.mjs');
 const { createLibrary, isImage, IMAGE_EXTS } = await import('../lib/library.mjs');
 const { createImports, uniqueName } = await import('../lib/imports.mjs');
+const { createCollections } = await import('../lib/collections.mjs');
 const { createBackupService } = await import('../lib/backup.mjs');
 const { openDb, dbStatus, integrity, tableRows, isTable, ftsStatus } = await import('../lib/db.mjs');
 const Search = await import('../lib/search.mjs');
@@ -283,6 +284,64 @@ group('Import (copie) : doublons et collisions gérés, source intacte');
   fs.mkdirSync(path.dirname(autre), { recursive: true });
   await makeImage(autre, { color: { r: 1, g: 2, b: 3 } });
   check('nom unique généré', uniqueName(dest, 'DSC_0001.jpg') !== 'DSC_0001.jpg' || !fs.existsSync(path.join(dest, 'DSC_0001.jpg')), true, 0);
+}
+
+// ===================================================================
+group('Collections : sélections et recherches enregistrées');
+// ===================================================================
+{
+  const COL = createCollections(DB, LIB);
+  const all = LIB.search({}, { limit: 50 }).rows.map(p => p.id);
+  const nikon = LIB.search({ camera: 'Nikon' }).rows[0].id;
+
+  // --- sélection statique ---
+  const sel = COL.create({ name: '  Mes   favorites ', photoIds: [all[0], all[1]] });
+  check('sélection créée', sel.kind, 'static');
+  check('nom nettoyé (espaces)', sel.name, 'Mes favorites');
+  check('2 photos à la création', sel.photo_count, 2, 0);
+  check('ajout idempotent', COL.addPhotos(sel.id, [all[0], all[2]]).added, 1, 0);
+  check('photo inconnue ignorée', COL.addPhotos(sel.id, ['photo-inexistante']).added, 0, 0);
+  check('compteur à jour', COL.get(sel.id).photo_count, 3, 0);
+  check('ordre d\'ajout conservé (positions)',
+    JSON.stringify(DB.prepare('SELECT photo_id FROM collection_photos WHERE collection_id=? ORDER BY position').all(sel.id).map(r => r.photo_id)),
+    JSON.stringify([all[0], all[1], all[2]]));
+  check('recherche filtrée par collection', LIB.search(COL.resolveFilters({ collectionId: sel.id })).total, 3, 0);
+  check('filtre combiné (collection + appareil)', LIB.search(COL.resolveFilters({ collectionId: sel.id, camera: 'Nikon' })).total,
+    [all[0], all[1], all[2]].includes(nikon) ? 1 : 0, 0);
+  check('retrait de la sélection', COL.removePhotos(sel.id, [all[0]]).removed, 1, 0);
+  check('photo retirée toujours au catalogue', !!LIB.detail(all[0]), true, 0);
+
+  // --- recherche enregistrée (dynamique) ---
+  const dyn = COL.create({ name: 'Nikon', kind: 'dynamic', query: { camera: 'Nikon', inconnu: 'x', collectionId: sel.id, hasGps: '' } });
+  check('recherche enregistrée créée', dyn.kind, 'dynamic');
+  check('critères nettoyés (clés inconnues et collectionId écartés)', JSON.stringify(dyn.query), JSON.stringify({ camera: 'Nikon' }));
+  check('contenu recalculé', dyn.photo_count, 1, 0);
+  check('résolue en critères', LIB.search(COL.resolveFilters({ collectionId: dyn.id })).rows[0]?.id, nikon);
+  check('texte saisi ajouté (ET) au critère', LIB.search(COL.resolveFilters({ collectionId: dyn.id, q: 'introuvablexyz' })).total, 0, 0);
+  let err = null; try { COL.addPhotos(dyn.id, [all[0]]); } catch (e) { err = e.message; }
+  check('pas d\'ajout manuel dans une recherche enregistrée', !!err, true, 0);
+  err = null; try { COL.create({ name: 'Vide', kind: 'dynamic', query: { inconnu: 1 } }); } catch (e) { err = e.message; }
+  check('recherche enregistrée sans critère refusée', !!err, true, 0);
+  err = null; try { COL.create({ name: '   ' }); } catch (e) { err = e.message; }
+  check('nom vide refusé', !!err, true, 0);
+  check('critères types (nombres, drapeaux, listes)',
+    JSON.stringify(Search.cleanFilters({ rating: '3', missing: '0', duplicate: 'true', anyKeywords: 'a, b,', hasGps: '0', prefix: 'false' })),
+    JSON.stringify({ rating: 3, missing: 0, duplicate: true, anyKeywords: ['a', 'b'], hasGps: false, prefix: false }));
+  check('renommage', COL.update(dyn.id, { name: 'Boîtier Nikon' }).name, 'Boîtier Nikon');
+  check('critères modifiables', COL.update(dyn.id, { query: { format: 'png' } }).photo_count, 1, 0);
+  check('liste triée par nom', COL.list().map(c => c.name).join('|'), 'Boîtier Nikon|Mes favorites');
+
+  // --- suppression : jamais de photo perdue ---
+  const before = LIB.stats().photos;
+  check('suppression de la collection', COL.remove(sel.id).photosUntouched, true, 0);
+  check('photos conservées après suppression', LIB.stats().photos, before, 0);
+  check('liens de la sélection supprimés', DB.prepare('SELECT COUNT(*) n FROM collection_photos WHERE collection_id=?').get(sel.id).n, 0, 0);
+  // une photo retirée de l'index disparaît des sélections (clé étrangère ON DELETE CASCADE)
+  const tmpSel = COL.create({ name: 'Temporaire', photoIds: [all[all.length - 1]] });
+  LIB.removeFromIndex([all[all.length - 1]]);
+  check('photo retirée de l\'index → retirée de la sélection', COL.get(tmpSel.id).photo_count, 0, 0);
+  COL.remove(tmpSel.id); COL.remove(dyn.id);
+  check('intégrité après collections', integrity(DB)[0], 'ok', 0);
 }
 
 // ===================================================================
