@@ -396,3 +396,32 @@ un PDF de vignettes légendées avec `lib/pdf.mjs` (cahier des charges §14).
   `X-Pdf-Report`, consigné dans `exports` (`kind = 'contact-sheet'`).
 * Depuis cette version, les métadonnées du PDF (`/Title`, `/Producer`) sont
   écrites en UTF-16BE : le WinAnsi des pages ne vaut pas pour elles.
+## 14. Fiches détaillées et catalogue CSV (v0.17.0)
+
+`lib/catalog.mjs` (`createCatalog(db)`) lit une fois la fiche complète
+d'une photo (`record` : colonnes de `photos`, fichiers avec support et
+statut, mots-clés, version retouchée par défaut) et la met en forme :
+
+* `detailLines(record)` : lignes « libellé / valeur » des fiches détaillées
+  (titre, description, date, auteur, copyright, mots-clés, note, étiquette,
+  appareil, objectif, exposition, dimensions, GPS, version retouchée, notes,
+  chaque emplacement, empreinte SHA-256, date d'indexation, identifiant) ;
+  les valeurs vides sont omises.
+* `csv(ids)` : une ligne par photo, colonnes `CSV_COLUMNS` (33). UTF-8 avec
+  BOM, séparateur « ; », virgule décimale, fins de ligne CRLF ; un texte qui
+  commence par `= + - @` est préfixé d'une apostrophe (pas de formule dans le
+  tableur). Consigné dans `exports` (`kind = 'catalog-csv'`).
+
+Les fiches détaillées sont une mise en page du moteur des planches-contact
+(`layout: 'detail'` dans `cleanSheetOptions`, `SHEET_LAYOUTS`) : une photo
+par page, image entière en haut (55 % de la hauteur utile, 62 % en
+paysage), puis le tableau (`wrapText` replie les valeurs, chemins compris ;
+3 lignes par valeur, 6 pour description et notes). Ce qui ne tient pas sur
+la page est signalé sur la fiche et dans le compte rendu (`truncated`).
+Colonnes, lignes et champs de légende ne s'appliquent pas. Consigné dans
+`exports` (`kind = 'detail-sheets'`).
+
+Routes : `POST /api/contactsheet` avec `options.layout = 'detail'`, et
+`POST /api/catalog/csv` (`{ ids | query, label }`, sans la limite de 3000
+photos du PDF). Les deux résolvent les photos par `photoIdsFrom()` dans
+`server.mjs` (sélection explicite ou recherche de la grille, tri compris).

@@ -4,6 +4,23 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.17.0] — 2026-11-05
+
+### Ajouté
+
+- **Fiches détaillées** (Photothèque → « Planche-contact, fiches, CSV… »,
+  Document : « Fiches détaillées ») : un PDF avec une photo par page, montrée
+  entière, suivie de toutes ses informations — titre, description, date,
+  auteur, copyright, mots-clés, note, appareil, objectif, exposition,
+  dimensions, GPS, version retouchée, notes, emplacements (support, statut,
+  taille), empreinte SHA-256. Même choix des photos, du format, de la
+  qualité et de la version que les planches-contact ; aperçu avant
+  téléchargement.
+- **Catalogue CSV** (bouton « Exporter en CSV » de la même fenêtre) : une
+  ligne par photo, 33 colonnes, lisible directement par un tableur réglé en
+  français (séparateur « ; », virgule décimale, UTF-8). Sans limite de
+  nombre de photos.
+
 ## [0.16.0] — 2026-11-05
 
 ### Ajouté

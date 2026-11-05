@@ -1032,7 +1032,7 @@ group('Planches-contact : grille légendée en PDF');
   const { createEdits } = await import('../lib/edits.mjs');
   const ED = createEdits(DB, LIB), SHEET = CS.createContactSheets(DB, LIB, ED);
   check('options : bornes et valeurs inconnues', JSON.stringify(CS.cleanSheetOptions({ page: 'x', columns: 99, rows: 0, fields: ['name', 'pirate', 'name'], quality: '?' })),
-    JSON.stringify({ page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
+    JSON.stringify({ layout: 'grid', page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
   check('texte trop long coupé avec points de suspension', `${CS.fitText('IMG_0001_tres_long_nom_de_fichier.jpg', 8, 60).endsWith('…')}|${CS.fitText('court', 8, 60)}`, 'true|court');
   const rows = LIB.search({}, { limit: 5, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
   const ids = rows.map(r => r.id);
@@ -1060,6 +1060,50 @@ group('Planches-contact : grille légendée en PDF');
   check('planche consignée dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'contact-sheet'").get().n >= 3, true, 0);
   check('originaux jamais modifiés', rows.every((r, k) => shaOf(r.path) === before[k]), true, 0);
   ED.remove(ed.id);
+}
+
+// ===================================================================
+group('Fiches détaillées (PDF) et catalogue CSV');
+// ===================================================================
+{
+  const CS = await import('../lib/contactsheet.mjs');
+  const CAT = await import('../lib/catalog.mjs');
+  const { createEdits } = await import('../lib/edits.mjs');
+  const ED = createEdits(DB, LIB), SHEET = CS.createContactSheets(DB, LIB, ED), C = CAT.createCatalog(DB);
+  check('mise en page inconnue : planche par défaut', `${CS.cleanSheetOptions({ layout: 'x' }).layout}|${CS.cleanSheetOptions({ layout: 'detail' }).layout}`, 'grid|detail');
+  const wr = CS.wrapText('un deux trois quatre cinq six sept huit neuf dix onze douze', 8, 60, 2);
+  check('texte replié : deux lignes au plus, fin signalée', `${wr.length}|${wr[1].endsWith(' …')}`, '2|true');
+  check('mot trop long (chemin) coupé sur plusieurs lignes', CS.wrapText('C:\\Photos\\' + 'x'.repeat(80) + '.jpg', 8, 80, 9).length > 1, true, 0);
+  const rows = LIB.search({}, { limit: 3, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
+  const ids = rows.map(r => r.id);
+  const shaOf = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+  const before = rows.map(r => shaOf(r.path));
+  LIB.update(ids[0], { title: 'Portrait ; "Mamie" =1', description: 'Ligne 1\nLigne 2', rating: 4 });
+  // fiche : libellés et valeurs
+  const rec = C.record(ids[0], 1), lines = C.detailLines(rec), L = Object.fromEntries(lines.map(l => [l.label, l.value]));
+  check('fiche : titre, note, emplacement, empreinte', `${L.Titre}|${L.Note}|${!!L.Emplacement?.includes(path.basename(rows[0].path))}|${L['Empreinte SHA-256'] === rec.sha256}`, `Portrait ; "Mamie" =1|4 / 5|true|true`);
+  check('fiche : valeurs vides omises', lines.every(l => l.value.trim() !== ''), true, 0);
+  check('photo inconnue : pas de fiche', C.record('inconnue'), null);
+  // PDF : une page par photo
+  const ch = [];
+  const rep = await SHEET.render([...ids, 'inconnue'], { layout: 'detail', title: 'Fiches — essai', columns: 12, rows: 16 }, { write: b => ch.push(Buffer.from(b)), label: 'Essai' });
+  const txt = Buffer.concat(ch).toString('latin1');
+  check('PDF des fiches : une page par photo', `${rep.layout}|${rep.photos}|${rep.pages}|${(txt.match(/\/Type \/Page /g) || []).length}`, `detail|${ids.length}|${ids.length}|${ids.length}`);
+  check('fiche : numéro, libellés et pagination', `${txt.includes('(N\\260 1)')}|${txt.includes('(Empreinte SHA-256)')}|${txt.includes(`(Page ${ids.length} / ${ids.length})`)}`, 'true|true|true');
+  check('fiche : grille ignorée (12 × 16 accepté)', rep.images + rep.unreadable.length, ids.length);
+  check('fiches consignées dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'detail-sheets'").get().n >= 1, true, 0);
+  // CSV
+  check('CSV : échappement (; " saut de ligne) et anti-formule', `${CAT.csvCell('a;b')}|${CAT.csvCell('dit "x"')}|${CAT.csvCell('=SOMME(A1)')}|${CAT.csvCell('-1,5', true)}`, `"a;b"|"dit ""x"""|'=SOMME(A1)|-1,5`);
+  const out = C.csv([...ids, 'inconnue', ids[0]], { label: 'Essai' });
+  const recs = out.text.slice(1).split('\r\n').filter(Boolean);
+  check('CSV : BOM UTF-8, en-tête + une ligne par photo (doublon et inconnue ignorés)', `${out.text.charCodeAt(0) === 0xfeff}|${recs.length}|${out.photos}`, `true|${ids.length + 1}|${ids.length}`);
+  check('CSV : colonnes de l’en-tête', recs[0].split(';').length, CAT.CSV_COLUMNS.length);
+  check('CSV : titre échappé, description sur deux lignes conservée', `${out.text.includes(`"'Portrait ; ""Mamie"" =1"`) || out.text.includes(`"Portrait ; ""Mamie"" =1"`)}|${out.text.includes('"Ligne 1\nLigne 2"')}`, 'true|true');
+  check('CSV : virgule décimale', /\d,\d/.test(CAT.CSV_COLUMNS.find(c => c[0] === 'latitude')[2]({ gps_lat: 43.6045 })), true, 0);
+  let e1 = null; try { C.csv([]); } catch (x) { e1 = x.message; }
+  check('CSV vide : refusé', e1, 'Aucune photo à exporter');
+  check('originaux jamais modifiés', rows.every((r, k) => shaOf(r.path) === before[k]), true, 0);
+  LIB.update(ids[0], { title: null, description: null, rating: 0 });
 }
 
 // ===================================================================

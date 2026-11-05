@@ -23,7 +23,8 @@ import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
 import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION } from './lib/edits.mjs';
 import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
-import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
+import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
+import { createCatalog, CSV_COLUMNS } from './lib/catalog.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -41,6 +42,7 @@ const albumPdf = createAlbumPdf(db, library, albums);
 const exportsSvc = createExports(db, edits);
 const duplicates = createDuplicates(db, library);
 const contactSheets = createContactSheets(db, library, edits);
+const catalog = createCatalog(db);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -76,6 +78,24 @@ function filtersFrom(sp) {
   const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };
   for (const k of ['keywords', 'anyKeywords', 'excludeKeywords', 'anyText', 'excludeText']) if (list(k)) f[k] = list(k);
   return f;
+}
+
+/**
+ * Photos d'un document (planche, fiches, CSV) : `ids` explicites (sélection, dans l'ordre), sinon toutes
+ * celles de la recherche `query` (paramètres de /api/photos, tri compris). `null` si la collection est inconnue.
+ */
+const MAX_CSV_PHOTOS = 100000;
+function photoIdsFrom(b, max) {
+  if (Array.isArray(b?.ids)) return b.ids.filter(x => typeof x === 'string').slice(0, max);
+  const sp = new URLSearchParams(typeof b?.query === 'string' ? b.query.slice(0, 4000) : '');
+  const f = filtersFrom(sp);
+  if (f.collectionId && !collections.get(f.collectionId)) return null;
+  const crit = collections.resolveFilters(f), ids = [];
+  for (let off = 0; ids.length < max; off += 300) {
+    const r = library.search(crit, { limit: 300, offset: off, sort: sp.get('sort') });
+    ids.push(...r.rows.map(x => x.id)); if (r.rows.length < 300) break; // search() plafonne à 300 par page
+  }
+  return ids.slice(0, max);
 }
 
 // Charge utile bornée (sécurité) : nombres, booléens, chaînes, objets/arrays de profondeur limitée.
@@ -179,23 +199,10 @@ async function api(req, res, url) {
     return json(res, 200, r);
   }
   // ---- Planche-contact (lib/contactsheet.mjs) : photos choisies, ou toutes celles d'une recherche ----
-  if (p === '/api/contactsheet' && m === 'GET') return json(res, 200, { pages: SHEET_PAGES, fields: SHEET_FIELDS, qualities: SHEET_QUALITIES, defaults: SHEET_DEFAULTS, maxPhotos: MAX_SHEET_PHOTOS });
+  if (p === '/api/contactsheet' && m === 'GET') return json(res, 200, { layouts: SHEET_LAYOUTS, pages: SHEET_PAGES, fields: SHEET_FIELDS, qualities: SHEET_QUALITIES, defaults: SHEET_DEFAULTS, maxPhotos: MAX_SHEET_PHOTOS, csvColumns: CSV_COLUMNS.map(c => c[1]) });
   if (p === '/api/contactsheet' && m === 'POST') {
     const b = await readBody(req);
-    let ids = Array.isArray(b?.ids) ? b.ids.filter(x => typeof x === 'string').slice(0, MAX_SHEET_PHOTOS) : null;
-    if (!ids) {
-      // même recherche que la grille : critères au format des paramètres de /api/photos, tri compris
-      const sp = new URLSearchParams(typeof b?.query === 'string' ? b.query.slice(0, 4000) : '');
-      const f = filtersFrom(sp);
-      if (f.collectionId && !collections.get(f.collectionId)) return json(res, 404, { error: 'Collection inconnue' });
-      const crit = collections.resolveFilters(f);
-      ids = [];
-      for (let off = 0; ids.length < MAX_SHEET_PHOTOS; off += 300) {
-        const r = library.search(crit, { limit: 300, offset: off, sort: sp.get('sort') });
-        ids.push(...r.rows.map(x => x.id)); if (r.rows.length < 300) break;
-      }
-      ids = ids.slice(0, MAX_SHEET_PHOTOS);
-    }
+    const ids = photoIdsFrom(b, MAX_SHEET_PHOTOS); if (!ids) return json(res, 404, { error: 'Collection inconnue' });
     const opts = sanitize(b?.options) ?? {};
     const tmp = path.join(os.tmpdir(), `phototheque-planche-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
     const fd = fs.openSync(tmp, 'w');
@@ -209,6 +216,17 @@ async function api(req, res, url) {
       'X-Pdf-Report': Buffer.from(JSON.stringify(report)).toString('base64') });
     const rs = fs.createReadStream(tmp); rs.on('close', () => fs.rmSync(tmp, { force: true }));
     return rs.pipe(res);
+  }
+  // ---- Catalogue CSV (lib/catalog.mjs) : mêmes photos que la planche-contact, une ligne par photo ----
+  if (p === '/api/catalog/csv' && m === 'POST') {
+    const b = await readBody(req);
+    const ids = photoIdsFrom(b, MAX_CSV_PHOTOS); if (!ids) return json(res, 404, { error: 'Collection inconnue' });
+    let out; try { out = catalog.csv(ids, { label: typeof b?.label === 'string' ? b.label.slice(0, 120) : '' }); } catch (e) { return json(res, 400, { error: e.message }); }
+    const file = ((typeof b?.label === 'string' && b.label ? b.label : 'catalogue').replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim() || 'catalogue') + '.csv';
+    const buf = Buffer.from(out.text, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Length': buf.length, 'X-Csv-Photos': String(out.photos),
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file)}` });
+    return res.end(buf);
   }
   if (p === '/api/photos' && m === 'PUT') { const b = await readBody(req); const d = library.update(b.id, sanitize(b) ?? {}); if (b.keywords) { db.prepare('DELETE FROM photo_keywords WHERE photo_id=?').run(b.id); keywords.attachNames(b.id, b.keywords); library.syncKeywordsText(b.id); } return json(res, 200, { photo: d }); }
   if (p === '/api/photos/remove' && m === 'POST') { const b = await readBody(req); return json(res, 200, library.removeFromIndex(b.ids)); } // retire de l'index, jamais des originaux

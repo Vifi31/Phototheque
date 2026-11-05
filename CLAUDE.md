@@ -152,5 +152,8 @@ bibliothèque).
    chemins notés dans `excluded_files` pour que l'indexation ne les ramène pas.
 6. Catalogues et documents (cahier des charges §14) — planches-contact
    livrées en v0.16.0 (`lib/contactsheet.mjs`, `docs/ARCHITECTURE.md` §13).
-   Restent : catalogues thématiques, fiches détaillées, portfolios,
-   inventaires par support, rapports (intégrité, fichiers manquants), CSV.
+   Fiches détaillées et catalogue CSV en v0.17.0 (`lib/catalog.mjs`,
+   mise en page `detail` du moteur des planches, §14).
+   Restent : catalogues thématiques (par année, lieu, mot-clé), portfolios,
+   inventaires par support, rapports (sauvegarde, intégrité, fichiers
+   manquants).
