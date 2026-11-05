@@ -807,6 +807,29 @@ group('Retouche non destructive et export de photos');
   check('profil sans nom refusé', e4, 'Nom de profil vide');
   check('original jamais modifié', crypto.createHash('sha256').update(fs.readFileSync(half)).digest('hex'), sumHalf);
 
+  // --- albums : la version retouchée par défaut est montrée, contrôlée et imprimée ---
+  const ALB2 = createAlbums(DB, LIB), APDF2 = createAlbumPdf(DB, LIB, ALB2);
+  ED.update(v2.id, { params: { rotate: 90, mono: 'bw' } });           // v2 = version par défaut
+  let alb = ALB2.create({ name: 'Retouches', format: 'carre-20' });
+  alb = ALB2.fill(alb.id, [hid], 'une').album;
+  const aph = alb.photos[hid];
+  check('album : version retouchée utilisée (aperçu rendu)', `${aph.edit?.name}|${aph.preview.includes('/render?edit=' + v2.id)}`, 'Tirage|true');
+  check('album : dimensions de la version retouchée (quart de tour)', `${aph.width}x${aph.height}|${aph.original.width}x${aph.original.height}`, '200x400|400x200');
+  const ad = alb.issues.find(i => i.page === 2 && i.dpi)?.dpi;
+  check('album : résolution calculée sur la version retouchée', ad, Math.round(25.4 * Math.min(200 / (LAYOUTS.une.frames[0].w * 200), 400 / (LAYOUTS.une.frames[0].h * 200))), 0);
+  check('projet exporté : réglages de la version retouchée', ALB2.exportProject(alb.id).photos[hid]?.edit?.params?.mono, 'bw');
+  const chunks2 = []; const prep = await APDF2.render(alb.id, { quality: 'screen', write: b3 => chunks2.push(Buffer.from(b3)) });
+  const pdfBuf = Buffer.concat(chunks2), pt = pdfBuf.toString('latin1');
+  check('PDF : photo imprimée dans sa version retouchée', `${prep.edited.length}|${prep.edited[0]?.version}`, '1|Tirage');
+  const at = pt.indexOf('/Subtype /Image'), len = +/\/Length (\d+)/.exec(pt.slice(at))[1], st = pt.indexOf('stream\n', at) + 7;
+  const jp = await sharpTest(pdfBuf.subarray(st, st + len)).raw().toBuffer({ resolveWithObject: true });
+  const mid = 3 * (Math.floor(jp.info.height / 2) * jp.info.width + Math.floor(jp.info.width / 2));
+  check('PDF : image en noir et blanc (réglage de la version)', Math.abs(jp.data[mid] - jp.data[mid + 2]) <= 3, true, 0);
+  check('PDF : image tournée (largeur native 200 px, 215 sans rotation)', jp.info.width, 200, 0);
+  ED.update(v2.id, { params: {} });                                    // version neutre → retour à l'original
+  check('album : version neutre → original', ALB2.get(alb.id).photos[hid].edit ?? null, null);
+  ALB2.remove(alb.id);
+
   // --- suppression d'une version ---
   const rm = ED.remove(v2.id);
   check('suppression de la version par défaut : une autre le devient', `${rm.originalUntouched}|${ED.get(v1.id).is_default}`, 'true|true');

@@ -353,3 +353,4 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 button.on { outline: 2px solid var(--accent); }
 .photo-cell .ph-edit { position: absolute; right: 6px; bottom: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; }
 .lb-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+.album-frame .frame-edited { position: absolute; right: 4px; bottom: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; background: rgba(15, 23, 42, .6); color: #fff; border-radius: 4px; z-index: 2; pointer-events: none; }

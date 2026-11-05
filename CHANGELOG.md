@@ -4,6 +4,32 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.10.0] — 2026-11-05
+
+### Ajouté
+
+- **Les albums utilisent la version retouchée par défaut** d'une photo
+  (celle marquée ★ dans la Retouche), comme l'export :
+  - l'éditeur d'album affiche la version retouchée, avec un repère ✎ sur
+    le cadre (l'infobulle nomme la version) ; la couverture de l'album aussi ;
+  - les dimensions de la version retouchée (après rotation, redressement et
+    recadrage) servent aux contrôles de résolution et au recadrage dans le
+    cadre : recadrer une photo dans la Retouche réduit les pixels utiles et
+    l'alerte le dit ;
+  - le PDF imprime la version retouchée, rendue en pleine définition depuis
+    l'original puis cadrée ; le compte rendu indique les photos concernées ;
+  - le projet exporté (`*.album.json`) donne, pour chaque photo retouchée,
+    la version et ses réglages complets (`photos.<id>.edit`) ;
+  - une version neutre (aucun réglage) ou supprimée rend l'original à
+    l'album.
+- **Tests :** 343 vérifications (8 nouvelles).
+
+### À savoir
+
+- Le recadrage dans le cadre d'album se superpose à celui de la Retouche :
+  si la photo est recadrée après coup dans la Retouche, il peut être utile
+  de revoir son cadrage dans l'album.
+
 ## [0.9.0] — 2026-11-05
 
 Étape 4 de la feuille de route (retouches non destructives + exports),

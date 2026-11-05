@@ -963,6 +963,7 @@ const App = (() => {
           if (im && ph.width && ph.height) Object.assign(im.style, imgStyle(cropBox(ph.width / ph.height, frameAspect(fr, pg), crop)));
           cell.appendChild(im ?? h('span', '🖼️'));
           if (crop) cell.appendChild(h('span.frame-cropped', { title: `Recadrée (zoom × ${crop.zoom.toFixed(2)})` }, '✂'));
+          if (ph.edit) cell.appendChild(h('span.frame-edited', { title: `Version retouchée « ${ph.edit.name} » (modifiable dans la Retouche)` }, '✎'));
           cell.appendChild(h('div.frame-tools',
             src ? h('button', { title: 'Recadrer la photo dans le cadre', onclick: e => { e.stopPropagation(); cropDialog(n, s); } }, '✂') : null,
             h('button', { title: 'Retirer la photo du cadre', onclick: e => { e.stopPropagation(); change(pageUrl(n), 'PUT', { slots: setSlot(n, s, null) }); } }, '×')));
@@ -1096,6 +1097,7 @@ const App = (() => {
       const lost = r.unfilled.filter(u => u.reason !== 'cadre vide'), empty = r.unfilled.length - lost.length;
       if (lost.length) out.push(h('div.album-alert.bad', `${lost.length} cadre(s) sans photo lisible (${where(lost)})`));
       if (r.fromPreview.length) out.push(h('div.album-alert.warn', `${r.fromPreview.length} photo(s) prise(s) sur l'aperçu en cache, original indisponible : qualité réduite (${where(r.fromPreview)})`));
+      if (r.edited?.length) out.push(h('p.dim', `${r.edited.length} photo(s) imprimée(s) dans leur version retouchée par défaut.`));
       if (r.fromCopy.length) out.push(h('div.album-alert', `${r.fromCopy.length} photo(s) prise(s) sur une copie identique, original indisponible (${where(r.fromCopy)})`));
       if (r.lowDpi.length) out.push(h('div.album-alert.warn', `${r.lowDpi.length} photo(s) sous la résolution visée (${where(r.lowDpi)})`));
       if (empty) out.push(h('p.dim', `${empty} cadre(s) vide(s)${r.quality === 'screen' ? ', grisés dans l’aperçu' : ', laissés au fond de page'}.`));

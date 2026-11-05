@@ -138,6 +138,7 @@ bibliothèque).
    (v0.9.0)** : `lib/edits.mjs` (réglages JSON versionnés dans `edits`,
    versions, historique persistant, rendu sharp) et `lib/exports.mjs`
    (formats, métadonnées, filigrane, profils, export par lot). Restent : RAW
-   (sharp ne les décode pas), courbes / bruit, profils ICC, albums et
-   vignettes avec la version retouchée.
+   (sharp ne les décode pas), courbes / bruit, profils ICC, vignettes et
+   visionneuse avec la version retouchée. Les albums utilisent la version
+   retouchée par défaut depuis v0.10.0.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

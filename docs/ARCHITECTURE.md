@@ -270,6 +270,11 @@ versionné (`EDIT_PARAMS_VERSION` = 1) :
   `data/thumbs/edits/` (clé = photo + source + réglages + taille), calculés
   depuis l'aperçu en cache pour la vitesse. L'export, lui, part de
   l'original en pleine définition.
+* Albums (v0.10.0) : `albums.get()` remplace, pour une photo qui a une
+  version par défaut non neutre, l'aperçu par son rendu et ses dimensions par
+  celles de la version (`geometry()`) ; le PDF rend la version en pleine
+  définition (`pipeline()`) avant le cadrage du cadre ; le projet exporté
+  porte `photos.<id>.edit = { id, name, params }`.
 * Limites : sharp ne décode pas les RAW (repli sur l'aperçu, signalé) ;
   sortie en sRGB uniquement.
 
