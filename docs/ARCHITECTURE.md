@@ -275,6 +275,14 @@ versionné (`EDIT_PARAMS_VERSION` = 1) :
   celles de la version (`geometry()`) ; le PDF rend la version en pleine
   définition (`pipeline()`) avant le cadrage du cadre ; le projet exporté
   porte `photos.<id>.edit = { id, name, params }`.
+* Grille et visionneuse (v0.13.0) : `editedCard(card, ed)` (`lib/edits.mjs`)
+  est la règle commune aux albums et à `library.search()` (via
+  `retouchedView`) : vignette `render?size=400` et aperçu `render?size=1200`,
+  dimensions de la version, `original` et `edit`. Le paramètre `v` de l'URL
+  est une empreinte des réglages (le cache navigateur se renouvelle à chaque
+  retouche). La visionneuse (`public/ui.js`) bascule « Voir l'original » /
+  « Voir la version retouchée ». L'outil Doublons garde les vignettes
+  d'origine (`cardView`) : il compare des fichiers.
 * Limites : sharp ne décode pas les RAW (repli sur l'aperçu, signalé) ;
   sortie en sRGB uniquement.
 

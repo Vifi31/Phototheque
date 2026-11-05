@@ -111,13 +111,18 @@ const UI = (() => {
     const { list, index } = lbState;
     const p = list[index]; if (!p) return;
     const img = document.getElementById('lbImg');
-    img.src = p.preview || p.thumb || '';
+    // version retouchée par défaut (p.edit) montrée d'abord ; « Voir l'original » bascule sans rien modifier
+    const shown = p.original && lbState.showOriginal ? { ...p, ...p.original } : p;
+    img.src = shown.preview || shown.thumb || '';
     img.alt = p.title || p.path || 'photo';
     document.getElementById('lbMeta').innerHTML = '';
     document.getElementById('lbMeta').append(
       h('div', p.title || ''),
-      h('div', { class: 'dim' }, [p.captured_at ? fmtDate(p.captured_at) : '', p.camera_model ? ' · ' + p.camera_model : '', p.width ? ` · ${p.width}×${p.height}` : '', p.missing ? ' · indisponible' : ''].join('')),
+      h('div', { class: 'dim' }, [p.captured_at ? fmtDate(p.captured_at) : '', p.camera_model ? ' · ' + p.camera_model : '', shown.width ? ` · ${shown.width}×${shown.height}` : '', p.missing ? ' · indisponible' : ''].join('')),
     );
+    if (p.original) document.getElementById('lbMeta').append(h('div.lb-version',
+      h('span.dim', lbState.showOriginal ? 'Original' : `✎ Version retouchée « ${p.edit?.name ?? ''} »`),
+      h('button.ghost.small', { onclick: () => { lbState.showOriginal = !lbState.showOriginal; renderLb(); } }, lbState.showOriginal ? 'Voir la version retouchée' : 'Voir l’original')));
     // boutons propres à l'appelant (ex. « Retoucher », « Exporter… »)
     const acts = lbState.actions?.(p) ?? [];
     if (acts.length) document.getElementById('lbMeta').append(h('div.lb-actions', ...acts));

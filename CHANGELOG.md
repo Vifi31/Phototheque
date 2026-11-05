@@ -4,6 +4,23 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.13.0] — 2026-11-05
+
+### Ajouté
+
+- **Vignettes retouchées** : dans la Photothèque (grille, collections), une
+  photo qui a une version retouchée par défaut s'affiche avec cette version ;
+  la vignette se met à jour dès qu'on modifie la retouche.
+- **Visionneuse** : la version retouchée est montrée d'abord, avec son nom et
+  ses dimensions ; « Voir l'original » / « Voir la version retouchée » bascule
+  de l'une à l'autre.
+
+### Modifié
+
+- Albums et Photothèque partagent la même règle (`editedCard` dans
+  `lib/edits.mjs`) : une version neutre laisse l'original affiché. L'outil
+  Doublons continue de montrer les vignettes d'origine.
+
 ## [0.12.0] — 2026-11-05
 
 ### Ajouté

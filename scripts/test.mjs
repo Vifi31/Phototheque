@@ -826,8 +826,18 @@ group('Retouche non destructive et export de photos');
   const mid = 3 * (Math.floor(jp.info.height / 2) * jp.info.width + Math.floor(jp.info.width / 2));
   check('PDF : image en noir et blanc (réglage de la version)', Math.abs(jp.data[mid] - jp.data[mid + 2]) <= 3, true, 0);
   check('PDF : image tournée (largeur native 200 px, 215 sans rotation)', jp.info.width, 200, 0);
+  // --- grille et visionneuse : vignette et aperçu de la version retouchée par défaut ---
+  const gcard = () => LIB.search({}, { limit: 1000 }).rows.find(p => p.id === hid);
+  const gc = gcard();
+  check('grille : vignette de la version retouchée', `${gc.thumb.includes('/render?edit=' + v2.id + '&size=400')}|${gc.preview.includes('&size=1200')}`, 'true|true');
+  check('grille : original conservé pour comparer', `${gc.original.thumb.startsWith('/api/thumb/')}|${gc.original.width}x${gc.original.height}|${gc.width}x${gc.height}`, 'true|400x200|200x400');
+  check('grille : nom de la version', gc.edit?.name, 'Tirage');
+  check('grille et album : même rendu', gc.thumb, alb.photos[hid].thumb);
+  ED.update(v2.id, { params: { rotate: 90, mono: 'sepia' } });
+  check('grille : vignette renouvelée après une retouche', gcard().thumb !== gc.thumb, true, 0);
   ED.update(v2.id, { params: {} });                                    // version neutre → retour à l'original
   check('album : version neutre → original', ALB2.get(alb.id).photos[hid].edit ?? null, null);
+  check('grille : version neutre → vignette d’origine', `${gcard().thumb.startsWith('/api/thumb/')}|${gcard().original ?? null}`, 'true|null');
   ALB2.remove(alb.id);
 
   // --- suppression d'une version ---
