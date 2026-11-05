@@ -644,13 +644,16 @@ const App = (() => {
       const cx = Math.min(1 - w / 2, Math.max(w / 2, crop?.x ?? 0.5)), cy = Math.min(1 - hh / 2, Math.max(hh / 2, crop?.y ?? 0.5));
       return { iw, ih, w, h: hh, cx, cy, left: -(cx - w / 2) * iw, top: -(cy - hh / 2) * ih };
     }
-    const frameAspect = fr => (fr.w * album.width_mm) / (fr.h * album.height_mm);
+    // libellé imprimé d'une ligne d'album : « Page 3 » ou « Pages 4–5 »
+    const labelOf = n => { const pg = album.pages[n - 1]; return pg.span === 2 ? `Pages ${pg.folio}–${pg.folio + 1}` : `Page ${pg.folio}`; };
+    // proportion d'un cadre ; pour une double page, les cadres sont en fractions de la planche (deux largeurs)
+    const frameAspect = (fr, pg) => (fr.w * album.width_mm * (pg?.span ?? 1)) / (fr.h * album.height_mm);
     const imgStyle = (b) => ({ position: 'absolute', maxWidth: 'none', objectFit: 'fill', width: b.iw * 100 + '%', height: b.ih * 100 + '%', left: b.left * 100 + '%', top: b.top * 100 + '%' });
 
     function cropDialog(n, s) {
       const pg = album.pages[n - 1], fr = L[pg.layout].frames[s], ph = album.photos[pg.slots[s]];
       if (!ph?.width || !ph?.height) { toast('Dimensions de la photo inconnues : recadrage impossible', 'bad'); return; }
-      const r = ph.width / ph.height, A = frameAspect(fr);
+      const r = ph.width / ph.height, A = frameAspect(fr, pg);
       let crop = { ...(pg.crops?.[s] ?? { x: 0.5, y: 0.5, zoom: 1 }) };
       // scène à la proportion du cadre, au plus 560 × 400 px
       const sw = Math.min(560, 400 * A), sh = sw / A;
@@ -658,7 +661,7 @@ const App = (() => {
       const stage = h('div.crop-stage', { style: { width: sw + 'px', height: sh + 'px' } }, img, h('div.crop-thirds'));
       const zoom = h('input', { type: 'range', min: 1, max: 5, step: 0.01, value: crop.zoom });
       const info = h('small.dim');
-      const frameMm = fr.w * album.width_mm;
+      const frameMm = fr.w * album.width_mm * (pg.span ?? 1);
       function draw() {
         const b = cropBox(r, A, crop); crop.x = b.cx; crop.y = b.cy; // centre ramené dans les limites
         Object.assign(img.style, imgStyle(b));
@@ -679,7 +682,7 @@ const App = (() => {
       stage.addEventListener('pointerup', stop); stage.addEventListener('pointercancel', stop);
       stage.addEventListener('wheel', e => { e.preventDefault(); crop.zoom = Math.min(5, Math.max(1, crop.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); draw(); }, { passive: false });
       zoom.addEventListener('input', () => { crop.zoom = +zoom.value; draw(); });
-      const m = modal({ title: `Recadrer — page ${n}, cadre ${s + 1}`, wide: true, body: h('div.crop-dialog',
+      const m = modal({ title: `Recadrer — ${labelOf(n).toLowerCase()}, cadre ${s + 1}`, wide: true, body: h('div.crop-dialog',
         stage,
         h('div.row', h('span', 'Zoom'), zoom, info),
         h('p.dim', 'Faites glisser la photo pour choisir la partie visible ; molette ou curseur pour zoomer. L’original n’est pas modifié.')), actions: [
@@ -690,11 +693,12 @@ const App = (() => {
       draw();
     }
 
-    function pageView(pg, n) {
+    // side : 'left' ou 'right' dans la vue en planches (la feuille se colle au pli), sinon rien
+    function pageView(pg, n, side = '') {
       const issues = album.issues.filter(i => i.page === n && i.level !== 'info');
-      const lay = L[pg.layout];
-      // largeur bornée pour qu'une page en hauteur ne dépasse pas 420 px sans être déformée
-      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : ''), { style: { aspectRatio: `${album.width_mm} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * album.width_mm / album.height_mm)}px)`, background: pg.background, color: inkOn(pg.background) } });
+      const lay = L[pg.layout], span = pg.span ?? 1, sw = album.width_mm * span;
+      // largeur bornée pour qu'une page en hauteur ne dépasse pas 420 px de haut sans être déformée
+      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : '') + (span === 2 ? '.spread' : ''), { style: { aspectRatio: `${sw} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * sw / album.height_mm)}px)`, background: pg.background, color: inkOn(pg.background) } });
       lay.frames.forEach((fr, s) => {
         const id = pg.slots[s], ph = id ? album.photos[id] : null;
         const bad = album.issues.find(i => i.page === n && i.slot === s && i.level !== 'info');
@@ -709,7 +713,7 @@ const App = (() => {
         if (ph) {
           const src = ph.preview || ph.thumb, crop = pg.crops?.[s] ?? null;
           const im = src ? h('img', { src, alt: ph.title || '', draggable: 'true', ondragstart: () => { drag = { page: n, slot: s }; } }) : null;
-          if (im && ph.width && ph.height) Object.assign(im.style, imgStyle(cropBox(ph.width / ph.height, frameAspect(fr), crop)));
+          if (im && ph.width && ph.height) Object.assign(im.style, imgStyle(cropBox(ph.width / ph.height, frameAspect(fr, pg), crop)));
           cell.appendChild(im ?? h('span', '🖼️'));
           if (crop) cell.appendChild(h('span.frame-cropped', { title: `Recadrée (zoom × ${crop.zoom.toFixed(2)})` }, '✂'));
           cell.appendChild(h('div.frame-tools',
@@ -720,24 +724,42 @@ const App = (() => {
       });
       if (pg.layout === 'titre') sheet.appendChild(h('div.album-title', h('div.t1', pg.title || 'Titre'), pg.caption ? h('div.t2', pg.caption) : null));
       else if (pg.caption && !lay.fullBleed) sheet.appendChild(h('div.album-caption', pg.caption));
-      if (!lay.fullBleed) sheet.appendChild(h('div.album-folio', String(n)));
+      // numéros des pages imprimées au coin extérieur : droite si impaire, gauche si paire
+      if (!lay.fullBleed) for (let k = 0; k < span; k++) {
+        const f = pg.folio + k, odd = f % 2 === 1, x0 = (k / span) * 100, x1 = ((k + 1) / span) * 100;
+        sheet.appendChild(h('div.album-folio', { style: odd ? { right: `calc(${100 - x1}% + ${2.2 / span}%)`, left: 'auto' } : { left: `calc(${x0}% + ${2.2 / span}%)`, right: 'auto' } }, String(f)));
+      }
+      const label = span === 2 ? `Pages ${pg.folio}–${pg.folio + 1}` : `Page ${pg.folio}`;
 
       const laySel = layoutSelect(pg.layout); laySel.addEventListener('change', () => change(pageUrl(n), 'PUT', { layout: laySel.value }));
       const color = h('input', { type: 'color', value: pg.background, title: 'Couleur de fond', onchange: e => change(pageUrl(n), 'PUT', { background: e.target.value }) });
       const text = (key, ph2) => h('input', { type: 'text', value: pg[key], placeholder: ph2, onchange: e => change(pageUrl(n), 'PUT', { [key]: e.target.value }) });
       const last = album.pages.length;
-      return h('div.album-page-wrap',
+      return h('div.album-page-wrap' + (span === 2 ? '.spread' : '') + (side ? '.' + side : ''),
         sheet,
         h('div.album-page-tools',
-          h('div.row', h('b', `Page ${n}`), h('div.spacer'),
+          h('div.row', h('b', label), h('div.spacer'),
             h('button.ghost.small', { disabled: n === 1, title: 'Avancer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n - 1 }) }, '↑'),
             h('button.ghost.small', { disabled: n === last, title: 'Reculer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n + 1 }) }, '↓'),
             h('button.ghost.small', { title: 'Dupliquer la page', onclick: () => change(pageUrl(n) + '/duplicate', 'POST') }, '⧉'),
-            h('button.ghost.small', { title: 'Supprimer la page', onclick: async () => { if (await confirmDialog('Supprimer la page', `Supprimer la page ${n} ? Les photos restent dans la photothèque.`)) change(pageUrl(n), 'DELETE'); } }, '🗑')),
+            h('button.ghost.small', { title: 'Supprimer la page', onclick: async () => { if (await confirmDialog('Supprimer la page', `Supprimer ${label.toLowerCase()} ? Les photos restent dans la photothèque.`)) change(pageUrl(n), 'DELETE'); } }, '🗑')),
           h('div.row', laySel, color),
           pg.layout === 'titre' ? text('title', 'Titre') : null,
           text('caption', pg.layout === 'titre' ? 'Sous-titre' : 'Légende de la page'),
-          issues.length ? h('div.album-issues', ...issues.map(i => h('small.' + i.level, i.message.replace(/^Page \d+ : /, '')))) : null));
+          issues.length ? h('div.album-issues', ...issues.map(i => h('small.' + i.level, i.message.replace(/^Pages? [\d–]+ : /, '')))) : null));
+    }
+
+    // Planches (vue en vis-à-vis) : page 1 seule à droite, puis paires gauche (paire) / droite (impaire).
+    // Une double page occupe sa planche ; mal placée (début à droite), elle reste seule et une alerte le dit.
+    function planches() {
+      const out = []; let cur = null;
+      album.pages.forEach((pg, i) => {
+        const n = i + 1;
+        if (pg.span === 2) { out.push({ spread: n }); cur = null; return; }
+        if (pg.folio % 2 === 0) { cur = { left: n, right: null }; out.push(cur); return; }
+        if (cur && !cur.right) { cur.right = n; cur = null; } else out.push({ left: null, right: n });
+      });
+      return out;
     }
 
     function render() {
@@ -747,14 +769,21 @@ const App = (() => {
       const empties = album.issues.filter(i => i.level === 'info').length;
       const addSel = layoutSelect('une');
       const guides = h('input', { type: 'checkbox', checked: !!state.albumGuides, onchange: e => { state.albumGuides = e.target.checked; render(); } });
+      const spreads = h('input', { type: 'checkbox', checked: !!album.spreads, onchange: e => change('', 'PUT', { spreads: e.target.checked }) });
+      const addWrap = h('div.album-page-wrap.add', h('div.form', field('Nouvelle page', addSel), h('div.field', h('label', ' '), h('button', { onclick: () => change('/pages', 'POST', { layout: addSel.value }) }, 'Ajouter une page'))));
       mount(body,
-        h('div.row', h('span.dim', `${album.formatLabel} · ${album.width_mm} × ${album.height_mm} mm · ${album.pages.length} page(s) · ${used} photo(s)`), h('div.spacer'),
+        h('div.row', h('span.dim', `${album.formatLabel} · ${album.width_mm} × ${album.height_mm} mm · ${album.printedPages} page(s) · ${used} photo(s)`), h('div.spacer'),
+          h('label.row', { style: { gap: '6px' }, title: 'Présenter les pages en vis-à-vis, comme dans le livre (la page 1 est seule, à droite)' }, spreads, 'Vue en planches'),
           h('label.row', { style: { gap: '6px' } }, guides, 'Marges de sécurité')),
         alerts.length || empties ? card(h('div.sect', alerts.length ? `⚠ ${alerts.length} alerte(s)` : 'Contrôles'),
           ...alerts.map(i => h('div.album-alert.' + i.level, i.message)),
           empties ? h('p.dim', `${empties} cadre(s) vide(s).`) : null) : null,
-        h('div.album-pages', ...album.pages.map((pg, i) => pageView(pg, i + 1)),
-          h('div.album-page-wrap.add', h('div.form', field('Nouvelle page', addSel), h('div.field', h('label', ' '), h('button', { onclick: () => change('/pages', 'POST', { layout: addSel.value }) }, 'Ajouter une page'))))));
+        album.spreads
+          ? h('div.album-pages.spreads', ...planches().map(pl => pl.spread
+              ? h('div.planche', pageView(album.pages[pl.spread - 1], pl.spread))
+              : h('div.planche', pl.left ? pageView(album.pages[pl.left - 1], pl.left, 'left') : h('div.planche-blank'),
+                  pl.right ? pageView(album.pages[pl.right - 1], pl.right, 'right') : h('div.planche-blank'))), addWrap)
+          : h('div.album-pages', ...album.pages.map((pg, i) => pageView(pg, i + 1)), addWrap));
       sc.scrollTop = top;
     }
 
@@ -776,7 +805,7 @@ const App = (() => {
       }
       let t; q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
       coll.addEventListener('change', load);
-      const m = modal({ title: `Page ${n} — cadre ${s + 1}`, wide: true, body: h('div', h('div.form', field('Recherche', q), field('Collection', coll)), count, gridEl) });
+      const m = modal({ title: `${labelOf(n)} — cadre ${s + 1}`, wide: true, body: h('div', h('div.form', field('Recherche', q), field('Collection', coll)), count, gridEl) });
       await load(); q.focus();
     }
 
@@ -812,7 +841,7 @@ const App = (() => {
     }
     function pdfSummary(r) {
       if (!r) return [];
-      const out = [h('p', `${r.pages} page(s), ${r.images} image(s), ${fmtBytes(r.bytes)} · ${r.width_mm} × ${r.height_mm} mm${r.bleed ? ` + fonds perdus ${albumMeta.bleedMm} mm` : ''}`)];
+      const out = [h('p', `${r.pages} page(s)${r.layout === 'spreads' ? ` en ${r.pdfPages} planche(s)` : ''}, ${r.images} image(s), ${fmtBytes(r.bytes)} · ${r.width_mm} × ${r.height_mm} mm${r.bleed ? ` + fonds perdus ${albumMeta.bleedMm} mm` : ''}`)];
       const where = l => l.slice(0, 6).map(x => `p. ${x.page}`).join(', ') + (l.length > 6 ? '…' : '');
       const lost = r.unfilled.filter(u => u.reason !== 'cadre vide'), empty = r.unfilled.length - lost.length;
       if (lost.length) out.push(h('div.album-alert.bad', `${lost.length} cadre(s) sans photo lisible (${where(lost)})`));
@@ -825,7 +854,7 @@ const App = (() => {
     async function previewPdf() {
       toast('Préparation de l’aperçu…');
       try {
-        const { blob, report } = await fetchPdf({ quality: 'screen', inline: 1 });
+        const { blob, report } = await fetchPdf({ quality: 'screen', inline: 1, layout: album.spreads ? 'spreads' : 'pages' });
         const src = URL.createObjectURL(blob);
         const m = modal({ title: `Aperçu — ${album.name}`, wide: true, body: h('div', ...pdfSummary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })),
           actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), h('button', { onclick: () => { m.close(); exportPdf(); } }, 'Exporter pour l’impression…')] });
@@ -835,12 +864,13 @@ const App = (() => {
     function exportPdf() {
       const prof = h('select', {}, ...Object.entries(albumMeta.pdfProfiles).map(([k, p]) => h('option', { value: k }, p.label)));
       const bleed = h('input', { type: 'checkbox' });
+      const disp = h('select', {}, h('option', { value: 'pages' }, 'Page par page (pour l’imprimeur)'), h('option', { value: 'spreads', selected: !!album.spreads }, 'Planches : pages en vis-à-vis (pour l’écran)'));
       const bad = album.issues.filter(i => i.level === 'bad');
       const status = h('div');
       const go2 = h('button', { onclick: async () => {
         go2.disabled = true; mount(status, h('p.dim', 'Production du PDF… (les photos sont rééchantillonnées depuis les originaux)'));
         try {
-          const { blob, report } = await fetchPdf({ quality: prof.value, bleed: bleed.checked ? 1 : 0 });
+          const { blob, report } = await fetchPdf({ quality: prof.value, bleed: bleed.checked ? 1 : 0, layout: disp.value });
           const a = h('a', { href: URL.createObjectURL(blob), download: (album.name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'album') + '.pdf' });
           document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
           mount(status, h('p', '✓ PDF enregistré dans le dossier de téléchargement du navigateur.'), ...pdfSummary(report));
@@ -849,7 +879,7 @@ const App = (() => {
         go2.disabled = false;
       } }, 'Produire le PDF');
       const m = modal({ title: 'Exporter en PDF', body: h('div',
-        h('div.form', field('Qualité', prof)),
+        h('div.form', field('Qualité', prof), field('Disposition', disp)),
         h('label.row', { style: { gap: '6px' } }, bleed, `Ajouter des fonds perdus de ${albumMeta.bleedMm} mm (imprimeur : la page est agrandie, les photos pleine page débordent, la coupe se fait au format)`),
         bad.length ? h('div.album-alert.bad', `${bad.length} alerte(s) bloquante(s) dans l’album : ${bad[0].message}${bad.length > 1 ? '…' : ''}`) : null,
         h('p.dim', 'Les originaux sont lus sans être modifiés. Une photo n’est jamais agrandie au-delà de sa résolution réelle.'),

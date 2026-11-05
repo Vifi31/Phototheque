@@ -176,6 +176,13 @@ enregistrement ; il sert au filtre `albumId` de la recherche.
   (`x`, `y`, `w`, `h` entre 0 et 1), donc valables pour tout format. Marge
   de sécurité 6 %, gouttière 3 %, bande de légende 6 % en bas ; seul le
   gabarit `plein` va jusqu'au bord (fond perdu).
+* Doubles pages (v0.7.0) : un gabarit marqué `spread: true` couvre deux
+  pages en vis-à-vis ; ses cadres sont en fractions de la **planche**
+  (largeur = 2 × largeur de page). Une ligne `album_pages` à gabarit double
+  compte pour deux pages imprimées (`folios()` : `{ folio, span }`). La
+  page 1 est une page de droite ; une double page doit commencer sur un
+  numéro pair (sinon alerte). `albums.data.spreads` = vue en planches dans
+  l'éditeur (préférence d'affichage seulement).
 * Contrôles : photo introuvable (retirée du catalogue, la référence est
   conservée pour être signalée), photo indisponible, résolution effective
   sous 150 ppp (bloquant) ou 240 ppp (limite), photos hors gabarit, cadres
@@ -205,6 +212,10 @@ Helvetica / Helvetica-Bold en `WinAnsiEncoding` (pas de police embarquée),
 objets écrits au fil de l'eau dans un fichier temporaire pour ne pas garder
 les images en mémoire.
 
+* Disposition `layout` : `pages` (une page PDF par page imprimée ; une
+  double page est dessinée deux fois, décalée et découpée au pli, chaque
+  moitié gardant ses fonds perdus) ou `spreads` (planches de deux pages,
+  page 1 seule à droite). L'image d'un cadre n'est écrite qu'une fois.
 * Profils `PDF_PROFILES` : `print` 300 ppp / JPEG 90, `screen` 150 ppp /
   JPEG 80 (cadres vides grisés).
 * Recadrage « couvrir » centré, comme l'éditeur ; une image plus petite que
@@ -217,6 +228,6 @@ les images en mémoire.
 * Compte rendu renvoyé dans l'en-tête `X-Pdf-Report` (JSON en base64) et
   enregistré dans `exports` (`kind = 'album-pdf'`).
 
-Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures, doubles pages,
+Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures,
 annulation/rétablissement, gestion des couleurs (CMJN, profils ICC), traits
 de coupe, modèles graphiques personnalisés, réimport d'un projet.

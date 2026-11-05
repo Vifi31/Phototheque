@@ -129,6 +129,7 @@ bibliothèque).
    `docs/ARCHITECTURE.md` §9). Aperçu et export PDF livrés en v0.5.0
    (`lib/albumpdf.mjs` + `lib/pdf.mjs`, sans dépendance). Recadrage manuel
    livré en v0.6.0 (`cropWindow`, même calcul éditeur / contrôles / PDF).
-   Restent : doubles pages, annulation.
+   Doubles pages et vue en planches en v0.7.0 (gabarits `spread`,
+   `folios`). Reste : annulation.
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

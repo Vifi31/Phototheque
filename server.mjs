@@ -227,10 +227,11 @@ async function api(req, res, url) {
       // PDF produit dans un fichier temporaire (les images ne restent pas en mémoire), puis envoyé et effacé.
       const quality = PDF_PROFILES[url.searchParams.get('quality')] ? url.searchParams.get('quality') : 'print';
       const bleed = url.searchParams.get('bleed') === '1';
+      const layout = url.searchParams.get('layout') === 'spreads' ? 'spreads' : 'pages';
       const tmp = path.join(os.tmpdir(), `phototheque-album-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
       const fd = fs.openSync(tmp, 'w');
       let report;
-      try { report = await albumPdf.render(id, { quality, bleed, write: buf => fs.writeSync(fd, buf) }); }
+      try { report = await albumPdf.render(id, { quality, bleed, layout, write: buf => fs.writeSync(fd, buf) }); }
       catch (e) { fs.closeSync(fd); fs.rmSync(tmp, { force: true }); throw e; }
       fs.closeSync(fd);
       const file = (albums.get(id).name.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'album') + '.pdf';

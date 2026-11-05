@@ -4,6 +4,42 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.7.0] — 2026-11-05
+
+### Ajouté
+
+- **Doubles pages** (`lib/albums.mjs`) :
+  - quatre gabarits sur deux pages en vis-à-vis : panoramique pleine
+    planche (fond perdu), panoramique avec marges, 2 photos face à face,
+    bandeau panoramique + 4 photos. Leurs cadres respectent les marges de
+    sécurité, y compris de part et d'autre du pli pour les photos qui ne le
+    traversent pas ;
+  - une ligne d'album à gabarit double compte pour deux pages imprimées :
+    numérotation (« Pages 4–5 »), nombre de pages de l'album, messages des
+    contrôles (`folios`) ;
+  - la page 1 étant une page de droite, une double page doit commencer sur
+    un numéro pair ; sinon une alerte le signale (le panoramique serait
+    coupé au pli) ;
+  - la résolution d'un cadre se calcule sur la largeur de la planche ;
+    le recadrage manuel fonctionne de la même façon.
+- **Vue en planches** dans l'éditeur (case « Vue en planches », enregistrée
+  avec l'album) : pages en vis-à-vis comme dans le livre, page 1 seule à
+  droite, pli marqué en pointillé, numéros de page au coin extérieur. Hors
+  de cette vue, une double page occupe toute la largeur.
+- **PDF :** disposition « page par page » (pour l'imprimeur : une double
+  page est coupée au pli en deux pages, chacune avec ses fonds perdus) ou
+  « planches » (pages en vis-à-vis, pour l'écran ; l'aperçu suit la vue de
+  l'éditeur). Paramètre `layout=pages|spreads` de
+  `GET /api/albums/<id>/pdf`. Les numéros de page sont au coin extérieur
+  (droite pour les pages impaires, gauche pour les paires) ; la légende
+  d'une double page est sur la page de droite.
+- **Tests :** 265 vérifications (21 nouvelles pour les doubles pages).
+
+### Modifié
+
+- Dans le compte rendu du PDF, les cadres sont désignés par leur numéro de
+  page imprimée.
+
 ## [0.6.0] — 2026-11-05
 
 ### Ajouté

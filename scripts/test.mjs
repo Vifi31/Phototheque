@@ -385,13 +385,21 @@ group('Albums : pages, gabarits, références, contrôles');
   const ids = LIB.search({}, { limit: 50, sort: 'captured_asc' }).rows.map(p => p.id);
 
   // --- gabarits : tous les cadres restent dans la page, hors fond perdu ils respectent la marge ---
-  let inside = true, safe = true;
+  // (double page : cadres en fractions de la planche, la marge horizontale d'une page y vaut la moitié)
+  let inside = true, safe = true, gutter = true;
   for (const [k, l] of Object.entries(LAYOUTS)) for (const f of l.frames) {
+    const mx = l.spread ? SAFETY_MARGIN / 2 : SAFETY_MARGIN;
     if (f.x < 0 || f.y < 0 || f.x + f.w > 1.0001 || f.y + f.h > 1.0001) inside = false;
-    if (!l.fullBleed && (f.x < SAFETY_MARGIN - 1e-4 || f.y < SAFETY_MARGIN - 1e-4 || f.x + f.w > 1 - SAFETY_MARGIN + 1e-4 || f.y + f.h > 1 - SAFETY_MARGIN + 1e-4)) safe = false;
+    if (!l.fullBleed && (f.x < mx - 1e-4 || f.y < SAFETY_MARGIN - 1e-4 || f.x + f.w > 1 - mx + 1e-4 || f.y + f.h > 1 - SAFETY_MARGIN + 1e-4)) safe = false;
+    // un cadre d'une seule page de la planche ne doit pas mordre sur la marge du pli
+    const crosses = f.x < 0.5 && f.x + f.w > 0.5;
+    if (l.spread && !crosses && f.x < 0.5 && f.x + f.w > 0.5 - mx + 1e-4) gutter = false;
+    if (l.spread && !crosses && f.x >= 0.5 && f.x < 0.5 + mx - 1e-4) gutter = false;
   }
   check('gabarits : cadres dans la page', inside, true, 0);
   check('gabarits : marges de sécurité respectées', safe, true, 0);
+  check('doubles pages : marge de sécurité au pli', gutter, true, 0);
+  check('doubles pages : 4 gabarits', Object.values(LAYOUTS).filter(l => l.spread).length, 4, 0);
   check('gabarit 2 × 2 : 4 cadres', LAYOUTS.quatre.frames.length, 4, 0);
 
   // --- création ---
@@ -605,6 +613,39 @@ group('Albums : export PDF (impression et aperçu)');
   check('PDF : partie recadrée seule, sans agrandissement', ct.includes(`/Width ${Math.round(base / 2)} /Height ${real[0].height / 2}`), true, 0);
   check('PDF : recadrage = nouvelle image (pas de réutilisation)', cr.rep.images, 4, 0);
   ALB.updatePage(a.id, 4, { crops: [null] });
+
+  // --- doubles pages : numérotation, alignement, résolution, PDF page par page et en planches ---
+  const { folios } = await import('../lib/albums.mjs');
+  check('numérotation : une double page compte pour deux', JSON.stringify(folios([{ layout: 'titre' }, { layout: 'double-plein' }, { layout: 'une' }])), JSON.stringify([{ folio: 1, span: 1 }, { folio: 2, span: 2 }, { folio: 4, span: 1 }]));
+  const sp = ALB.create({ name: 'Planches', format: 'carre-20', spreads: true });
+  check('vue en planches enregistrée à la création', sp.spreads, true, 0);
+  ALB.fill(sp.id, [ids[1]], 'une');                              // page 2
+  ALB.addPage(sp.id, { layout: 'double-plein' });                // pages 3–4 : commence à droite
+  let s2 = ALB.updatePage(sp.id, 3, { slots: [ids[0]] });
+  check('double page : 4 pages imprimées', s2.printedPages, 4, 0);
+  check('double page : numéros 3–4', `${s2.pages[2].folio}|${s2.pages[2].span}`, '3|2');
+  check('double page sur une page de droite signalée', s2.issues.some(i => i.page === 3 && /Pages 3–4 : la double page commence sur une page de droite/.test(i.message)), true, 0);
+  const spDpi = s2.issues.find(i => i.page === 3 && i.slot === 0 && i.dpi)?.dpi;
+  check('double page : résolution sur la largeur de la planche', spDpi, Math.round(25.4 * 1200 / 400), 0);
+  s2 = ALB.addPage(sp.id, { layout: 'une', after: 1 });          // une page de plus avant → 4–5, à gauche
+  check('double page réalignée : plus d’alerte', s2.issues.some(i => /page de droite/.test(i.message)), false, 0);
+  check('double page réalignée : pages 4–5', s2.pages[3].folio, 4, 0);
+  check('liste : pages imprimées', ALB.list().find(x => x.id === sp.id).pageCount, 5, 0);
+  check('vue en planches désactivable', ALB.update(sp.id, { spreads: false }).spreads, false, 0);
+
+  const renderSp = async opts => { const chunks = []; const rep = await APDF.render(sp.id, { ...opts, write: b2 => chunks.push(Buffer.from(b2)) }); return { rep, t: Buffer.concat(chunks).toString('latin1') }; };
+  const pp = await renderSp({ quality: 'print' });
+  check('PDF page par page : une page PDF par page imprimée', pp.t.split('/Type /Page ').length - 1, 5, 0);
+  check('PDF page par page : format de la page (20 cm)', pp.t.includes('/MediaBox [0 0 566.929 566.929]'), true, 0);
+  check('PDF : la double page n’écrit son image qu’une fois', pp.rep.images, 2, 0);
+  check('PDF : panoramique à sa résolution réelle (1200 px de large)', pp.t.includes(`/Width 1200 /Height 600`), true, 0);
+  check('PDF : cadre vide compté une fois', pp.rep.unfilled.length, 1, 0);
+  check('PDF : découpe au pli (deux moitiés décalées)', pp.t.includes('re W n'), true, 0);
+  const pl = await renderSp({ quality: 'screen', layout: 'spreads', bleed: true });
+  check('PDF en planches : page 1 seule puis paires', `${pl.rep.pdfPages}|${pl.t.split('/Type /Page ').length - 1}`, '3|3');
+  check('PDF en planches : largeur de deux pages + fonds perdus', pl.t.includes(`/MediaBox [0 0 ${Math.round((400 + 2 * BLEED_MM) / 25.4 * 72 * 1000) / 1000} `), true, 0);
+  check('PDF en planches : boîte de coupe sur deux pages', pl.t.includes(`/TrimBox [8.504 8.504 ${Math.round((400 + BLEED_MM) / 25.4 * 72 * 1000) / 1000} `), true, 0);
+  ALB.remove(sp.id);
 
   let err = null; try { await APDF.render('inconnu', { write: () => {} }); } catch (x) { err = x.message; }
   check('album inconnu refusé', err, 'Album inconnu');

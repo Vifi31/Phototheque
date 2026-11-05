@@ -316,3 +316,17 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 .picker-cell { aspect-ratio: 1; padding: 0; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
 .picker-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pdf-frame { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: var(--radius); background: #525659; margin-top: 8px; }
+/* Doubles pages : planche de deux pages, pli au milieu */
+.album-pages > .album-page-wrap.spread { grid-column: 1 / -1; }
+.album-page.spread::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1px dashed rgba(100, 116, 139, .55); pointer-events: none; z-index: 1; }
+.album-page.spread.guides::after { inset: 6% 3%; }
+.album-page.spread .album-caption { left: 53%; right: 3%; }
+.album-pages.spreads { display: flex; flex-direction: column; align-items: stretch; gap: 26px; }
+.album-pages.spreads > .album-page-wrap.add { align-self: flex-start; }
+.planche { display: grid; grid-template-columns: 1fr 1fr; column-gap: 0; align-items: start; }
+.planche > .album-page-wrap.spread { grid-column: 1 / -1; }
+.planche > .album-page-wrap.left .album-page { margin: 0 0 0 auto; }
+.planche > .album-page-wrap.right .album-page { margin: 0 auto 0 0; }
+.planche > .album-page-wrap.left .album-page-tools { padding-right: 14px; }
+.planche > .album-page-wrap.right .album-page-tools { padding-left: 14px; }
+.planche-blank { min-height: 1px; }
