@@ -357,6 +357,7 @@ button.on { outline: 2px solid var(--accent); }
 .photo-cell .ph-variants:hover { background: var(--accent, #2563eb); }
 .import-report { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
 .import-report p { margin: 0; }
+.sheet-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 2px 12px; margin-top: 4px; }
 .import-report ul { margin: 4px 0 0; padding-left: 20px; max-height: 160px; overflow: auto; }
 .lb-version { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 6px; }
 .lb-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }

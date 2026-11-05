@@ -150,3 +150,7 @@ bibliothèque).
    v0.12.0 (critères `hideVariants` / `variants` / `variantsOf`).
    Suppression d'une fiche (fichier ou photo) en v0.15.0 : index seulement,
    chemins notés dans `excluded_files` pour que l'indexation ne les ramène pas.
+6. Catalogues et documents (cahier des charges §14) — planches-contact
+   livrées en v0.16.0 (`lib/contactsheet.mjs`, `docs/ARCHITECTURE.md` §13).
+   Restent : catalogues thématiques, fiches détaillées, portfolios,
+   inventaires par support, rapports (intégrité, fichiers manquants), CSV.

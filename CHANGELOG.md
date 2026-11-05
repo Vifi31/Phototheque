@@ -4,6 +4,28 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.16.0] — 2026-11-05
+
+### Ajouté
+
+- **Planches-contact** (Photothèque → « Planche-contact… ») : un PDF de
+  vignettes légendées pour la sélection, ou, sans sélection, pour toutes les
+  photos de la recherche affichée (filtres, tri, collection, variantes
+  compris).
+  - Réglages : titre, format (A4 ou A3, portrait ou paysage), colonnes et
+    lignes, qualité écran (rapide, aperçus) ou impression (originaux,
+    300 ppp), version retouchée ou d'origine.
+  - Légende au choix : numéro, nom du fichier, date de prise de vue, titre,
+    dimensions, note, appareil, mots-clés, dossier.
+  - Aperçu dans l'application avant de télécharger ; réglages mémorisés.
+  - Chaque photo est montrée entière, sans recadrage ; pied de page avec
+    titre, nombre de photos, date et numéro de page.
+
+### Corrigé
+
+- Titre des PDF (albums et planches) dans les propriétés du document : les
+  caractères comme le tiret cadratin « — » s'affichaient mal (« Š »).
+
 ## [0.15.0] — 2026-11-05
 
 ### Ajouté

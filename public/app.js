@@ -152,7 +152,13 @@ const App = (() => {
     const currentCriteria = () => { const c = { ...state.facet }; delete c.collectionId; if (state.q) c.q = state.q; return Object.fromEntries(Object.entries(c).filter(([, val]) => val !== '' && val != null)); };
     const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
     const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !Object.keys(currentCriteria()).length; };
-    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, h('div.spacer'), selInfo, batchBar);
+    // planche-contact : la sélection si elle existe, sinon toutes les photos de la recherche affichée
+    const sheetBtn = h('button.ghost.small', { title: 'PDF de vignettes légendées : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
+      const label = coll ? coll.name : state.facet.variantsOf ? 'Référence et variantes' : 'Photothèque';
+      if (state.selection.size) contactSheetDialog({ ids: [...state.selection], label, count: state.selection.size });
+      else contactSheetDialog({ query: searchParams().toString(), label, count: state.total });
+    } }, 'Planche-contact…');
+    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, h('div.spacer'), selInfo, batchBar);
 
     function renderGrid() {
       clear(grid);
@@ -182,11 +188,17 @@ const App = (() => {
         h('button.small.ghost', { onclick: () => { lightboxClose(); exportDialog([p.id]); } }, 'Exporter…')]);
     }
 
-    async function refresh() {
-      const params = new URLSearchParams({ limit: state.pageSize, offset: state.page * state.pageSize, sort: state.sort });
+    // critères de la grille (texte, filtres, tri, variantes), sans la pagination : servent aussi à la planche-contact
+    function searchParams() {
+      const params = new URLSearchParams({ sort: state.sort });
       if (state.q) params.set('q', state.q);
       for (const [k, val] of Object.entries(state.facet)) if (val) params.set(k, val);
       if (!coll && !state.facet.variantsOf) { if (state.variants === 'hide') params.set('hideVariants', 'true'); else if (state.variants === 'only') params.set('variants', 'true'); }
+      return params;
+    }
+    async function refresh() {
+      const params = searchParams();
+      params.set('limit', state.pageSize); params.set('offset', state.page * state.pageSize);
       const r = await api('/photos?' + params.toString());
       state.rows = r.rows; state.total = r.total;
       info.textContent = `${fmtNum(r.total)} photo(s)` + (r.hiddenVariants ? ` · ${fmtNum(r.hiddenVariants)} variante(s) masquée(s)` : '');
@@ -858,6 +870,75 @@ const App = (() => {
         h('button.ghost', { onclick: importAlbumProject }, 'Importer un projet…')),
       card(h('div.sect', 'Mes albums'), wrap));
     await refresh();
+  }
+
+  // ---------- Planche-contact (lib/contactsheet.mjs) : réglages, aperçu, PDF ----------
+  // `ids` (sélection, dans l'ordre) ou `query` (critères de la grille au format de /api/photos, tri compris).
+  let sheetMeta = null;
+  async function contactSheetDialog({ ids, query, label, count, presetTitle }) {
+    sheetMeta ??= await api('/contactsheet');
+    const M = sheetMeta, KEY = 'phototheque.contactsheet';
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') ?? {}; } catch { /* préférence absente */ }
+    const o = { ...M.defaults, ...saved };
+    const title = h('input', { type: 'text', value: presetTitle ?? (label && label !== 'Photothèque' ? label : ''), placeholder: 'Titre en tête de page (facultatif)' });
+    const page = h('select', {}, ...Object.entries(M.pages).map(([k, p]) => h('option', { value: k, selected: o.page === k }, p.label)));
+    const cols = h('input', { type: 'number', min: 1, max: 12, value: o.columns, style: { width: '70px' } });
+    const rows = h('input', { type: 'number', min: 1, max: 16, value: o.rows, style: { width: '70px' } });
+    const quality = h('select', {}, ...Object.entries(M.qualities).map(([k, q]) => h('option', { value: k, selected: o.quality === k }, q.label)));
+    const edited = h('input', { type: 'checkbox', checked: o.edited !== false });
+    const boxes = Object.entries(M.fields).map(([k, l]) => { const cb = h('input', { type: 'checkbox', checked: (o.fields ?? []).includes(k) }); cb.dataset.key = k; return h('label.check', cb, ' ' + l); });
+    const info = h('p.dim'), status = h('div');
+    const options = () => ({ title: title.value, page: page.value, columns: +cols.value, rows: +rows.value, quality: quality.value, edited: edited.checked,
+      fields: boxes.map(b => b.querySelector('input')).filter(cb => cb.checked).map(cb => cb.dataset.key) });
+    const n = Math.min(count ?? 0, M.maxPhotos);
+    const sync = () => { const per = Math.max(1, (+cols.value || 1) * (+rows.value || 1)); info.textContent = `${n} photo(s)${ids ? ' sélectionnée(s)' : ' de la recherche affichée'} · ${per} par page → ${Math.ceil(n / per) || 0} page(s)` + ((count ?? 0) > M.maxPhotos ? ` (limitée aux ${M.maxPhotos} premières)` : ''); };
+    for (const el of [cols, rows]) el.addEventListener('input', sync);
+    sync();
+    async function produce(inline) {
+      const opts = options(); try { localStorage.setItem(KEY, JSON.stringify({ ...opts, title: undefined })); } catch { /* préférence non mémorisée */ }
+      const res = await fetch('/api/contactsheet', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(ids ? { ids } : { query }), label, inline, options: inline ? { ...opts, quality: 'screen' } : opts }) });
+      if (!res.ok) { let msg = 'Échec de la production de la planche-contact'; try { msg = (await res.json()).error || msg; } catch { /* corps non JSON */ } throw new Error(msg); }
+      let report = null; try { report = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(res.headers.get('X-Pdf-Report') || ''), c => c.charCodeAt(0)))); } catch { /* compte rendu absent */ }
+      return { blob: await res.blob(), report };
+    }
+    const summary = r => r ? [h('p', `${r.photos} photo(s) sur ${r.pages} page(s) · ${fmtBytes(r.bytes)}${r.edited ? ` · ${r.edited} en version retouchée` : ''}`),
+      r.unreadable.length ? h('div.album-alert.bad', `${r.unreadable.length} photo(s) illisible(s) (n° ${r.unreadable.slice(0, 8).map(u => u.n).join(', ')}${r.unreadable.length > 8 ? '…' : ''}) : case marquée « illisible »`) : null,
+      r.fromPreview.length ? h('div.album-alert.warn', `${r.fromPreview.length} photo(s) prise(s) sur l’aperçu en cache, original indisponible`) : null] : [];
+    const busy = on => { for (const b of m.box.querySelectorAll('button[data-sheet]')) b.disabled = on; };
+    const previewBtn = h('button.ghost', { dataset: { sheet: 'preview' }, onclick: async () => {
+      busy(true); mount(status, h('p.dim', 'Préparation de l’aperçu…'));
+      try {
+        const { blob, report } = await produce(true), src = URL.createObjectURL(blob);
+        clear(status);
+        // la fenêtre d'aperçu remplace celle des réglages : on peut y revenir ou télécharger directement
+        const back = () => contactSheetDialog({ ids, query, label, count, presetTitle: title.value });
+        const pv = modal({ title: 'Aperçu de la planche-contact', wide: true, body: h('div', ...summary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })), actions: [
+          h('button.ghost', { onclick: () => pv.close() }, 'Fermer'), h('button.ghost', { onclick: back }, 'Modifier les réglages'),
+          h('button', { onclick: async () => { await back(); document.querySelector('button[data-sheet="go"]')?.click(); } }, 'Télécharger le PDF')] });
+        new MutationObserver((_, ob) => { if (!pv.box.isConnected) { URL.revokeObjectURL(src); ob.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
+      } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+      busy(false);
+    } }, 'Aperçu');
+    const goBtn = h('button', { dataset: { sheet: 'go' }, onclick: async () => {
+      busy(true); mount(status, h('p.dim', 'Production du PDF…'));
+      try {
+        const { blob, report } = await produce(false);
+        const name = ((title.value || label || 'planche-contact').replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim() || 'planche-contact') + '.pdf';
+        const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        mount(status, h('p', '✓ PDF enregistré dans le dossier de téléchargement du navigateur.'), ...summary(report));
+        toast('Planche-contact produite');
+      } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+      busy(false);
+    } }, 'Télécharger le PDF');
+    const m = modal({ title: 'Planche-contact', body: h('div.import-report',
+      info,
+      field('Titre', title),
+      h('div.row.wrap', { style: { gap: '12px' } }, field('Format', page), field('Colonnes', cols), field('Lignes', rows), field('Qualité', quality)),
+      h('div', h('b', 'Légende'), h('div.sheet-fields', ...boxes)),
+      h('label.check', edited, ' Montrer les photos dans leur version retouchée par défaut'),
+      h('p.dim', 'Chaque photo est montrée entière, sans recadrage. Les originaux sont lus sans être modifiés.'),
+      status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), previewBtn, goBtn] });
   }
 
   // ---------- Réimport d'un projet d'album (lib/albums.mjs importProject) : analyse, puis confirmation ----------

@@ -544,7 +544,7 @@ group('Albums : export PDF (impression et aperçu)');
   check('PDF : cadre vide signalé', rep.unfilled.some(u => u.page === 3 && u.reason === 'cadre vide'), true, 0);
   check('PDF : titre accentué encodé', txt.includes('(R\\351sum\\351 \\(\\351t\\351\\))'), true, 0);
   check('PDF : polices Helvetica WinAnsi', txt.includes('/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding'), true, 0);
-  check('PDF : titre du document', txt.includes('/Title (R\\351sum\\351'), true, 0);
+  check('PDF : titre du document (UTF-16)', txt.includes('/Title <FEFF005200E900730075006D00E9'), true, 0);
   check('PDF : original non modifié', crypto.createHash('sha256').update(fs.readFileSync(orig)).digest('hex'), sumBefore);
   check('PDF : export journalisé', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'album-pdf'").get().n, 1, 0);
 
@@ -1022,6 +1022,44 @@ group('Doublons et photos similaires : exacts, potentiels, similaires, rafales')
   const ch = await DUP.computeHashes();
   check('empreintes manquantes calculées', `${ch.computed >= 1}|${DB.prepare('SELECT perceptual_hash h FROM photos WHERE id = ?').get(as).h !== null}`, 'true|true');
   check('aucun fichier supprimé ni modifié', Object.entries(sums).every(([f, s]) => fs.existsSync(f) && crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex') === s), true, 0);
+}
+
+// ===================================================================
+group('Planches-contact : grille légendée en PDF');
+// ===================================================================
+{
+  const CS = await import('../lib/contactsheet.mjs');
+  const { createEdits } = await import('../lib/edits.mjs');
+  const ED = createEdits(DB, LIB), SHEET = CS.createContactSheets(DB, LIB, ED);
+  check('options : bornes et valeurs inconnues', JSON.stringify(CS.cleanSheetOptions({ page: 'x', columns: 99, rows: 0, fields: ['name', 'pirate', 'name'], quality: '?' })),
+    JSON.stringify({ page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
+  check('texte trop long coupé avec points de suspension', `${CS.fitText('IMG_0001_tres_long_nom_de_fichier.jpg', 8, 60).endsWith('…')}|${CS.fitText('court', 8, 60)}`, 'true|court');
+  const rows = LIB.search({}, { limit: 5, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
+  const ids = rows.map(r => r.id);
+  const shaOf = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+  const before = rows.map(r => shaOf(r.path));
+  const ed = ED.create(ids[0], { name: 'N&B', params: { mono: 'bw' } }); ED.update(ed.id, { isDefault: true });
+  const make = async (list, o) => { const ch = []; const rep = await SHEET.render(list, o, { write: b => ch.push(Buffer.from(b)), label: 'Essai' }); return { rep, buf: Buffer.concat(ch) }; };
+  const { rep, buf } = await make([...ids, 'inconnue'], { columns: 2, rows: 2, title: 'Été 2024 — planche', fields: ['number', 'name', 'date', 'dimensions'] });
+  const txt = buf.toString('latin1');
+  check('PDF valide', `${txt.startsWith('%PDF-1.4')}|${txt.trimEnd().endsWith('%%EOF')}`, 'true|true');
+  check('pages : photos réparties 2 × 2 (photo inconnue ignorée)', `${rep.photos}|${rep.pages}|${(txt.match(/\/Type \/Page /g) || []).length}`, `${ids.length}|${Math.ceil(ids.length / 4)}|${Math.ceil(ids.length / 4)}`);
+  check('une image par photo lisible', rep.images + rep.unreadable.length, ids.length);
+  check('titre accentué (WinAnsi) et pagination', `${txt.includes('(\\311t\\351 2024 \\227 planche)')}|${txt.includes(`(Page 1 / ${rep.pages})`)}`, 'true|true');
+  check('titre du document : tiret cadratin conservé (UTF-16)', /\/Title <FEFF00C9[0-9A-F]*2014/.test(txt), true, 0);
+  // numéro en gras puis nom du fichier sur la même ligne (coupé si trop long : on compare le début)
+  check('légende : numéro et nom de fichier', `${txt.includes('(1) Tj')}|${txt.includes('(' + path.basename(rows[0].path).slice(0, 5))}`, 'true|true');
+  check('version retouchée montrée par défaut', rep.edited, 1);
+  check('version d’origine sur demande', (await make(ids, { edited: false })).rep.edited, 0);
+  const pr = (await make(ids, { quality: 'print', columns: 3, rows: 3 })).rep;
+  check('qualité impression : lue sur les originaux', pr.fromOriginal >= 1, true, 0);
+  let e1 = null; try { await make([], {}); } catch (x) { e1 = x.message; }
+  check('aucune photo : refusé', e1, 'Aucune photo pour la planche-contact');
+  let e2 = null; try { await make(ids, { columns: 12, rows: 16, fields: Object.keys(CS.SHEET_FIELDS) }); } catch (x) { e2 = x.message; }
+  check('grille trop dense : refusée avec explication', /Trop de photos par page/.test(e2 ?? ''), true, 0);
+  check('planche consignée dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'contact-sheet'").get().n >= 3, true, 0);
+  check('originaux jamais modifiés', rows.every((r, k) => shaOf(r.path) === before[k]), true, 0);
+  ED.remove(ed.id);
 }
 
 // ===================================================================

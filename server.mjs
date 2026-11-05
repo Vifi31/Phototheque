@@ -23,6 +23,7 @@ import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
 import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION } from './lib/edits.mjs';
 import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
+import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -39,6 +40,7 @@ const albums = createAlbums(db, library, edits); // edits : recréer les retouch
 const albumPdf = createAlbumPdf(db, library, albums);
 const exportsSvc = createExports(db, edits);
 const duplicates = createDuplicates(db, library);
+const contactSheets = createContactSheets(db, library, edits);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -59,6 +61,22 @@ const readBody = req => new Promise((resolve, reject) => {
   let s = ''; req.on('data', c => { s += c; if (s.length > 4e6) req.destroy(); });
   req.on('end', () => { try { resolve(s ? JSON.parse(s) : {}); } catch (e) { reject(e); } });
 });
+
+/** Critères de recherche lus dans des paramètres d'URL (Photothèque, planche-contact : mêmes clés que lib/search.mjs). */
+function filtersFrom(sp) {
+  const f = {};
+  // chaînes
+  for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf']) if (sp.get(k)) f[k] = sp.get(k);
+  // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
+  for (const k of ['rating', 'color', 'missing', 'hasGps', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
+  // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère
+  for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
+  f.prefix = sp.get('prefix') !== 'false';
+  // listes séparées par des virgules (ET / OU / NON)
+  const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };
+  for (const k of ['keywords', 'anyKeywords', 'excludeKeywords', 'anyText', 'excludeText']) if (list(k)) f[k] = list(k);
+  return f;
+}
 
 // Charge utile bornée (sécurité) : nombres, booléens, chaînes, objets/arrays de profondeur limitée.
 function sanitize(value, depth = 0) {
@@ -155,25 +173,42 @@ async function api(req, res, url) {
 
   // ---- Recherche / liste des photos (critères de la §9 du cahier des charges) ----
   if (p === '/api/photos' && m === 'GET') {
-    const sp = url.searchParams;
-    const f = {};
-    // chaînes
-    for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf']) if (sp.get(k)) f[k] = sp.get(k);
-    // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
-    for (const k of ['rating', 'color', 'missing', 'hasGps', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
-    // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère
-    for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
-    f.prefix = sp.get('prefix') !== 'false';
-    // listes séparées par des virgules (ET / OU / NON)
-    const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };
-    if (list('keywords')) f.keywords = list('keywords');
-    if (list('anyKeywords')) f.anyKeywords = list('anyKeywords');
-    if (list('excludeKeywords')) f.excludeKeywords = list('excludeKeywords');
-    if (list('anyText')) f.anyText = list('anyText');
-    if (list('excludeText')) f.excludeText = list('excludeText');
+    const sp = url.searchParams, f = filtersFrom(sp);
     if (f.collectionId && !collections.get(f.collectionId)) return json(res, 404, { error: 'Collection inconnue' });
     const r = library.search(collections.resolveFilters(f), { limit: sp.get('limit'), offset: sp.get('offset'), sort: sp.get('sort') });
     return json(res, 200, r);
+  }
+  // ---- Planche-contact (lib/contactsheet.mjs) : photos choisies, ou toutes celles d'une recherche ----
+  if (p === '/api/contactsheet' && m === 'GET') return json(res, 200, { pages: SHEET_PAGES, fields: SHEET_FIELDS, qualities: SHEET_QUALITIES, defaults: SHEET_DEFAULTS, maxPhotos: MAX_SHEET_PHOTOS });
+  if (p === '/api/contactsheet' && m === 'POST') {
+    const b = await readBody(req);
+    let ids = Array.isArray(b?.ids) ? b.ids.filter(x => typeof x === 'string').slice(0, MAX_SHEET_PHOTOS) : null;
+    if (!ids) {
+      // même recherche que la grille : critères au format des paramètres de /api/photos, tri compris
+      const sp = new URLSearchParams(typeof b?.query === 'string' ? b.query.slice(0, 4000) : '');
+      const f = filtersFrom(sp);
+      if (f.collectionId && !collections.get(f.collectionId)) return json(res, 404, { error: 'Collection inconnue' });
+      const crit = collections.resolveFilters(f);
+      ids = [];
+      for (let off = 0; ids.length < MAX_SHEET_PHOTOS; off += 300) {
+        const r = library.search(crit, { limit: 300, offset: off, sort: sp.get('sort') });
+        ids.push(...r.rows.map(x => x.id)); if (r.rows.length < 300) break;
+      }
+      ids = ids.slice(0, MAX_SHEET_PHOTOS);
+    }
+    const opts = sanitize(b?.options) ?? {};
+    const tmp = path.join(os.tmpdir(), `phototheque-planche-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
+    const fd = fs.openSync(tmp, 'w');
+    let report;
+    try { report = await contactSheets.render(ids, opts, { write: buf => fs.writeSync(fd, buf), label: typeof b?.label === 'string' ? b.label.slice(0, 120) : '' }); }
+    catch (e) { fs.closeSync(fd); fs.rmSync(tmp, { force: true }); return json(res, 400, { error: e.message }); }
+    fs.closeSync(fd);
+    const file = ((opts.title || b?.label || 'planche-contact').replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim() || 'planche-contact') + '.pdf';
+    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': report.bytes,
+      'Content-Disposition': `${b?.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file)}`,
+      'X-Pdf-Report': Buffer.from(JSON.stringify(report)).toString('base64') });
+    const rs = fs.createReadStream(tmp); rs.on('close', () => fs.rmSync(tmp, { force: true }));
+    return rs.pipe(res);
   }
   if (p === '/api/photos' && m === 'PUT') { const b = await readBody(req); const d = library.update(b.id, sanitize(b) ?? {}); if (b.keywords) { db.prepare('DELETE FROM photo_keywords WHERE photo_id=?').run(b.id); keywords.attachNames(b.id, b.keywords); library.syncKeywordsText(b.id); } return json(res, 200, { photo: d }); }
   if (p === '/api/photos/remove' && m === 'POST') { const b = await readBody(req); return json(res, 200, library.removeFromIndex(b.ids)); } // retire de l'index, jamais des originaux

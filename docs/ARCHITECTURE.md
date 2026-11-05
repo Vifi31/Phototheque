@@ -368,3 +368,31 @@ dehors des décisions de l'utilisateur) :
   variantes d'une référence). Le choix masquer / afficher / seulement est une
   préférence d'affichage de l'interface (`localStorage`), hors critères
   enregistrés, sans effet dans une collection.
+
+## 13. Planches-contact (v0.16.0)
+
+`lib/contactsheet.mjs` (`createContactSheets(db, library, edits)`) produit
+un PDF de vignettes légendées avec `lib/pdf.mjs` (cahier des charges §14).
+
+* Photos : liste d'identifiants (sélection, dans l'ordre) ou critères de la
+  grille au format des paramètres de `/api/photos` (tri, filtres,
+  collection, variantes ; lus par `filtersFrom()` dans `server.mjs`, commun
+  aux deux routes). 3000 photos au plus (`MAX_SHEET_PHOTOS`).
+* Options (`cleanSheetOptions`) : format `SHEET_PAGES` (A4 / A3, portrait /
+  paysage), colonnes 1–12, lignes 1–16, champs de légende `SHEET_FIELDS`
+  (numéro, nom, date, titre, dimensions, note, appareil, mots-clés,
+  dossier), titre, qualité `SHEET_QUALITIES` (`screen` : aperçus en cache,
+  150 ppp ; `print` : originaux, 300 ppp), version retouchée (oui / non).
+  Une grille trop dense pour la page est refusée avec un message.
+* Chaque photo est montrée entière (« contenir »), centrée sur un fond gris
+  clair ; version retouchée par défaut rendue par `edits.preview()` (cache) ;
+  sinon aperçu ou original selon la qualité, avec repli ; une photo
+  illisible garde sa case, marquée « illisible ». Légendes coupées à la
+  largeur (`fitText`), pied de page : titre, nombre de photos, date,
+  « Page n / N ».
+* Route `GET /api/contactsheet` (formats, champs, valeurs par défaut) et
+  `POST /api/contactsheet` (`{ ids | query, label, options, inline }`) :
+  PDF dans un fichier temporaire, envoyé puis effacé, compte rendu dans
+  `X-Pdf-Report`, consigné dans `exports` (`kind = 'contact-sheet'`).
+* Depuis cette version, les métadonnées du PDF (`/Title`, `/Producer`) sont
+  écrites en UTF-16BE : le WinAnsi des pages ne vaut pas pour elles.
