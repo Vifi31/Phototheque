@@ -1229,7 +1229,11 @@ const App = (() => {
       const fileRows = p.files.map((f, k) => h('div.dup-file' + (f.available ? '' : '.off'),
         h('span', { title: f.path }, f.path),
         h('small.dim', [f.support, f.bytes != null ? fmtBytes(f.bytes) : null, f.available ? null : 'indisponible', g.kind === 'files' ? (k === 0 ? 'fichier de référence' : 'copie') : null].filter(Boolean).join(' · ')),
-        g.kind === 'files' && k > 0 ? h('button.ghost.small', { onclick: async () => { await api('/duplicates/reference-file', 'POST', { fileId: f.id }); toast('Fichier de référence choisi (les autres fichiers restent indexés comme copies)'); load(); } }, 'Fichier de référence') : null));
+        g.kind === 'files' && k > 0 ? h('button.ghost.small', { onclick: async () => { await api('/duplicates/reference-file', 'POST', { fileId: f.id }); toast('Fichier de référence choisi (les autres fichiers restent indexés comme copies)'); load(); } }, 'Fichier de référence') : null,
+        p.files.length > 1 ? h('button.ghost.small.danger', { title: 'Retire ce fichier du catalogue ; il reste sur le disque', onclick: async () => {
+          if (!(await confirmDialog('Supprimer la fiche', `Supprimer la fiche de ce fichier du catalogue ?\n\n${f.path}\n\nLe fichier n’est ni effacé ni déplacé : il reste sur le disque et ne sera plus réindexé. La photo garde ses ${p.files.length - 1} autre(s) fichier(s), ses mots-clés et ses retouches.`))) return;
+          try { await api('/duplicates/remove', 'POST', { fileId: f.id }); toast('Fiche supprimée. Fichier conservé sur le disque.'); load(true); } catch (e) { toast(e.message, 'bad'); }
+        } }, 'Supprimer la fiche…') : null));
       return h('div.dup-photo' + (isRef ? '.ref' : ''),
         h('div.dup-thumb', { onclick: () => lightboxOpen(g.photos, g.photos.indexOf(p), () => {}) }, p.thumb ? h('img', { src: p.thumb, alt: '', loading: 'lazy' }) : h('span', '🖼️'),
           isRef ? h('span.dup-badge', '★ Référence') : isVar ? h('span.dup-badge.var', 'Variante') : null),
@@ -1241,10 +1245,11 @@ const App = (() => {
           ...fileRows),
         g.photos.length > 1 ? h('div.row.wrap',
           isRef ? null : h('button.small', { title: 'Les autres photos du groupe deviennent ses variantes (rien n’est supprimé)', onclick: async () => { await api('/duplicates/reference', 'POST', { photoIds: g.photos.map(x => x.id), reference: p.id }); toast('Référence désignée, variantes conservées'); load(); } }, '★ Référence'),
-          h('button.ghost.small.danger', { onclick: async () => {
-            if (!(await confirmDialog("Retirer de l'index", `Retirer cette photo de l'index ? Ses fichiers ne seront JAMAIS supprimés ni déplacés ; elle reviendra si vous réindexez son dossier.`))) return;
-            await api('/photos/remove', 'POST', { ids: [p.id] }); toast("Photo retirée de l'index. Fichiers intacts."); load();
-          } }, "Retirer de l'index…")) : null);
+          h('button.ghost.small.danger', { title: 'Retire cette photo du catalogue ; ses fichiers restent sur le disque', onclick: async () => {
+            const lost = [p.edits ? `${p.edits} version(s) retouchée(s)` : null, 'ses mots-clés, sa note et sa légende'].filter(Boolean).join(', ');
+            if (!(await confirmDialog('Supprimer la fiche', `Supprimer la fiche de cette photo (${p.width ?? '?'} × ${p.height ?? '?'}) du catalogue ? Avec elle disparaissent ${lost} ; un album qui l’utilisait signalera son cadre.\n\nSes ${p.files.length} fichier(s) ne sont ni effacés ni déplacés : ils restent sur le disque et ne seront plus réindexés.`))) return;
+            try { await api('/duplicates/remove', 'POST', { photoId: p.id }); toast('Fiche supprimée. Fichiers conservés sur le disque.'); load(true); } catch (e) { toast(e.message, 'bad'); }
+          } }, 'Supprimer la fiche…')) : null);
     }
     function groupCard(g) {
       const hasRef = g.photos.some(p => p.isReference || p.reference);
@@ -1264,7 +1269,7 @@ const App = (() => {
     }
 
     async function load(refreshSummary = false) {
-      if (refreshSummary) sum = await api('/duplicates/summary?' + qs());
+      if (refreshSummary) { sum = await api('/duplicates/summary?' + qs()); drawOpts(); } // compteurs des boutons d'options
       mount(tabs, ...Object.entries(sum.levels).map(([k, label]) => h('button.small' + (S.level === k ? '' : '.ghost'), { onclick: () => { S.level = k; S.limit = 30; drawOpts(); load(); } }, `${label} (${sum[k]})`)));
       mount(hashCard, sum.hashesMissing ? card(h('div.row', h('span', `${sum.hashesMissing} photo(s) n’ont pas encore d’empreinte visuelle : elles n’apparaissent pas dans les photos similaires.`), h('div.spacer'), h('button.small', { onclick: () => computeHashes(false) }, 'Calculer'))) : null);
       const r = await api('/duplicates?' + qs({ level: S.level, limit: S.limit }));
@@ -1287,6 +1292,9 @@ const App = (() => {
         sec.addEventListener('change', () => { S.seconds = +sec.value; load(true); });
         mount(opts, h('label.row', { style: { gap: '8px' } }, 'Intervalle maximal (secondes)', sec));
       } else clear(opts);
+      if (sum.excludedFiles) opts.appendChild(h('button.ghost.small', { title: 'Les fichiers dont la fiche a été supprimée pourront de nouveau être indexés (à la prochaine indexation de leur dossier)', onclick: async () => {
+        if (!(await confirmDialog('Réautoriser les fichiers écartés', `${sum.excludedFiles} fichier(s) dont la fiche a été supprimée pourront de nouveau être indexés. Rien n’est indexé tout de suite : ils reviendront à la prochaine indexation de leur dossier.`))) return;
+        await api('/duplicates/remove', 'POST', { reset: true }); toast('Fichiers écartés réautorisés'); load(true); } }, `Réautoriser les fichiers écartés (${sum.excludedFiles})`));
       if (sum.ignoredPairs) opts.appendChild(h('button.ghost.small', { title: 'Reproposer les groupes déclarés « pas des doublons »', onclick: async () => { await api('/duplicates/ignore', 'POST', { reset: true }); load(true); } }, `Reproposer les groupes écartés (${sum.ignoredPairs} paire(s))`));
     }
 

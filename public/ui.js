@@ -94,7 +94,7 @@ const UI = (() => {
     return new Promise(resolve => {
       let done = false;
       const finish = v => { if (!done) { done = true; m.close(); resolve(v); } };
-      const m = modal({ title, body: h('p', message), actions: [h('button.ghost', { onclick: () => finish(false) }, 'Annuler'), h('button.danger', { onclick: () => finish(true) }, 'Confirmer')] });
+      const m = modal({ title, body: h('p', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere' } }, message), actions: [h('button.ghost', { onclick: () => finish(false) }, 'Annuler'), h('button.danger', { onclick: () => finish(true) }, 'Confirmer')] });
       setTimeout(() => m.box.querySelector('.danger')?.focus(), 0);
     });
   }

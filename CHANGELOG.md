@@ -4,6 +4,34 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.15.0] — 2026-11-05
+
+### Ajouté
+
+- **Supprimer une fiche en double** (page Doublons, bouton « Supprimer la
+  fiche… », après confirmation) :
+  - sur un **fichier** d'une photo présente en plusieurs fichiers : la photo
+    garde ses autres fichiers, ses mots-clés et ses retouches ; si c'était le
+    fichier de référence, un autre fichier disponible le devient ;
+  - sur une **photo** d'un groupe : sa fiche est retirée du catalogue (avec
+    ses mots-clés et ses retouches ; un album qui l'utilisait signale le
+    cadre).
+- Les fichiers concernés sont **écartés** : une réindexation ne les ramène
+  pas, sauf si leur contenu change. « Réautoriser les fichiers écartés (n) »
+  annule cet écart.
+
+### Modifié
+
+- Un fichier indexé dont le contenu existe déjà au catalogue est enregistré
+  comme copie : le fichier de référence choisi ne change plus après une
+  réindexation.
+
+### Sécurité des données
+
+- Aucun fichier n'est jamais effacé ni déplacé sur le disque : seule la
+  fiche du catalogue est supprimée. Le dernier fichier d'une photo ne peut
+  pas être retiré seul.
+
 ## [0.14.0] — 2026-11-05
 
 ### Ajouté

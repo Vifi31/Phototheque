@@ -347,6 +347,18 @@ dehors des décisions de l'utilisateur) :
   `{ reference: <id> }` ; paires « pas des doublons » dans `config`
   (clé `duplicates.ignored`) ; fichier de référence = `files.kind`
   `original` pour lui, `copy` pour les autres.
+* **Suppression d'une fiche (v0.15.0)** : `removeFile(fileId)` retire la
+  fiche d'un fichier d'une photo qui en a plusieurs (refus pour le dernier ;
+  si c'était le fichier de référence, le premier fichier disponible le
+  devient) ; `removePhoto(photoId)` retire la fiche d'une photo
+  (`library.removeFromIndex`). Dans les deux cas, aucun fichier n'est effacé
+  ni déplacé : les chemins sont notés dans la table `excluded_files`
+  (`path`, `sha256`) et `indexFile` renvoie `'excluded'` tant que le contenu
+  n'a pas changé. `resetExcluded()` réautorise. Route `POST
+  /api/duplicates/remove` (`{ fileId }` | `{ photoId }` | `{ reset: true }`).
+  Depuis cette version, un fichier rattaché à une photo existante à
+  l'indexation est enregistré en `copy` (le fichier de référence ne change
+  plus au gré des réindexations).
 * **Variantes dans la Photothèque (v0.12.0)** : critères de recherche
   `hideVariants`, `variants` et `variantsOf` (`lib/search.mjs`, expression
   `VARIANT_OF` = `json_extract(p.data, '$.duplicate.reference')`, indexée par

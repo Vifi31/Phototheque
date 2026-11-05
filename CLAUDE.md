@@ -148,3 +148,5 @@ bibliothèque).
    référence / variantes, groupes écartés, fichier de référence. Jamais de
    suppression automatique. Variantes masquées dans la Photothèque en
    v0.12.0 (critères `hideVariants` / `variants` / `variantsOf`).
+   Suppression d'une fiche (fichier ou photo) en v0.15.0 : index seulement,
+   chemins notés dans `excluded_files` pour que l'indexation ne les ramène pas.

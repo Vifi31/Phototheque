@@ -223,6 +223,16 @@ async function api(req, res, url) {
   if (p === '/api/duplicates/reference' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, b.clear ? duplicates.clearReference(b.photoIds) : duplicates.setReference(b.photoIds, b.reference)); }
   if (p === '/api/duplicates/ignore' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, b.reset ? duplicates.resetIgnored() : duplicates.ignore(b.photoIds)); }
   if (p === '/api/duplicates/reference-file' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, duplicates.setReferenceFile(b.fileId)); }
+  // Suppression d'une fiche en double : index seulement, le fichier reste sur le disque (écarté de l'indexation)
+  if (p === '/api/duplicates/remove' && m === 'POST') {
+    const b = sanitize(await readBody(req)) ?? {};
+    try {
+      if (b.reset) return json(res, 200, duplicates.resetExcluded());
+      if (b.fileId) return json(res, 200, duplicates.removeFile(b.fileId));
+      if (b.photoId) return json(res, 200, duplicates.removePhoto(b.photoId));
+      return json(res, 400, { error: 'fileId ou photoId attendu' });
+    } catch (e) { return json(res, 400, { error: e.message }); }
+  }
 
   // ---- Exports de photos (travail en arrière-plan, suivi par /api/jobs/<id>) ----
   if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR });

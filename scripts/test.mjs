@@ -990,6 +990,32 @@ group('Doublons et photos similaires : exacts, potentiels, similaires, rafales')
   DUP.clearReference([a, as]);
   check('référence annulée : plus rien de masqué', LIB.search({ hideVariants: true }, { limit: 1 }).hiddenVariants, 0);
 
+  // suppression d'une fiche en double (index seulement ; fichier conservé et écarté de l'indexation)
+  {
+    const nFiles = () => DB.prepare('SELECT COUNT(*) n FROM files WHERE photo_id = ?').get(a).n;
+    const copyRow = DB.prepare('SELECT id FROM files WHERE path = ?').get(Acopy); // fichier de référence depuis setReferenceFile
+    const rf = DUP.removeFile(copyRow.id);
+    check('fiche de fichier supprimée, photo conservée', `${rf.fileUntouched}|${nFiles()}|${!!DB.prepare('SELECT 1 FROM photos WHERE id = ?').get(a)}`, 'true|1|true');
+    check('fichier toujours présent sur le disque', fs.existsSync(Acopy), true, 0);
+    check('autre fichier promu fichier de référence', DB.prepare('SELECT kind FROM files WHERE path = ?').get(A).kind, 'original');
+    check('fichier écarté compté', DUP.summary({}).excludedFiles, 1);
+    check('réindexation : le fichier écarté n’est pas rattaché', `${await LIB.indexFile(Acopy, {})}|${nFiles()}`, 'excluded|1');
+    let e6 = null; try { DUP.removeFile(DB.prepare('SELECT id FROM files WHERE path = ?').get(A).id); } catch (x) { e6 = x.message; }
+    check('dernier fichier d’une photo : refusé', /seul fichier/.test(e6 ?? ''), true, 0);
+    // fiche d'une photo (avec ses deux fichiers) supprimée
+    const twin = path.join(dir, 'autre', 'jumelle.jpg'); fs.copyFileSync(B, twin); await LIB.indexFile(twin, {});
+    const rp = DUP.removePhoto(b);
+    check('fiche de photo supprimée, fichiers gardés sur le disque', `${!!DB.prepare('SELECT 1 FROM photos WHERE id = ?').get(b)}|${rp.files.length}|${fs.existsSync(B)}|${fs.existsSync(twin)}`, 'false|2|true|true');
+    check('réindexation : les fichiers de la fiche supprimée restent écartés', `${await LIB.indexFile(B, {})}|${await LIB.indexFile(twin, {})}`, 'excluded|excluded');
+    // contenu modifié : le fichier redevient indexable
+    const mod = path.join(dir, 'autre', 'modifie.jpg'); fs.copyFileSync(As, mod); await LIB.indexFile(mod, {});
+    DUP.removeFile(DB.prepare('SELECT id FROM files WHERE path = ?').get(mod).id);
+    await sh(svgB(320, 200)).jpeg().toFile(mod);
+    check('fichier écarté dont le contenu change : indexé de nouveau', await LIB.indexFile(mod, {}), 'added');
+    check('réautorisation des fichiers écartés', `${DUP.resetExcluded().reset >= 2}|${DUP.excludedCount()}`, 'true|0');
+    check('après réautorisation : indexable', await LIB.indexFile(Acopy, {}), 'added');
+  }
+
   // empreintes manquantes
   DB.prepare('UPDATE photos SET perceptual_hash = NULL WHERE id = ?').run(as);
   check('empreinte manquante comptée', DUP.missingHashes() >= 1, true, 0);
