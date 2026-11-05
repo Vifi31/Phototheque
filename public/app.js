@@ -113,6 +113,9 @@ const App = (() => {
     const missSel = h('select', { onchange: () => { state.facet.missing = missSel.value; state.page = 0; refresh(); } },
       ...[['', 'Toutes disponibilités'], ['0', 'Présentes'], ['1', 'Indisponibles']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.missing === v2 }, l)));
 
+    // recherche avancée : critères ET / OU / NON et filtres fins (mêmes clés que lib/search.mjs)
+    const advanced = advancedPanel(() => { state.page = 0; refresh(); });
+
     mount(filterBar, yearSel, camSel, fmtSel, ratingSel, missSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
 
     // sélection multiple
@@ -239,8 +242,76 @@ const App = (() => {
     const collBar = coll ? h('div.row', h('span.dim', coll.kind === 'dynamic' ? 'Recherche enregistrée — ' + describeQuery(coll.query) : 'Sélection'),
       h('button.ghost.small', { onclick: () => { delete state.facet.collectionId; state.page = 0; go('photos'); } }, 'Quitter la collection'),
       h('button.ghost.small', { onclick: () => go('collections') }, 'Toutes les collections')) : null;
-    mount(v, title, collBar, filterBar, toolbar, info, grid, pager);
+    mount(v, title, collBar, filterBar, advanced, toolbar, info, grid, pager);
     await refresh();
+  }
+
+  // ---------- recherche avancée (panneau repliable de la Photothèque) ----------
+  // Chaque contrôle écrit une clé de state.facet ; refresh() la transmet telle quelle à /api/photos,
+  // et « Enregistrer la recherche… » l'emporte dans les critères de la collection.
+  const ADV_KEYS = ['anyText', 'excludeText', 'keywords', 'anyKeywords', 'excludeKeywords', 'hasKeyword', 'noKeyword', 'hasCaption', 'noCaption',
+    'orientation', 'hasGps', 'from', 'to', 'minWidth', 'minHeight', 'lens', 'author'];
+  function advancedPanel(onApply) {
+    const f = state.facet;
+    const text = (key, placeholder) => h('input', { type: 'text', value: f[key] ?? '', placeholder, dataset: { key } });
+    const num = key => h('input', { type: 'number', min: 0, step: 100, value: f[key] ?? '', placeholder: 'px', dataset: { key } });
+    const date = key => h('input', { type: 'date', value: (f[key] ?? '').slice(0, 10), dataset: { key } });
+    const choice = (options, current) => h('select', {}, ...options.map(([val, label]) => h('option', { value: val, selected: current === val }, label)));
+    const LIST = 'séparés par des virgules';
+
+    const inputs = [
+      text('anyText', LIST), text('excludeText', LIST),
+      text('keywords', LIST), text('anyKeywords', LIST), text('excludeKeywords', LIST),
+      text('lens', 'ex. : 50mm'), text('author', 'nom du photographe'),
+      date('from'), date('to'), num('minWidth'), num('minHeight'),
+    ];
+    const byKey = Object.fromEntries(inputs.map(i => [i.dataset.key, i]));
+    const kwSel = choice([['', 'Indifférent'], ['hasKeyword', 'Avec au moins un mot-clé'], ['noKeyword', 'Sans aucun mot-clé']], f.hasKeyword ? 'hasKeyword' : f.noKeyword ? 'noKeyword' : '');
+    const capSel = choice([['', 'Indifférent'], ['hasCaption', 'Avec légende'], ['noCaption', 'Sans légende']], f.hasCaption ? 'hasCaption' : f.noCaption ? 'noCaption' : '');
+    const oriSel = choice([['', 'Toutes'], ['landscape', 'Paysage'], ['portrait', 'Portrait'], ['square', 'Carré']], f.orientation ?? '');
+    const gpsSel = choice([['', 'Indifférent'], ['1', 'Avec position GPS'], ['0', 'Sans position GPS']], f.hasGps ?? '');
+
+    const active = () => ADV_KEYS.filter(k => f[k] != null && f[k] !== '').length;
+    const count = h('span.badge');
+    const showCount = () => { const n = active(); count.textContent = n ? String(n) : ''; count.hidden = !n; };
+
+    function apply() {
+      for (const k of ADV_KEYS) delete f[k];
+      for (const [k, el] of Object.entries(byKey)) {
+        let val = el.value.trim();
+        if (!val) continue;
+        if (k === 'to') val += 'T23:59:59'; // la date de fin inclut toute la journée
+        f[k] = val;
+      }
+      if (kwSel.value) f[kwSel.value] = 'true';
+      if (capSel.value) f[capSel.value] = 'true';
+      if (oriSel.value) f.orientation = oriSel.value;
+      if (gpsSel.value) f.hasGps = gpsSel.value;
+      showCount(); onApply();
+    }
+    function reset() {
+      for (const el of inputs) el.value = '';
+      for (const s of [kwSel, capSel, oriSel, gpsSel]) s.value = '';
+      apply();
+    }
+    for (const el of inputs) el.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
+    showCount();
+
+    const group = (label, ...fields) => h('div.adv-group', h('div.adv-label', label), h('div.form', ...fields));
+    return h('details.card.adv', { open: state.advOpen || null, ontoggle: e => { state.advOpen = e.target.open; } },
+      h('summary', 'Recherche avancée ', count),
+      group('Texte (titre, légende, notes, mots-clés, appareil)',
+        field('Au moins un de ces mots', byKey.anyText), field('Aucun de ces mots', byKey.excludeText)),
+      group('Mots-clés',
+        field('Tous ces mots-clés', byKey.keywords), field('Au moins un de ces mots-clés', byKey.anyKeywords),
+        field('Aucun de ces mots-clés', byKey.excludeKeywords), field('Présence', kwSel)),
+      group('Prise de vue',
+        field('Du', byKey.from), field('Au', byKey.to), field('Objectif', byKey.lens), field('Auteur', byKey.author)),
+      group('Image',
+        field('Orientation', oriSel), field('Largeur minimale', byKey.minWidth), field('Hauteur minimale', byKey.minHeight),
+        field('Légende', capSel), field('GPS', gpsSel)),
+      h('div.row', h('div.spacer'), h('button.ghost.small', { onclick: reset }, 'Effacer ces critères'), h('button.small', { onclick: apply }, 'Rechercher')),
+      h('p.dim.adv-hint', 'Le texte de la barre du haut exige tous ses mots ; il se combine avec ces critères. Les listes se séparent par des virgules.'));
   }
 
   // ---------- vue Importation ----------
@@ -446,8 +517,10 @@ const App = (() => {
     const parts = Object.entries(q ?? {}).filter(([k]) => CRITERIA[k]).map(([k, val]) => {
       if (val === true) return CRITERIA[k];
       if (k === 'missing') return +val ? 'indisponibles' : 'présentes';
-      if (k === 'hasGps') return val ? 'avec GPS' : 'sans GPS';
+      if (k === 'hasGps') return [false, 0, '0', 'false'].includes(val) ? 'sans GPS' : 'avec GPS';
       if (k === 'keywordId') return `${CRITERIA[k]} « ${kwName(val)} »`;
+      if (k === 'from' || k === 'to') return `${CRITERIA[k]} ${fmtDate(String(val).slice(0, 10))}`;
+      if (k === 'orientation') return { landscape: 'paysage', portrait: 'portrait', square: 'carré' }[val] ?? val;
       return `${CRITERIA[k]} « ${[].concat(val).join(', ')} »`;
     });
     return parts.length ? parts.join(' · ') : 'aucun critère';

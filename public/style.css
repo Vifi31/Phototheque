@@ -244,3 +244,16 @@ table.data tbody tr:hover { background: var(--surface-2); }
   #topbar { padding: 14px 16px 10px; }
   #menuToggle { display: inline-flex; }
 }
+
+/* Recherche avancée (panneau repliable de la Photothèque) */
+.adv { padding: 12px 18px; }
+.adv > summary { cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 8px; list-style: none; }
+.adv > summary::-webkit-details-marker { display: none; }
+.adv > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+.adv[open] > summary::before { transform: rotate(90deg); }
+.adv[open] > summary { margin-bottom: 12px; }
+.adv .badge[hidden] { display: none; }
+.adv-group { margin-bottom: 14px; }
+.adv-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
+.adv-hint { margin: 8px 0 0; font-size: 12.5px; }
+.adv .badge { font-size: 11px; font-weight: 700; background: var(--accent, #1fb5b5); color: #fff; padding: 1px 7px; border-radius: 20px; }

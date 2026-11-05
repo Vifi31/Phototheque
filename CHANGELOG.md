@@ -4,6 +4,31 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.3.0] — 2026-11-05
+
+### Ajouté
+
+- **Recherche avancée dans l'interface** : panneau repliable « Recherche
+  avancée » dans la Photothèque. Il expose les critères qui n'existaient
+  jusqu'ici que côté API :
+  - texte : au moins un de ces mots, aucun de ces mots (le texte de la barre
+    du haut exige toujours tous ses mots) ;
+  - mots-clés : tous, au moins un, aucun, avec ou sans mot-clé ;
+  - prise de vue : période (la date de fin inclut toute la journée),
+    objectif, auteur ;
+  - image : orientation, largeur et hauteur minimales, légende, GPS.
+  Un compteur indique le nombre de critères actifs ; « Enregistrer la
+  recherche… » emporte ces critères dans une collection.
+
+### Corrigé
+
+- **Mots-clés saisis dans une recherche** (`lib/search.mjs`) : ils étaient
+  comparés en minuscules seulement, alors que les mots-clés sont rangés sans
+  accents ni espaces doubles. « été » ne trouvait donc pas « Été ». La
+  recherche utilise maintenant la même normalisation (`normalizeKeyword`,
+  `lib/keywords.mjs`).
+- **Tests** : 145 vérifications (3 nouvelles sur les mots-clés accentués).
+
 ## [0.2.1] — 2026-11-05
 
 ### Corrigé

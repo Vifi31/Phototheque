@@ -241,6 +241,13 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   // ET / OU / NON sur les mots-clés
   KW.ensure('Vacances'); KW.ensure('Famille');
   check('mot-clés : NON n\'écarte rien sans étiquette', n({ excludeKeywords: ['vacances'] }), LIB.stats().photos, 0);
+  // les mots-clés saisis se comparent comme la colonne normalized (casse ET accents)
+  const tagged = LIB.search({}, { limit: 10 }).rows[1].id;
+  KW.attachNames(tagged, ['Été indien', 'Famille']);
+  check('mots-clés : ET insensible aux accents', n({ keywords: ['ete indien', 'FAMILLE'] }), 1, 0);
+  check('mots-clés : OU', n({ anyKeywords: ['été  indien', 'introuvable'] }), 1, 0);
+  check('mots-clés : NON', n({ excludeKeywords: ['Ete Indien'] }), LIB.stats().photos - 1, 0);
+  DB.prepare('DELETE FROM photo_keywords WHERE photo_id = ?').run(tagged);
 
   // --- repli LIKE : même résultat si FTS5 n'existait pas ---
   const like = Search.buildQuery({ q: 'chalet' }, { fts: false });
