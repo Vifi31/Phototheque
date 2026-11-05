@@ -231,6 +231,11 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   check('critère : intégrité (fichier)', n({ integrity: 'missing' }) >= 0, true, 0);
   check('critère : doublons', n({ duplicate: true }) >= 0, true, 0);
   check('critère : année', n({ year: '2024' }) >= 0, true, 0);
+  // GPS : aucune photo de test n'est géolocalisée ; la valeur d'URL « 0 » doit valoir « sans GPS »
+  check('critère : sans GPS (« 0 » d\'URL)', n({ hasGps: '0' }), LIB.stats().photos, 0);
+  check('critère : sans GPS (« false » d\'URL)', n({ hasGps: 'false' }), LIB.stats().photos, 0);
+  check('critère : sans GPS (booléen)', n({ hasGps: false }), LIB.stats().photos, 0);
+  check('critère : avec GPS (« 1 » d\'URL)', n({ hasGps: '1' }), 0, 0);
   check('critères combinés (texte + orientation + note)',
     n({ q: 'chalet', orientation: 'portrait', rating: 0 }) >= 0, true, 0);
   // ET / OU / NON sur les mots-clés

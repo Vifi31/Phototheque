@@ -4,6 +4,20 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.2.1] — 2026-11-05
+
+### Corrigé
+
+- **Suivi de l'indexation** (`server.mjs`) : la liste des travaux était
+  recréée à chaque requête, si bien que `/api/jobs/<id>` répondait toujours
+  « Travail inconnu ». L'indexation avait bien lieu, mais l'interface
+  n'affichait ni la progression ni le message de fin. La liste vit désormais
+  aussi longtemps que le serveur.
+- **Filtre GPS** (`lib/search.mjs`) : `hasGps=0` (ou `false`) dans l'URL de
+  `GET /api/photos` sélectionnait les photos *avec* GPS ; il sélectionne
+  maintenant les photos sans GPS.
+- **Tests** : 142 vérifications (4 nouvelles pour le filtre GPS).
+
 ## [0.2.0] — 2026-11-05
 
 ### Ajouté

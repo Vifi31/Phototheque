@@ -1,6 +1,6 @@
 {
   "name": "phototheque",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Photothèque : gestion complète d'un fonds photographique personnel (import, indexation, recherches, albums, retouches, exports, sauvegardes)",
   "scripts": {
     "start": "node server.mjs",

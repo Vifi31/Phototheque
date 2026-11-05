@@ -67,6 +67,9 @@ function sanitize(value, depth = 0) {
 }
 
 // Rejets de chemins : doit rester dans `base` (protection contre .. et liens hors périmètre).
+// Travaux d'indexation en cours ou terminés (durée de vie du serveur), suivis par /api/jobs/<id>.
+const JOBS = new Map();
+
 function inside(base, target) { return path.resolve(target).startsWith(path.resolve(base) + path.sep) || path.resolve(target) === path.resolve(base); }
 
 async function api(req, res, url) {
@@ -123,7 +126,6 @@ async function api(req, res, url) {
     return json(res, 200, { folder: db.prepare('SELECT * FROM folders WHERE id=?').get(fid) });
   }
   // Indexation d'un dossier (asynchrone, progression consultable via /api/jobs/<id>)
-  const JOBS = new Map();
   if (p.startsWith('/api/folders/') && p.endsWith('/index') && m === 'POST') {
     const fid = id;
     const folder = db.prepare('SELECT * FROM folders WHERE id=?').get(fid);
