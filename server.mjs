@@ -22,6 +22,7 @@ import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN } from '
 import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
 import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION } from './lib/edits.mjs';
 import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
+import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -37,6 +38,7 @@ const albums = createAlbums(db, library);
 const albumPdf = createAlbumPdf(db, library, albums);
 const edits = createEdits(db, library);
 const exportsSvc = createExports(db, edits);
+const duplicates = createDuplicates(db, library);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -202,6 +204,25 @@ async function api(req, res, url) {
     if (action === 'redo' && m === 'POST') return json(res, 200, { version: edits.redo(id) });
     if (action === 'reset' && m === 'POST') return json(res, 200, { version: edits.reset(id) });
   }
+
+  // ---- Doublons et photos similaires (lib/duplicates.mjs) : rien n'est jamais supprimé ----
+  if (p === '/api/duplicates/summary' && m === 'GET') return json(res, 200, { ...duplicates.summary({ threshold: url.searchParams.get('threshold'), seconds: url.searchParams.get('seconds') }), levels: DUP_LEVELS, defaults: { threshold: DEFAULT_THRESHOLD, seconds: DEFAULT_BURST_SECONDS, maxThreshold: MAX_THRESHOLD } });
+  if (p === '/api/duplicates' && m === 'GET') {
+    const sp = url.searchParams;
+    return json(res, 200, duplicates.groups(sp.get('level') || 'exact', { threshold: sp.get('threshold'), seconds: sp.get('seconds'), offset: sp.get('offset'), limit: sp.get('limit') }));
+  }
+  if (p === '/api/duplicates/hashes' && m === 'POST') {
+    const b = sanitize(await readBody(req)) ?? {};
+    const jobId = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const job = { id: jobId, kind: 'hashes', done: 0, total: 0, current: null, status: 'running', result: null, error: null };
+    JOBS.set(jobId, job);
+    duplicates.computeHashes({ all: !!b.all, onProgress: pr => Object.assign(job, pr) })
+      .then(r => { job.status = 'done'; job.result = r; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
+    return json(res, 200, { jobId, job });
+  }
+  if (p === '/api/duplicates/reference' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, b.clear ? duplicates.clearReference(b.photoIds) : duplicates.setReference(b.photoIds, b.reference)); }
+  if (p === '/api/duplicates/ignore' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, b.reset ? duplicates.resetIgnored() : duplicates.ignore(b.photoIds)); }
+  if (p === '/api/duplicates/reference-file' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, duplicates.setReferenceFile(b.fileId)); }
 
   // ---- Exports de photos (travail en arrière-plan, suivi par /api/jobs/<id>) ----
   if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR });

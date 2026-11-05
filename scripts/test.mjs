@@ -838,6 +838,90 @@ group('Retouche non destructive et export de photos');
 }
 
 // ===================================================================
+group('Doublons et photos similaires : exacts, potentiels, similaires, rafales');
+// ===================================================================
+{
+  const D = await import('../lib/duplicates.mjs');
+  const sh = (await import('sharp')).default;
+  const dir = path.join(TMP, 'doublons');
+  fs.mkdirSync(path.join(dir, 'autre'), { recursive: true });
+  // images à motifs (les images unies des autres groupes ont toutes la même empreinte visuelle)
+  const svgA = (w, hh) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><circle cx="${w * 0.7}" cy="${hh * 0.5}" r="${hh * 0.3}" fill="#c00"/></svg>`);
+  const svgB = (w, hh) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}">${Array.from({ length: 8 }, (_, i) => `<rect x="${i * w / 8}" width="${w / 16}" height="${hh}" fill="#123"/>`).join('')}<rect width="100%" height="30%" y="70%" fill="#fd0"/></svg>`);
+  const svgC = (w, hh, k) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}"><rect width="100%" height="100%" fill="#${k}"/><polygon points="0,0 ${w},${hh} 0,${hh}" fill="#fff"/></svg>`);
+  const write = async (name, svg, exif) => { const f = path.join(dir, name); let s = sh(svg); if (exif) s = s.withExif(exif); await s.jpeg({ quality: 90 }).toFile(f); return f; };
+  const A = await write('paysage.jpg', svgA(600, 400));
+  const As = await write('paysage-reduit.jpg', svgA(300, 200));
+  const Acopy = path.join(dir, 'autre', 'paysage-copie.jpg'); fs.copyFileSync(A, Acopy);
+  const B = await write('rayures.jpg', svgB(600, 400));
+  const N1 = await write('IMG_9.jpg', svgC(640, 480, '0a5'));
+  const N2 = path.join(dir, 'autre', 'IMG_9.jpg'); await sh(svgC(640, 480, 'a05')).rotate(180).jpeg().toFile(N2);
+  const cam = t => ({ IFD0: { Make: 'Test', Model: 'Rafale X', DateTime: t }, IFD2: { DateTimeOriginal: t } });
+  const R1 = await write('rafale-1.jpg', svgC(400, 300, '111'), cam('2023:05:01 10:00:00'));
+  const R2 = await write('rafale-2.jpg', svgC(400, 300, '222'), cam('2023:05:01 10:00:01'));
+  const R3 = await write('rafale-3.jpg', svgC(400, 300, '333'), cam('2023:05:01 10:00:20'));
+  for (const f of [A, As, Acopy, B, N1, N2, R1, R2, R3]) await LIB.indexFile(f, {});
+  const pid = f => DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(f).photo_id;
+  const [a, as, b, n1, n2, r1, r2, r3] = [A, As, B, N1, N2, R1, R2, R3].map(pid);
+  const sums = Object.fromEntries([A, As, Acopy, B].map(f => [f, crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')]));
+
+  check('distance de Hamming : opposées', D.hamming('0000000000000000', 'ffffffffffffffff'), 64, 0);
+  const hA = DB.prepare('SELECT perceptual_hash h FROM photos WHERE id = ?').get(a).h;
+  check('empreinte visuelle calculée à l’indexation (dHash + couleur moyenne)', /^[0-9a-f]{22}$/.test(hA ?? ''), true, 0);
+  const flat = async c => D.dhash(await sh({ create: { width: 64, height: 48, channels: 3, background: c } }).png().toBuffer());
+  const fr = await flat('#e00000'), fb = await flat('#0000e0');
+  check('aplats de couleurs différentes : même dHash, couleur distincte', `${D.hamming(fr, fb)}|${D.colorGap(fr, fb) > D.MAX_COLOR_GAP}`, '0|true');
+  check('même image réduite : empreintes proches', D.hamming(hA, await D.dhash(As)) <= 4, true, 0);
+  check('images différentes : empreintes éloignées', D.hamming(hA, await D.dhash(B)) > 20, true, 0);
+
+  const DUP = D.createDuplicates(DB, LIB);
+  const has = (r, ids) => r.groups.find(g => ids.every(id => g.photos.some(p => p.id === id)));
+  let ex = DUP.groups('exact', { limit: 200 });
+  const gA = ex.groups.find(g => g.kind === 'files' && g.photos[0].id === a);
+  check('exacts : copie rattachée, 2 fichiers listés', gA?.photos[0].files.length, 2, 0);
+  let sim = DUP.groups('similar', { threshold: 8, limit: 200 });
+  const gS = has(sim, [a, as]);
+  check('similaires : image et version réduite regroupées', !!gS, true, 0);
+  check('similaires : groupe marqué « versions » (dimensions différentes)', gS?.kind, 'versions');
+  check('similaires : image différente écartée', gS?.photos.some(p => p.id === b), false, 0);
+  check('similaires : tolérance 0 plus stricte', !!has(DUP.groups('similar', { threshold: 0, limit: 200 }), [a, b]), false, 0);
+  const pot = DUP.groups('potential', { limit: 200 });
+  check('potentiels : même nom et mêmes dimensions, contenu différent', !!has(pot, [n1, n2]), true, 0);
+  const bur = DUP.groups('burst', { seconds: 2, limit: 200 });
+  const gB = has(bur, [r1, r2]);
+  check('rafales : deux photos à 1 s', !!gB, true, 0);
+  check('rafales : la photo 20 s plus tard est à part', gB?.photos.some(p => p.id === r3), false, 0);
+  check('rafales : intervalle élargi à 30 s', !!has(DUP.groups('burst', { seconds: 30, limit: 200 }), [r1, r2, r3]), true, 0);
+  const sumUp = DUP.summary({ threshold: 8, seconds: 2 });
+  check('résumé : les quatre niveaux comptés', ['exact', 'potential', 'similar', 'burst'].every(k => sumUp[k] >= 1), true, 0);
+
+  // décisions
+  DUP.setReference([a, as], a);
+  sim = DUP.groups('similar', { threshold: 8, limit: 200 });
+  const gR = has(sim, [a, as]);
+  check('référence : en tête du groupe, l’autre est sa variante', `${gR.photos[0].id === a}|${gR.photos[0].isReference}|${gR.photos.find(p => p.id === as).reference === a}`, 'true|true|true');
+  let e5 = null; try { DUP.setReference([a, as], b); } catch (x) { e5 = x.message; }
+  check('référence hors du groupe refusée', e5, 'La référence doit faire partie du groupe');
+  DUP.ignore([a, as]);
+  check('« pas des doublons » : groupe écarté', !!has(DUP.groups('similar', { threshold: 8, limit: 200 }), [a, as]), false, 0);
+  DUP.resetIgnored();
+  check('groupes écartés reproposés', !!has(DUP.groups('similar', { threshold: 8, limit: 200 }), [a, as]), true, 0);
+  DUP.clearReference([a, as]);
+  check('référence annulée', DUP.groups('similar', { threshold: 8, limit: 200 }).groups.find(g => g.photos.some(p => p.id === a)).photos.some(p => p.isReference), false, 0);
+  const copyFile = DB.prepare('SELECT id FROM files WHERE path = ?').get(Acopy).id;
+  DUP.setReferenceFile(copyFile);
+  check('fichier de référence : la copie devient l’original', LIB.search({}, { limit: 1000 }).rows.find(p => p.id === a)?.path, Acopy);
+  check('fichier de référence : l’autre fichier reste indexé comme copie', DB.prepare('SELECT kind FROM files WHERE path = ?').get(A).kind, 'copy');
+
+  // empreintes manquantes
+  DB.prepare('UPDATE photos SET perceptual_hash = NULL WHERE id = ?').run(as);
+  check('empreinte manquante comptée', DUP.missingHashes() >= 1, true, 0);
+  const ch = await DUP.computeHashes();
+  check('empreintes manquantes calculées', `${ch.computed >= 1}|${DB.prepare('SELECT perceptual_hash h FROM photos WHERE id = ?').get(as).h !== null}`, 'true|true');
+  check('aucun fichier supprimé ni modifié', Object.entries(sums).every(([f, s]) => fs.existsSync(f) && crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex') === s), true, 0);
+}
+
+// ===================================================================
 group('Sauvegardes : création, vérification, restauration');
 // ===================================================================
 {

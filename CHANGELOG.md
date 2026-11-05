@@ -4,6 +4,63 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.11.0] — 2026-11-05
+
+Étape 5 de la feuille de route (doublons avancés et outil dédié),
+première version.
+
+### Ajouté
+
+- **Doublons et photos similaires** (`lib/duplicates.mjs`), sur quatre
+  niveaux :
+  - **exacts :** même contenu (SHA-256) — une photo présente en plusieurs
+    fichiers (avec leurs emplacements et supports), ou plusieurs fiches de
+    même empreinte ;
+  - **potentiels :** même nom de fichier et mêmes dimensions, ou même
+    instant, même appareil et mêmes dimensions, mais contenu différent —
+    à confirmer ;
+  - **similaires :** empreinte visuelle (dHash 64 bits + couleur moyenne)
+    proche, avec une tolérance réglable (0 à 20, 8 conseillé). Un groupe
+    dont les dimensions diffèrent est présenté comme « versions » (réduction,
+    recadrage, export…). Recherche par arbre BK, sans comparer chaque paire ;
+  - **rafales :** même appareil, prises à quelques secondes d'intervalle
+    (réglable).
+- **Empreinte visuelle** calculée à l'indexation (sur la vignette) et
+  rangée dans `photos.perceptual_hash` ; bouton pour calculer les empreintes
+  manquantes (photos indexées avant cette version) ou les recalculer, en
+  tâche de fond.
+- **Outil de comparaison** (page Doublons) : onglets par niveau avec leur
+  nombre, photos côte à côte avec dimensions, poids, format, date, appareil,
+  retouches, fichiers (chemin, support, disponibilité), visionneuse.
+- **Décisions, jamais de suppression automatique :**
+  - « ★ Référence » : la photo choisie devient la référence du groupe, les
+    autres sont notées comme ses variantes et conservées ;
+  - « Ce ne sont pas des doublons » : le groupe n'est plus proposé (paires
+    mémorisées, réversible par « Reproposer les groupes écartés ») ;
+  - « Fichier de référence » pour une photo présente en plusieurs fichiers :
+    c'est lui qu'utilisent l'affichage, les albums et l'export ; les autres
+    restent indexés comme copies ;
+  - « Retirer de l'index… » photo par photo, après confirmation : les
+    fichiers ne sont jamais supprimés ni déplacés.
+- **API :** `GET /api/duplicates/summary`, `GET /api/duplicates?level=`
+  (`exact`, `potential`, `similar`, `burst`, avec `threshold`, `seconds`),
+  `POST /api/duplicates/hashes`, `…/reference`, `…/ignore`,
+  `…/reference-file`.
+- **Tests :** 368 vérifications (25 nouvelles, sur des images à motifs :
+  versions réduites, copies, homonymes, rafales, aplats de couleur).
+
+### Corrigé
+
+- Une photo présente en deux fichiers avait ses deux fichiers marqués
+  « original » : le fichier affiché dépendait de l'ordre de la base. Choisir
+  un fichier de référence lève l'ambiguïté.
+
+### Non encore réalisé
+
+- Analyse visuelle plus fine (rotations, recadrages forts : le dHash n'y
+  est pas insensible), regroupement des rafales autour d'une meilleure photo,
+  masquage des variantes dans la Photothèque.
+
 ## [0.10.0] — 2026-11-05
 
 ### Ajouté

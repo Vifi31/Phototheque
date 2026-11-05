@@ -1152,19 +1152,90 @@ const App = (() => {
       body);
     render();
   }
+  // ---------- Doublons et photos similaires (lib/duplicates.mjs) : comparer, désigner, jamais supprimer ----------
   async function viewDuplicates(v) {
-    clear(v);
-    // doublons exacts par empreinte
-    const dups = await api('/photos?limit=1'); // juste pour la stats
-    // interrogation directe via une recherche dédiée : on liste les empreintes partagées
-    const body = h('div');
-    // On interroge le serveur via /api/db n'est pas adapté ; on passe par une recherche par empreinte.
-    // Pour ce socle, on affiche les photos groupées par empreinte via /api/photos + regroupement côté client (limité).
-    mount(v, h('h2.page-title', 'Doublons'),
-      card(h('div.sect', 'Doublons exacts (empreinte SHA-256)'),
-        h('p.dim', "L'indexation détecte les fichiers de contenu identique (même empreinte) et les rattache à la même fiche photo. Un outil dédié de listage/groupement sera affiné à l'étape 3."),
-        body));
-    void dups;
+    state.dup ??= { level: 'exact', threshold: null, seconds: null, limit: 30 };
+    const S = state.dup;
+    const qs = extra => new URLSearchParams(Object.fromEntries(Object.entries({ threshold: S.threshold ?? '', seconds: S.seconds ?? '', ...extra }).filter(([, x]) => x !== '' && x != null)));
+    let sum = await api('/duplicates/summary?' + qs());
+    S.threshold ??= sum.defaults.threshold; S.seconds ??= sum.defaults.seconds;
+    const body = h('div.dup-list'), tabs = h('div.row.dup-tabs'), opts = h('div.row'), hashCard = h('div');
+    const HELP = {
+      exact: 'Même contenu au bit près (empreinte SHA-256). Une photo présente en plusieurs fichiers apparaît seule, avec la liste de ses fichiers.',
+      potential: 'Même nom de fichier et mêmes dimensions, ou même instant de prise de vue avec le même appareil — mais contenu différent. À vérifier.',
+      similar: 'Empreinte visuelle proche : même image retouchée, réduite, recadrée, réenregistrée… Plus la tolérance est haute, plus les rapprochements sont larges.',
+      burst: 'Photos prises en rafale par le même appareil, à quelques secondes d’intervalle.',
+    };
+
+    function photoCol(g, p) {
+      const isRef = p.isReference, isVar = !!p.reference && !isRef;
+      // le premier fichier listé est celui qu'utilisent l'affichage, les albums et l'export
+      const fileRows = p.files.map((f, k) => h('div.dup-file' + (f.available ? '' : '.off'),
+        h('span', { title: f.path }, f.path),
+        h('small.dim', [f.support, f.bytes != null ? fmtBytes(f.bytes) : null, f.available ? null : 'indisponible', g.kind === 'files' ? (k === 0 ? 'fichier de référence' : 'copie') : null].filter(Boolean).join(' · ')),
+        g.kind === 'files' && k > 0 ? h('button.ghost.small', { onclick: async () => { await api('/duplicates/reference-file', 'POST', { fileId: f.id }); toast('Fichier de référence choisi (les autres fichiers restent indexés comme copies)'); load(); } }, 'Fichier de référence') : null));
+      return h('div.dup-photo' + (isRef ? '.ref' : ''),
+        h('div.dup-thumb', { onclick: () => lightboxOpen(g.photos, g.photos.indexOf(p), () => {}) }, p.thumb ? h('img', { src: p.thumb, alt: '', loading: 'lazy' }) : h('span', '🖼️'),
+          isRef ? h('span.dup-badge', '★ Référence') : isVar ? h('span.dup-badge.var', 'Variante') : null),
+        h('div.dup-meta',
+          h('div', h('b', p.width && p.height ? `${p.width} × ${p.height}` : 'dimensions inconnues'), p.bytes != null ? ` · ${fmtBytes(p.bytes)}` : '', p.format ? ` · ${p.format.toUpperCase()}` : ''),
+          h('div.dim', [p.captured_at ? fmtDateTime(p.captured_at) : 'sans date', p.camera].filter(Boolean).join(' · ')),
+          p.edits ? h('div.dim', `✎ ${p.edits} version(s) retouchée(s)`) : null,
+          p.missing ? h('div.album-alert.warn', 'Indisponible (support absent ?)') : null,
+          ...fileRows),
+        g.photos.length > 1 ? h('div.row.wrap',
+          isRef ? null : h('button.small', { title: 'Les autres photos du groupe deviennent ses variantes (rien n’est supprimé)', onclick: async () => { await api('/duplicates/reference', 'POST', { photoIds: g.photos.map(x => x.id), reference: p.id }); toast('Référence désignée, variantes conservées'); load(); } }, '★ Référence'),
+          h('button.ghost.small.danger', { onclick: async () => {
+            if (!(await confirmDialog("Retirer de l'index", `Retirer cette photo de l'index ? Ses fichiers ne seront JAMAIS supprimés ni déplacés ; elle reviendra si vous réindexez son dossier.`))) return;
+            await api('/photos/remove', 'POST', { ids: [p.id] }); toast("Photo retirée de l'index. Fichiers intacts."); load();
+          } }, "Retirer de l'index…")) : null);
+    }
+    function groupCard(g) {
+      const hasRef = g.photos.some(p => p.isReference || p.reference);
+      return card(
+        h('div.row', h('b', g.photos.length > 1 ? `${g.photos.length} photos` : `${g.photos[0]?.files.length ?? 0} fichiers`), h('span.dim', g.reason), h('div.spacer'),
+          hasRef ? h('button.ghost.small', { onclick: async () => { await api('/duplicates/reference', 'POST', { photoIds: g.photos.map(x => x.id), clear: true }); load(); } }, 'Annuler la référence') : null,
+          g.photos.length > 1 ? h('button.ghost.small', { title: 'Ce groupe ne sera plus proposé', onclick: async () => { await api('/duplicates/ignore', 'POST', { photoIds: g.photos.map(x => x.id) }); toast('Groupe écarté : ces photos sont distinctes'); load(); } }, 'Ce ne sont pas des doublons') : null),
+        h('div.dup-row', ...g.photos.map(p => photoCol(g, p))));
+    }
+
+    async function computeHashes(all = false) {
+      const { jobId } = await api('/duplicates/hashes', 'POST', { all });
+      let job;
+      do { await new Promise(r => setTimeout(r, 400)); job = (await api('/jobs/' + jobId)).job; mount(hashCard, card(h('p.dim', `Calcul des empreintes visuelles… ${job.done ?? 0} / ${job.total || '?'}`))); } while (job.status === 'running');
+      if (job.status === 'error') toast(job.error, 'bad'); else toast(`${job.result.computed} empreinte(s) calculée(s)${job.result.failed ? `, ${job.result.failed} photo(s) illisible(s)` : ''}`);
+      load(true);
+    }
+
+    async function load(refreshSummary = false) {
+      if (refreshSummary) sum = await api('/duplicates/summary?' + qs());
+      mount(tabs, ...Object.entries(sum.levels).map(([k, label]) => h('button.small' + (S.level === k ? '' : '.ghost'), { onclick: () => { S.level = k; S.limit = 30; drawOpts(); load(); } }, `${label} (${sum[k]})`)));
+      mount(hashCard, sum.hashesMissing ? card(h('div.row', h('span', `${sum.hashesMissing} photo(s) n’ont pas encore d’empreinte visuelle : elles n’apparaissent pas dans les photos similaires.`), h('div.spacer'), h('button.small', { onclick: () => computeHashes(false) }, 'Calculer'))) : null);
+      const r = await api('/duplicates?' + qs({ level: S.level, limit: S.limit }));
+      mount(body,
+        h('p.dim', HELP[S.level] + ' Rien n’est jamais supprimé automatiquement.'),
+        r.groups.length ? null : h('div.empty', h('div.big', '✓'), 'Aucun groupe à ce niveau.'),
+        ...r.groups.map(groupCard),
+        r.total > r.groups.length ? h('button.ghost', { onclick: () => { S.limit += 30; load(); } }, `Afficher plus (${r.groups.length} sur ${r.total})`) : null);
+    }
+    function drawOpts() {
+      if (S.level === 'similar') {
+        const out = h('span.rt-val', String(S.threshold));
+        const range = h('input', { type: 'range', min: 0, max: sum.defaults.maxThreshold, step: 1, value: S.threshold });
+        range.addEventListener('input', () => { out.textContent = range.value; });
+        range.addEventListener('change', () => { S.threshold = +range.value; load(true); });
+        mount(opts, h('label.row', { style: { gap: '8px' } }, 'Tolérance', range, out, h('small.dim', '0 = quasi identiques · 8 = conseillé · 20 = large')),
+          h('div.spacer'), h('button.ghost.small', { title: 'Recalculer toutes les empreintes (après une mise à jour des vignettes, par exemple)', onclick: () => computeHashes(true) }, 'Recalculer les empreintes'));
+      } else if (S.level === 'burst') {
+        const sec = h('input', { type: 'number', min: 0.5, max: 60, step: 0.5, value: S.seconds, style: { width: '80px' } });
+        sec.addEventListener('change', () => { S.seconds = +sec.value; load(true); });
+        mount(opts, h('label.row', { style: { gap: '8px' } }, 'Intervalle maximal (secondes)', sec));
+      } else clear(opts);
+      if (sum.ignoredPairs) opts.appendChild(h('button.ghost.small', { title: 'Reproposer les groupes déclarés « pas des doublons »', onclick: async () => { await api('/duplicates/ignore', 'POST', { reset: true }); load(true); } }, `Reproposer les groupes écartés (${sum.ignoredPairs} paire(s))`));
+    }
+
+    mount(v, h('h2.page-title', 'Doublons et photos similaires'), tabs, hashCard, opts, body);
+    drawOpts(); await load();
   }
 
   // ---------- vue Statistiques ----------

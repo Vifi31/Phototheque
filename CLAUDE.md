@@ -141,4 +141,8 @@ bibliothèque).
    (sharp ne les décode pas), courbes / bruit, profils ICC, vignettes et
    visionneuse avec la version retouchée. Les albums utilisent la version
    retouchée par défaut depuis v0.10.0.
-5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.
+5. Détection de doublons avancée (similitude perceptuelle) et outil dédié —
+   **première version livrée (v0.11.0)**, `lib/duplicates.mjs` : exacts,
+   potentiels, similaires (dHash + couleur moyenne, arbre BK), rafales ;
+   référence / variantes, groupes écartés, fichier de référence. Jamais de
+   suppression automatique.

@@ -57,7 +57,7 @@ lib/
   edits.mjs        Retouche non destructive : réglages versionnés, versions, historique, rendu (§10)
   exports.mjs      Export de photos : formats, métadonnées, filigrane, profils, lots (§11)
   search.mjs       Moteur de recherche (FTS5, critères avancés, critères enregistrés)
-  duplicates.mjs   Doublons exacts (empreintes) et similaires (empreintes visuelles)
+  duplicates.mjs   Doublons : exacts, potentiels, similaires (empreintes visuelles), rafales (§12)
   backup.mjs       Sauvegardes / vérification / restauration
   zip.mjs          Mini ZIP sans dépendance
   versions.mjs     Versions du programme, instantanés, retour arrière
@@ -294,3 +294,24 @@ et contrôlé), sans jamais écraser un fichier (`uniqueName`).
 * Lot en tâche de fond : `POST /api/exports` → `jobId`, progression par
   `GET /api/jobs/<id>` ; compte rendu consigné dans `exports`
   (`kind = 'photos'`) et l'historique.
+
+## 12. Doublons et photos similaires (v0.11.0)
+
+`lib/duplicates.mjs` calcule les groupes à la demande (rien n'est stocké en
+dehors des décisions de l'utilisateur) :
+
+* **Exacts** : `files` groupés par photo (plusieurs fichiers de même
+  empreinte, rattachés par l'indexation) et `photos` de même `sha256`.
+* **Potentiels** : même `lower(file_name)` et mêmes dimensions, ou même
+  `captured_at` + `camera_model` + dimensions, contenu différent.
+* **Similaires** : `photos.perceptual_hash` = dHash 64 bits (16 hex) +
+  couleur moyenne (6 hex), calculé sur la vignette à l'indexation. Voisins
+  par arbre BK (distance de Hamming ≤ tolérance), puis écart de couleur
+  moyenne ≤ 48 ; composantes connexes (union-find). Les anciennes empreintes
+  de 16 caractères restent comparables (sans contrôle de couleur).
+* **Rafales** : même `camera_model`, écart de `captured_at` ≤ N s entre
+  photos consécutives.
+* Décisions : `photos.data.duplicate` = `{ isReference }` ou
+  `{ reference: <id> }` ; paires « pas des doublons » dans `config`
+  (clé `duplicates.ignored`) ; fichier de référence = `files.kind`
+  `original` pour lui, `copy` pour les autres.
