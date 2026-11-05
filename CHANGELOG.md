@@ -4,6 +4,48 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.4.0] — 2026-11-05
+
+### Ajouté
+
+- **Albums photo** (`lib/albums.mjs`, étape 3 de la feuille de route,
+  première version) :
+  - **Formats :** six formats prédéfinis (carrés 30 et 20 cm, A4 portrait
+    et paysage, 20 × 30 et 30 × 20 cm) ou format personnalisé (50 à
+    1000 mm de côté). L'orientation est déduite du format ; changer de
+    format conserve la mise en page.
+  - **Gabarits :** page de titre, 1 photo pleine page (fond perdu),
+    1 photo avec marges, 2 côte à côte, 2 l'une sous l'autre, 3 (1 grande
+    + 2), 4 (2 × 2), 6 (3 × 2). Les cadres sont proportionnels à la page et
+    respectent une marge de sécurité de 6 %.
+  - **Pages :** ajout, gabarit, couleur de fond, titre et légende, numéro
+    de page, réordonnancement, duplication, suppression.
+  - **Photos :** placement par clic (recherche ou collection),
+    glisser-déposer entre cadres (y compris d'une page à l'autre), retrait
+    d'un cadre, remplissage automatique depuis la sélection de la
+    Photothèque (« Ajouter à un album… ») ou depuis une collection.
+  - **Contrôles :** photo plus au catalogue (la référence est conservée
+    pour être signalée), photo indisponible, résolution effective
+    insuffisante (sous 150 ppp) ou limite (sous 240 ppp), photos hors
+    gabarit, cadres vides. Le cadre fautif est entouré de couleur.
+  - **Projet :** format versionné (`formatVersion` 1), exporté en
+    `*.album.json` avec les références des photos (chemin et empreinte).
+    Le format est documenté dans `docs/ARCHITECTURE.md` §9.
+  - Un album ne contient que des références : aucun original n'est copié,
+    et supprimer un album ne supprime aucune photo.
+- **API :** `/api/albums` (liste, création), `/api/albums/<id>` (lecture,
+  modification, suppression), `…/pages` et `…/pages/<n>` (ajout,
+  modification, suppression, `move`, `duplicate`), `…/fill`, `…/export`.
+- **Interface :** page Albums (création, vignettes de couverture, alertes)
+  et éditeur de pages avec affichage des marges de sécurité.
+- **Tests :** 198 vérifications (44 nouvelles pour les albums).
+
+### Non encore réalisé
+
+Recadrage manuel, rotation, placement libre, bordures, doubles pages,
+annulation/rétablissement, aperçu et export d'impression (PDF), modèles
+graphiques personnalisés, réimport d'un projet exporté.
+
 ## [0.3.1] — 2026-11-05
 
 ### Corrigé

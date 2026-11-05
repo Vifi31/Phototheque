@@ -123,6 +123,10 @@ bibliothèque).
    import, sauvegardes, administration, interface, tests — **livré (v0.1.0)**.
 2. ✅ Collections (sélections statiques + recherches sauvegardées) —
    **livré (v0.2.0)**, `lib/collections.mjs`.
-3. Albums et mises en page (gabarits portrait/paysage).
+3. Albums et mises en page — **première version livrée (v0.4.0)**,
+   `lib/albums.mjs` : formats, pages à gabarits, glisser-déposer entre
+   cadres, textes, contrôles, export JSON du projet (format documenté dans
+   `docs/ARCHITECTURE.md` §9). Restent : recadrage manuel, doubles pages,
+   annulation, aperçu et export d'impression (PDF).
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

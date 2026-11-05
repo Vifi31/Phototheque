@@ -41,7 +41,7 @@ const App = (() => {
     clear(nav);
     for (const item of NAV) {
       if (item.group) { nav.appendChild(h('div.nav-group', item.group)); continue; }
-      const active = state.view === item.id || (item.id === 'admin' && state.view.startsWith('admin-'));
+      const active = state.view === item.id || (item.id === 'admin' && state.view.startsWith('admin-')) || (item.id === 'albums' && state.view === 'album');
       nav.appendChild(h('button.nav-item' + (active ? '.active' : ''), { onclick: () => go(item.id), title: item.label },
         h('span.ico', item.icon), h('span', item.label), badgeFor(item.id)));
     }
@@ -64,6 +64,7 @@ const App = (() => {
       else if (view === 'keywords') await viewKeywords(v);
       else if (view === 'collections') await viewCollections(v);
       else if (view === 'albums') await viewAlbums(v);
+      else if (view === 'album') await viewAlbum(v);
       else if (view === 'duplicates') await viewDuplicates(v);
       else if (view === 'stats') await viewStats(v);
       else if (view === 'settings') await viewSettings(v);
@@ -129,6 +130,7 @@ const App = (() => {
           h('button.small', { onclick: batchRate }, 'Noter…'),
           h('button.small.ghost', { onclick: batchKeyword }, 'Mot-clé…'),
           h('button.small.ghost', { onclick: batchCollection }, 'Ajouter à une collection…'),
+          h('button.small.ghost', { onclick: batchAlbum }, 'Ajouter à un album…'),
           coll?.kind === 'static' ? h('button.small.ghost', { onclick: batchUncollect }, 'Retirer de la collection') : null,
           h('button.small.danger', { onclick: batchRemoveIndex }, "Retirer de l'index"),
           h('button.small.ghost', { onclick: () => { state.selection.clear(); renderGrid(); } }, 'Tout désélectionner'),
@@ -213,6 +215,31 @@ const App = (() => {
             m.close(); state.selection.clear(); renderGrid(); refreshSelection();
           } catch (e) { toast(e.message, 'bad'); }
         } }, 'Ajouter'),
+      ] });
+    }
+    async function batchAlbum() {
+      await loadAlbumMeta();
+      const { list } = await api('/albums');
+      const sel = h('select', {}, ...list.map(a => h('option', { value: a.id }, `${a.name} (${a.pageCount} p.)`)), h('option', { value: '' }, '➕ Nouvel album…'));
+      const name = h('input', { type: 'text', placeholder: "Nom du nouvel album" });
+      const fmt = formatFields();
+      const fresh = h('div', field('Nom', name), fmt.el);
+      const lay = layoutSelect('quatre', { withTitle: false });
+      const sync = () => { fresh.hidden = !!sel.value; };
+      sel.addEventListener('change', sync); sync();
+      const ids = [...state.selection]; // ordre de sélection
+      const m = modal({ title: `Placer ${ids.length} photo(s) dans un album`, body: h('div', field('Album', sel), fresh, field('Gabarit des nouvelles pages', lay),
+        h('p.dim', "Les photos sont placées dans l'ordre de sélection, sur de nouvelles pages ajoutées à la fin. Aucun original n'est copié.")), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => {
+          try {
+            const albumId = sel.value || (await api('/albums', 'POST', { name: name.value, ...fmt.value() })).album.id;
+            const r = await api(`/albums/${encodeURIComponent(albumId)}/fill`, 'POST', { photoIds: ids, layout: lay.value });
+            m.close(); state.selection.clear();
+            toast(`${r.added} photo(s) placée(s) dans « ${r.album.name} » (${r.pagesAdded} page(s))`);
+            openAlbum(albumId);
+          } catch (e) { toast(e.message, 'bad'); }
+        } }, 'Placer'),
       ] });
     }
     async function batchUncollect() {
@@ -527,12 +554,194 @@ const App = (() => {
     });
     return parts.length ? parts.join(' · ') : 'aucun critère';
   }
+  // ---------- Albums : liste + éditeur de pages ----------
+  // Formats et gabarits viennent du serveur (lib/albums.mjs) : l'interface ne fait que les dessiner.
+  let albumMeta = null;
+  const loadAlbumMeta = async () => (albumMeta ??= await api('/albums'));
+  const formatSelect = (current = 'carre-30') => h('select', {}, ...Object.entries(albumMeta.formats).map(([k, f]) => h('option', { value: k, selected: k === current }, f.label)));
+  const layoutSelect = (current = 'une', { withTitle = true } = {}) => h('select', {},
+    ...Object.entries(albumMeta.layouts).filter(([k]) => withTitle || k !== 'titre').map(([k, l]) => h('option', { value: k, selected: k === current }, l.label)));
+  /** Champs format (+ largeur/hauteur si personnalisé). */
+  function formatFields(a = {}) {
+    const sel = formatSelect(a.format);
+    const w = h('input', { type: 'number', min: 50, max: 1000, value: a.width_mm ?? 250 }), hh = h('input', { type: 'number', min: 50, max: 1000, value: a.height_mm ?? 250 });
+    const custom = h('div.form', field('Largeur (mm)', w), field('Hauteur (mm)', hh));
+    const sync = () => { custom.hidden = sel.value !== 'custom'; };
+    sel.addEventListener('change', sync); sync();
+    return { el: h('div', field('Format de page', sel), custom), value: () => ({ format: sel.value, width_mm: +w.value, height_mm: +hh.value }) };
+  }
+
   async function viewAlbums(v) {
     clear(v);
+    await loadAlbumMeta();
+    const wrap = h('div.album-list');
+    async function refresh() {
+      const { list } = await api('/albums');
+      clear(wrap);
+      if (!list.length) { wrap.appendChild(h('p.dim', 'Aucun album. Créez-en un ci-dessus, ou depuis la Photothèque : sélectionnez des photos puis « Ajouter à un album… ».')); return; }
+      for (const a of list) {
+        wrap.appendChild(h('button.album-card', { onclick: () => openAlbum(a.id) },
+          h('div.album-cover', { style: { aspectRatio: `${a.width_mm} / ${a.height_mm}` } }, a.cover ? h('img', { src: a.cover, alt: '' }) : h('span', '📖')),
+          h('div.album-info', h('b', a.name), h('small.dim', `${a.formatLabel} · ${a.pageCount} page(s) · ${a.photoCount} photo(s)`),
+            a.alerts ? h('small', { style: { color: 'var(--warn)' } }, `⚠ ${a.alerts} alerte(s)`) : null)));
+      }
+    }
+    const name = h('input', { type: 'text', placeholder: 'Ex. : Vacances 2024' });
+    const fmt = formatFields();
+    const create = async () => { try { const r = await api('/albums', 'POST', { name: name.value, ...fmt.value() }); openAlbum(r.album.id); } catch (e) { toast(e.message, 'bad'); } };
     mount(v, h('h2.page-title', 'Albums'),
-      card(h('div.sect', 'Albums et mises en page'),
-        h('p.dim', 'La création d\'albums avec mises en page (formats portrait/paysage, gabarits) est planifiée pour l\'étape 4.'),
-        h('div.warnbox', 'Fonctionnalité planifiée (étape 4) — non implémentée dans ce socle.')));
+      card(h('div.sect', 'Nouvel album'),
+        h('p.dim', "Un album ne contient que des références à vos photos : aucun original n'est copié ni modifié."),
+        h('div.form', field('Nom', name), fmt.el, h('div.field', h('label', ' '), h('button', { onclick: create }, 'Créer')))),
+      card(h('div.sect', 'Mes albums'), wrap));
+    await refresh();
+  }
+  function openAlbum(id) { state.albumId = id; go('album'); }
+
+  async function viewAlbum(v) {
+    await loadAlbumMeta();
+    let album = (await api('/albums/' + encodeURIComponent(state.albumId))).album;
+    const L = albumMeta.layouts;
+    const body = h('div.album-editor');
+    const base = '/albums/' + encodeURIComponent(album.id);
+    let drag = null; // { page, slot } du cadre dont on déplace la photo
+
+    // Toute modification renvoie l'album complet : on redessine en gardant la position de défilement.
+    async function change(path, method, payload) {
+      try { const r = await api(base + path, method, payload); album = r.album ?? album; render(); return r; }
+      catch (e) { toast(e.message, 'bad'); }
+    }
+    const pageUrl = n => `/pages/${n}`;
+    const slotsOf = n => [...album.pages[n - 1].slots];
+    const setSlot = (n, s, id) => { const sl = slotsOf(n); while (sl.length <= s) sl.push(null); sl[s] = id; return sl; };
+
+    async function dropOn(n, s) {
+      if (!drag || (drag.page === n && drag.slot === s)) return;
+      const from = drag; drag = null;
+      const moving = album.pages[from.page - 1].slots[from.slot], target = album.pages[n - 1].slots[s] ?? null;
+      if (from.page === n) { const sl = setSlot(n, s, moving); sl[from.slot] = target; await change(pageUrl(n), 'PUT', { slots: sl }); return; }
+      await api(base + pageUrl(n), 'PUT', { slots: setSlot(n, s, moving) }).catch(e => toast(e.message, 'bad'));
+      await change(pageUrl(from.page), 'PUT', { slots: setSlot(from.page, from.slot, target) });
+    }
+
+    function pageView(pg, n) {
+      const issues = album.issues.filter(i => i.page === n && i.level !== 'info');
+      const lay = L[pg.layout];
+      // largeur bornée pour qu'une page en hauteur ne dépasse pas 420 px sans être déformée
+      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : ''), { style: { aspectRatio: `${album.width_mm} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * album.width_mm / album.height_mm)}px)`, background: pg.background } });
+      lay.frames.forEach((fr, s) => {
+        const id = pg.slots[s], ph = id ? album.photos[id] : null;
+        const bad = album.issues.find(i => i.page === n && i.slot === s && i.level !== 'info');
+        const cell = h('div.album-frame' + (id ? '' : '.empty') + (bad ? '.' + bad.level : ''), {
+          style: { left: fr.x * 100 + '%', top: fr.y * 100 + '%', width: fr.w * 100 + '%', height: fr.h * 100 + '%' },
+          title: bad ? bad.message : id ? 'Cliquer pour changer, glisser pour déplacer' : 'Cliquer pour placer une photo',
+          onclick: () => pickPhoto(n, s),
+          ondragover: e => { if (drag) { e.preventDefault(); cell.classList.add('over'); } },
+          ondragleave: () => cell.classList.remove('over'),
+          ondrop: e => { e.preventDefault(); cell.classList.remove('over'); dropOn(n, s); },
+        });
+        if (ph) {
+          const src = ph.preview || ph.thumb;
+          cell.appendChild(src ? h('img', { src, alt: ph.title || '', draggable: 'true', ondragstart: () => { drag = { page: n, slot: s }; } }) : h('span', '🖼️'));
+          cell.appendChild(h('button.frame-clear', { title: 'Retirer la photo du cadre', onclick: e => { e.stopPropagation(); change(pageUrl(n), 'PUT', { slots: setSlot(n, s, null) }); } }, '×'));
+        } else cell.appendChild(h('span', id ? '⚠' : '+'));
+        sheet.appendChild(cell);
+      });
+      if (pg.layout === 'titre') sheet.appendChild(h('div.album-title', h('div.t1', pg.title || 'Titre'), pg.caption ? h('div.t2', pg.caption) : null));
+      else if (pg.caption && !lay.fullBleed) sheet.appendChild(h('div.album-caption', pg.caption));
+      if (!lay.fullBleed) sheet.appendChild(h('div.album-folio', String(n)));
+
+      const laySel = layoutSelect(pg.layout); laySel.addEventListener('change', () => change(pageUrl(n), 'PUT', { layout: laySel.value }));
+      const color = h('input', { type: 'color', value: pg.background, title: 'Couleur de fond', onchange: e => change(pageUrl(n), 'PUT', { background: e.target.value }) });
+      const text = (key, ph2) => h('input', { type: 'text', value: pg[key], placeholder: ph2, onchange: e => change(pageUrl(n), 'PUT', { [key]: e.target.value }) });
+      const last = album.pages.length;
+      return h('div.album-page-wrap',
+        sheet,
+        h('div.album-page-tools',
+          h('div.row', h('b', `Page ${n}`), h('div.spacer'),
+            h('button.ghost.small', { disabled: n === 1, title: 'Avancer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n - 1 }) }, '↑'),
+            h('button.ghost.small', { disabled: n === last, title: 'Reculer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n + 1 }) }, '↓'),
+            h('button.ghost.small', { title: 'Dupliquer la page', onclick: () => change(pageUrl(n) + '/duplicate', 'POST') }, '⧉'),
+            h('button.ghost.small', { title: 'Supprimer la page', onclick: async () => { if (await confirmDialog('Supprimer la page', `Supprimer la page ${n} ? Les photos restent dans la photothèque.`)) change(pageUrl(n), 'DELETE'); } }, '🗑')),
+          h('div.row', laySel, color),
+          pg.layout === 'titre' ? text('title', 'Titre') : null,
+          text('caption', pg.layout === 'titre' ? 'Sous-titre' : 'Légende de la page'),
+          issues.length ? h('div.album-issues', ...issues.map(i => h('small.' + i.level, i.message.replace(/^Page \d+ : /, '')))) : null));
+    }
+
+    function render() {
+      const sc = document.getElementById('main'), top = sc.scrollTop;
+      const used = new Set(album.pages.flatMap(p => p.slots).filter(Boolean)).size;
+      const alerts = album.issues.filter(i => i.level !== 'info');
+      const empties = album.issues.filter(i => i.level === 'info').length;
+      const addSel = layoutSelect('une');
+      const guides = h('input', { type: 'checkbox', checked: !!state.albumGuides, onchange: e => { state.albumGuides = e.target.checked; render(); } });
+      mount(body,
+        h('div.row', h('span.dim', `${album.formatLabel} · ${album.width_mm} × ${album.height_mm} mm · ${album.pages.length} page(s) · ${used} photo(s)`), h('div.spacer'),
+          h('label.row', { style: { gap: '6px' } }, guides, 'Marges de sécurité')),
+        alerts.length || empties ? card(h('div.sect', alerts.length ? `⚠ ${alerts.length} alerte(s)` : 'Contrôles'),
+          ...alerts.map(i => h('div.album-alert.' + i.level, i.message)),
+          empties ? h('p.dim', `${empties} cadre(s) vide(s).`) : null) : null,
+        h('div.album-pages', ...album.pages.map((pg, i) => pageView(pg, i + 1)),
+          h('div.album-page-wrap.add', h('div.form', field('Nouvelle page', addSel), h('div.field', h('label', ' '), h('button', { onclick: () => change('/pages', 'POST', { layout: addSel.value }) }, 'Ajouter une page'))))));
+      sc.scrollTop = top;
+    }
+
+    // Choix d'une photo pour un cadre : recherche texte ou collection, vignettes cliquables.
+    async function pickPhoto(n, s) {
+      const q = h('input', { type: 'search', placeholder: 'Rechercher (titre, mots-clés, appareil…)' });
+      const { list: colls } = await api('/collections');
+      const coll = h('select', {}, h('option', { value: '' }, 'Toute la photothèque'), ...colls.map(c => h('option', { value: c.id }, c.name)));
+      const gridEl = h('div.picker-grid'), count = h('small.dim');
+      async function load() {
+        const params = new URLSearchParams({ limit: 60, sort: 'captured_desc' });
+        if (q.value.trim()) params.set('q', q.value.trim());
+        if (coll.value) params.set('collectionId', coll.value);
+        const r = await api('/photos?' + params);
+        count.textContent = r.total > r.rows.length ? `${r.rows.length} premières sur ${r.total} — affinez la recherche` : `${r.total} photo(s)`;
+        mount(gridEl, ...r.rows.map(p => h('button.picker-cell', { title: p.title || p.path || '', onclick: async () => { m.close(); await change(pageUrl(n), 'PUT', { slots: setSlot(n, s, p.id) }); } },
+          p.thumb ? h('img', { src: p.thumb, alt: '' }) : h('span', '🖼️'))));
+        if (!r.rows.length) gridEl.appendChild(h('p.dim', 'Aucune photo.'));
+      }
+      let t; q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+      coll.addEventListener('change', load);
+      const m = modal({ title: `Page ${n} — cadre ${s + 1}`, wide: true, body: h('div', h('div.form', field('Recherche', q), field('Collection', coll)), count, gridEl) });
+      await load(); q.focus();
+    }
+
+    function editProps() {
+      const name = h('input', { type: 'text', value: album.name });
+      const desc = h('textarea', { rows: 3 }, album.description || '');
+      const fmt = formatFields(album);
+      const m = modal({ title: "Propriétés de l'album", body: h('div', field('Nom', name), field('Description', desc), fmt.el,
+        h('p.dim', 'Les gabarits sont proportionnels : changer de format conserve la mise en page.')), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => { const r = await change('', 'PUT', { name: name.value, description: desc.value, ...fmt.value() }); if (r) { m.close(); title.textContent = album.name; } } }, 'Enregistrer'),
+      ] });
+    }
+    async function fillFromCollection() {
+      const { list: colls } = await api('/collections');
+      if (!colls.length) { toast("Aucune collection : créez-en une depuis la Photothèque.", 'bad'); return; }
+      const coll = h('select', {}, ...colls.map(c => h('option', { value: c.id }, `${c.name} (${c.photo_count})`)));
+      const lay = layoutSelect('quatre', { withTitle: false });
+      const m = modal({ title: 'Remplir depuis une collection', body: h('div.form', field('Collection', coll), field('Gabarit des nouvelles pages', lay),
+        h('p.dim', 'Les photos (300 au plus, de la plus ancienne à la plus récente) sont placées sur de nouvelles pages ajoutées à la fin.')), actions: [
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => { const r = await change('/fill', 'POST', { collectionId: coll.value, layout: lay.value }); if (r) { m.close(); toast(`${r.added} photo(s) placée(s) sur ${r.pagesAdded} page(s)`); } } }, 'Remplir'),
+      ] });
+    }
+
+    const title = h('h2.page-title', album.name);
+    mount(v,
+      h('div.row', title, h('div.spacer'),
+        h('button.ghost.small', { onclick: () => go('albums') }, '← Albums'),
+        h('button.ghost.small', { onclick: editProps }, 'Propriétés…'),
+        h('button.ghost.small', { onclick: fillFromCollection }, 'Remplir depuis une collection…'),
+        h('button.ghost.small', { onclick: () => { state.q = ''; state.facet = { albumId: album.id }; state.page = 0; go('photos'); } }, 'Voir ses photos'),
+        h('a.btn.ghost.small', { href: '/api' + base + '/export', download: '' }, 'Exporter le projet'),
+        h('button.danger.small', { onclick: async () => { if (await confirmDialog("Supprimer l'album", `Supprimer « ${album.name} » ? Les photos restent dans la photothèque ; seul l'album disparaît.`)) { await api(base, 'DELETE'); toast('Album supprimé (photos conservées)'); go('albums'); } } }, 'Supprimer')),
+      body);
+    render();
   }
   async function viewDuplicates(v) {
     clear(v);

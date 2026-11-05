@@ -257,3 +257,48 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .adv-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
 .adv-hint { margin: 8px 0 0; font-size: 12.5px; }
 .adv .badge { font-size: 11px; font-weight: 700; background: var(--accent, #1fb5b5); color: #fff; padding: 1px 7px; border-radius: 20px; }
+
+/* Lien présenté comme un bouton (téléchargements) */
+a.btn { display: inline-flex; align-items: center; text-decoration: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+a.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+a.btn.small { padding: 5px 10px; font-size: 12.5px; }
+
+/* Albums : liste */
+.album-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.album-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; font-weight: 400; }
+.album-cover { width: 100%; max-height: 220px; display: grid; place-items: center; background: var(--surface); border-radius: 6px; overflow: hidden; font-size: 36px; }
+.album-cover img { width: 100%; height: 100%; object-fit: cover; }
+.album-info { display: flex; flex-direction: column; gap: 2px; }
+
+/* Albums : éditeur de pages. Les cadres sont positionnés en % de la page (gabarits de lib/albums.mjs). */
+.album-editor { display: flex; flex-direction: column; gap: 16px; }
+.album-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px; align-items: start; }
+.album-page-wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.album-page-wrap.add { border: 1px dashed var(--border); border-radius: var(--radius); padding: 14px; }
+.album-page { position: relative; margin: 0 auto; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); overflow: hidden; color: #1e293b; }
+.album-page.guides::after { content: ''; position: absolute; inset: 6%; border: 1px dashed rgba(220, 38, 38, .7); pointer-events: none; }
+.album-frame { position: absolute; display: grid; place-items: center; overflow: hidden; cursor: pointer; background: #e2e8f0; color: #64748b; font-size: 22px; }
+.album-frame.empty { background: rgba(148, 163, 184, .18); border: 1.5px dashed #94a3b8; }
+.album-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-frame.warn { outline: 3px solid var(--warn); outline-offset: -3px; }
+.album-frame.bad { outline: 3px solid var(--bad); outline-offset: -3px; }
+.album-frame.over { outline: 3px solid var(--accent); outline-offset: -3px; }
+.album-frame .frame-clear { position: absolute; top: 4px; right: 4px; padding: 0 7px; font-size: 14px; line-height: 20px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; opacity: 0; }
+.album-frame:hover .frame-clear { opacity: 1; }
+.album-title { position: absolute; inset: 12%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px; }
+.album-title .t1 { font-size: clamp(14px, 2.2vw, 26px); font-weight: 700; }
+.album-title .t2 { font-size: 13px; opacity: .8; }
+.album-caption { position: absolute; left: 6%; right: 6%; bottom: 1.5%; height: 6%; display: flex; align-items: center; justify-content: center; font-size: 11px; text-align: center; overflow: hidden; }
+.album-folio { position: absolute; right: 2.2%; bottom: 1.6%; font-size: 9px; opacity: .6; }
+.album-page-tools { display: flex; flex-direction: column; gap: 6px; }
+.album-page-tools select { flex: 1; min-width: 0; }
+.album-page-tools input[type=color] { width: 38px; height: 30px; padding: 0 2px; }
+.album-issues { display: flex; flex-direction: column; gap: 2px; }
+.album-issues .warn, .album-alert.warn { color: var(--warn); }
+.album-issues .bad, .album-alert.bad { color: var(--bad); }
+.album-alert { font-size: 13px; padding: 2px 0; }
+
+/* Sélecteur de photo (cadres d'album) */
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 10px; max-height: 55vh; overflow-y: auto; }
+.picker-cell { aspect-ratio: 1; padding: 0; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+.picker-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }

@@ -51,6 +51,7 @@ lib/
   supports.mjs     Inventaire des supports, détection/reconnexion
   keywords.mjs     Gestionnaire de mots-clés (hiérarchie, fusion, suggestions)
   collections.mjs  Sélections statiques et recherches enregistrées (dynamiques)
+  albums.mjs       Albums : formats, pages à gabarits, contrôles, export du projet (§9)
   search.mjs       Moteur de recherche (FTS5, critères avancés, critères enregistrés)
   duplicates.mjs   Doublons exacts (empreintes) et similaires (empreintes visuelles)
   backup.mjs       Sauvegardes / vérification / restauration
@@ -148,3 +149,45 @@ Si le support est absent, la fiche photo est conservée, marquée
 
 Chaque étape produit une version exécutable et testable, sans supprimer les
 fonctions déjà validées.
+
+## 9. Albums : format de projet (version 1)
+
+Un album est enregistré dans la base (`albums`, `album_pages`) et ne contient
+que des **références** aux photos : aucun original n'est copié. L'index
+`album_photos` (quelles photos utilise quel album) est reconstruit à chaque
+enregistrement ; il sert au filtre `albumId` de la recherche.
+
+* `albums.format` : format prédéfini (`carre-30`, `carre-20`, `a4-portrait`,
+  `a4-paysage`, `20x30-portrait`, `30x20-paysage`) ou `custom` ;
+  `albums.data` : `{ formatVersion, width_mm, height_mm }`.
+* `album_pages` : une ligne par page (`page` = ordre, à partir de 1),
+  `layout` (gabarit), `background` (couleur `#rrggbb`), `data` :
+  `{ slots: [photoId | null, …], title, caption }`.
+* Gabarits (`LAYOUTS`, `lib/albums.mjs`) : cadres en fractions de la page
+  (`x`, `y`, `w`, `h` entre 0 et 1), donc valables pour tout format. Marge
+  de sécurité 6 %, gouttière 3 %, bande de légende 6 % en bas ; seul le
+  gabarit `plein` va jusqu'au bord (fond perdu).
+* Contrôles : photo introuvable (retirée du catalogue, la référence est
+  conservée pour être signalée), photo indisponible, résolution effective
+  sous 150 ppp (bloquant) ou 240 ppp (limite), photos hors gabarit, cadres
+  vides.
+
+L'export (`GET /api/albums/<id>/export`, fichier `*.album.json`) produit :
+
+```json
+{
+  "format": "phototheque-album", "formatVersion": 1, "exportedAt": "…",
+  "album": { "id", "name", "description", "format", "orientation", "width_mm", "height_mm", "created_at", "updated_at" },
+  "layouts": { "<gabarit>": { "label", "frames": [{ "x", "y", "w", "h" }], "fullBleed?" } },
+  "pages": [{ "page", "layout", "background", "title", "caption", "slots" }],
+  "photos": { "<photoId>": { "path", "sha256", "title", "width", "height" } }
+}
+```
+
+Toute évolution incompatible de cette structure incrémente
+`ALBUM_FORMAT_VERSION`.
+
+Non encore réalisé (cahier des charges §13) : recadrage manuel dans les
+cadres, rotation, placement libre, bordures, doubles pages, fonds perdus
+au-delà du gabarit `plein`, annulation/rétablissement, aperçu et export
+d'impression (PDF), modèles graphiques personnalisés, réimport d'un projet.

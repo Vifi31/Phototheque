@@ -17,6 +17,7 @@ const { createKeywords } = await import('../lib/keywords.mjs');
 const { createLibrary, isImage, IMAGE_EXTS } = await import('../lib/library.mjs');
 const { createImports, uniqueName } = await import('../lib/imports.mjs');
 const { createCollections } = await import('../lib/collections.mjs');
+const { createAlbums, LAYOUTS, SAFETY_MARGIN, ALBUM_FORMAT_VERSION } = await import('../lib/albums.mjs');
 const { createBackupService } = await import('../lib/backup.mjs');
 const { openDb, dbStatus, integrity, tableRows, isTable, ftsStatus } = await import('../lib/db.mjs');
 const Search = await import('../lib/search.mjs');
@@ -371,6 +372,109 @@ group('Collections : sélections et recherches enregistrées');
   check('photo retirée de l\'index → retirée de la sélection', COL.get(tmpSel.id).photo_count, 0, 0);
   COL.remove(tmpSel.id); COL.remove(dyn.id);
   check('intégrité après collections', integrity(DB)[0], 'ok', 0);
+}
+
+// ===================================================================
+group('Albums : pages, gabarits, références, contrôles');
+// ===================================================================
+{
+  const ALB = createAlbums(DB, LIB);
+  const ids = LIB.search({}, { limit: 50, sort: 'captured_asc' }).rows.map(p => p.id);
+
+  // --- gabarits : tous les cadres restent dans la page, hors fond perdu ils respectent la marge ---
+  let inside = true, safe = true;
+  for (const [k, l] of Object.entries(LAYOUTS)) for (const f of l.frames) {
+    if (f.x < 0 || f.y < 0 || f.x + f.w > 1.0001 || f.y + f.h > 1.0001) inside = false;
+    if (!l.fullBleed && (f.x < SAFETY_MARGIN - 1e-4 || f.y < SAFETY_MARGIN - 1e-4 || f.x + f.w > 1 - SAFETY_MARGIN + 1e-4 || f.y + f.h > 1 - SAFETY_MARGIN + 1e-4)) safe = false;
+  }
+  check('gabarits : cadres dans la page', inside, true, 0);
+  check('gabarits : marges de sécurité respectées', safe, true, 0);
+  check('gabarit 2 × 2 : 4 cadres', LAYOUTS.quatre.frames.length, 4, 0);
+
+  // --- création ---
+  const a = ALB.create({ name: 'Vacances', format: 'a4-paysage' });
+  check('album créé', a.name, 'Vacances');
+  check('orientation déduite du format', a.orientation, 'landscape');
+  check('dimensions du format', `${a.width_mm}x${a.height_mm}`, '297x210');
+  check('version du format de projet', a.data.formatVersion, ALBUM_FORMAT_VERSION, 0);
+  check('page de titre créée', a.pages[0].layout + '|' + a.pages[0].title, 'titre|Vacances');
+  let err = null; try { ALB.create({ name: 'X', format: 'custom', width_mm: 10, height_mm: 10 }); } catch (e) { err = e.message; }
+  check('format personnalisé hors limites refusé', !!err, true, 0);
+  check('format personnalisé accepté', ALB.create({ name: 'Perso', format: 'custom', width_mm: 150, height_mm: 400 }).orientation, 'portrait');
+
+  // --- remplissage : pages ajoutées au gabarit, références sans copie ---
+  const filesBefore = LIB.stats().files;
+  const r = ALB.fill(a.id, [ids[0], ids[1], ids[2], 'inconnue', ids[0]], 'deux-cote');
+  check('remplissage : photos inconnues et répétées ignorées', r.added, 3, 0);
+  check('remplissage : 2 pages ajoutées', r.pagesAdded, 2, 0);
+  check('remplissage : 3 pages au total', r.album.pages.length, 3, 0);
+  check('aucune copie de fichier', LIB.stats().files, filesBefore, 0);
+  check('index album_photos tenu', LIB.search({ albumId: a.id }).total, 3, 0);
+  check('cadre vide signalé', r.album.issues.some(i => i.page === 3 && i.slot === 1 && i.level === 'info'), true, 0);
+
+  // --- pages : modification, réordonnancement, duplication, suppression ---
+  let b = ALB.updatePage(a.id, 2, { caption: '  Plage   du matin ', background: '#FFEEDD', slots: [ids[1], ids[0]] });
+  check('légende nettoyée', b.pages[1].caption, 'Plage du matin');
+  check('couleur de fond normalisée', b.pages[1].background, '#ffeedd');
+  check('photos échangées', b.pages[1].slots.join(','), [ids[1], ids[0]].join(','));
+  b = ALB.updatePage(a.id, 2, { background: 'rouge', slots: ['inexistante'] });
+  check('couleur invalide → blanc', b.pages[1].background, '#ffffff');
+  check('photo inconnue refusée dans un cadre', b.pages[1].slots.length, 0, 0);
+  b = ALB.updatePage(a.id, 2, { slots: [ids[0], ids[1]] });
+  b = ALB.movePage(a.id, 3, 1);
+  check('page déplacée en tête', b.pages[0].slots[0], ids[2]);
+  b = ALB.duplicatePage(a.id, 1);
+  check('page dupliquée', b.pages.length + '|' + b.pages[1].slots[0], `4|${ids[2]}`);
+  b = ALB.removePage(a.id, 2);
+  check('page supprimée', b.pages.length, 3, 0);
+  err = null; try { ALB.removePage(a.id, 99); } catch (e) { err = e.message; }
+  check('page inconnue refusée', !!err, true, 0);
+
+  // --- contrôles ---
+  b = ALB.updatePage(a.id, 1, { layout: 'plein' });
+  const pleine = b.issues.find(i => i.page === 1 && i.slot === 0);
+  check('résolution insuffisante détectée (petite image en pleine page A4)', pleine?.level, 'bad');
+  check('résolution calculée en ppp', pleine?.dpi > 0 && pleine?.dpi < 150, true, 0);
+  b = ALB.updatePage(a.id, 1, { layout: 'deux-cote', slots: [ids[2], ids[1], ids[0]] });
+  check('photo hors gabarit signalée', b.issues.some(i => i.page === 1 && /hors gabarit/.test(i.message)), true, 0);
+  DB.prepare('UPDATE photos SET missing = 1 WHERE id = ?').run(ids[2]);
+  check('photo indisponible signalée', ALB.get(a.id).issues.some(i => i.level === 'warn' && /indisponible/.test(i.message)), true, 0);
+  DB.prepare('UPDATE photos SET missing = 0 WHERE id = ?').run(ids[2]);
+
+  // --- changement de format : la mise en page suit ---
+  b = ALB.update(a.id, { name: 'Vacances 2024', format: 'carre-20' });
+  check('format changé', `${b.width_mm}x${b.height_mm}|${b.orientation}`, '200x200|square');
+  check('pages conservées', b.pages.length, 3, 0);
+
+  // --- export du projet : format versionné, références et empreintes ---
+  const proj = ALB.exportProject(a.id);
+  check('export : identifiant de format', proj.format, 'phototheque-album');
+  check('export : version', proj.formatVersion, ALBUM_FORMAT_VERSION, 0);
+  check('export : références des photos (chemin + empreinte)', Object.values(proj.photos).every(p => p.path && 'sha256' in p), true, 0);
+  check('export : gabarits utilisés décrits', Object.keys(proj.layouts).length >= 1, true, 0);
+
+  // --- liste ---
+  const li = ALB.list().find(x => x.id === a.id);
+  check('liste : nombre de pages et de photos', `${li.pageCount}|${li.photoCount}`, '3|3');
+  check('liste : couverture', !!li.cover, true, 0);
+
+  // --- une photo retirée de l'index reste signalée dans l'album ---
+  const tmp = ALB.create({ name: 'Temporaire' });
+  const victim = ids[ids.length - 1];
+  ALB.fill(tmp.id, [victim], 'une');
+  LIB.removeFromIndex([victim]);
+  const t2 = ALB.get(tmp.id);
+  check('photo retirée → signalée « plus au catalogue »', t2.issues.some(i => i.level === 'bad' && /plus au catalogue/.test(i.message)), true, 0);
+  check('photo retirée → référence conservée dans la page', t2.pages[1].slots[0], victim);
+  check('photo retirée → plus dans l\'index de l\'album', LIB.search({ albumId: tmp.id }).total, 0, 0);
+
+  // --- suppression : jamais de photo perdue ---
+  const before = LIB.stats().photos;
+  check('suppression de l\'album', ALB.remove(a.id).photosUntouched, true, 0);
+  check('photos conservées', LIB.stats().photos, before, 0);
+  check('pages supprimées', DB.prepare('SELECT COUNT(*) n FROM album_pages WHERE album_id = ?').get(a.id).n, 0, 0);
+  for (const x of ALB.list()) ALB.remove(x.id);
+  check('intégrité après albums', integrity(DB)[0], 'ok', 0);
 }
 
 // ===================================================================
