@@ -617,13 +617,77 @@ const App = (() => {
     const slotsOf = n => [...album.pages[n - 1].slots];
     const setSlot = (n, s, id) => { const sl = slotsOf(n); while (sl.length <= s) sl.push(null); sl[s] = id; return sl; };
 
+    // le recadrage suit la photo quand on la déplace d'un cadre à l'autre
+    const cropsOf = n => album.pages[n - 1].slots.map((_, i) => album.pages[n - 1].crops?.[i] ?? null);
+    const setCrop = (list, s, c) => { while (list.length <= s) list.push(null); list[s] = c; return list; };
     async function dropOn(n, s) {
       if (!drag || (drag.page === n && drag.slot === s)) return;
       const from = drag; drag = null;
       const moving = album.pages[from.page - 1].slots[from.slot], target = album.pages[n - 1].slots[s] ?? null;
-      if (from.page === n) { const sl = setSlot(n, s, moving); sl[from.slot] = target; await change(pageUrl(n), 'PUT', { slots: sl }); return; }
-      await api(base + pageUrl(n), 'PUT', { slots: setSlot(n, s, moving) }).catch(e => toast(e.message, 'bad'));
-      await change(pageUrl(from.page), 'PUT', { slots: setSlot(from.page, from.slot, target) });
+      const movingCrop = cropsOf(from.page)[from.slot] ?? null, targetCrop = cropsOf(n)[s] ?? null;
+      if (from.page === n) {
+        const sl = setSlot(n, s, moving); sl[from.slot] = target;
+        const cr = setCrop(cropsOf(n), s, movingCrop); cr[from.slot] = targetCrop;
+        await change(pageUrl(n), 'PUT', { slots: sl, crops: cr }); return;
+      }
+      await api(base + pageUrl(n), 'PUT', { slots: setSlot(n, s, moving), crops: setCrop(cropsOf(n), s, movingCrop) }).catch(e => toast(e.message, 'bad'));
+      await change(pageUrl(from.page), 'PUT', { slots: setSlot(from.page, from.slot, target), crops: setCrop(cropsOf(from.page), from.slot, targetCrop) });
+    }
+
+    // ---- Recadrage manuel : même calcul que cropWindow (lib/albums.mjs) ----
+    // r = largeur/hauteur de l'image, A = largeur/hauteur du cadre ; renvoie la place de l'image
+    // dans le cadre (en fractions du cadre) et la partie visible (en fractions de l'image).
+    function cropBox(r, A, crop) {
+      const z = crop?.zoom ?? 1;
+      const iw = (r > A ? r / A : 1) * z, ih = (r > A ? 1 : A / r) * z; // taille de l'image / taille du cadre
+      const w = Math.min(1, 1 / iw), hh = Math.min(1, 1 / ih);
+      const cx = Math.min(1 - w / 2, Math.max(w / 2, crop?.x ?? 0.5)), cy = Math.min(1 - hh / 2, Math.max(hh / 2, crop?.y ?? 0.5));
+      return { iw, ih, w, h: hh, cx, cy, left: -(cx - w / 2) * iw, top: -(cy - hh / 2) * ih };
+    }
+    const frameAspect = fr => (fr.w * album.width_mm) / (fr.h * album.height_mm);
+    const imgStyle = (b) => ({ position: 'absolute', maxWidth: 'none', objectFit: 'fill', width: b.iw * 100 + '%', height: b.ih * 100 + '%', left: b.left * 100 + '%', top: b.top * 100 + '%' });
+
+    function cropDialog(n, s) {
+      const pg = album.pages[n - 1], fr = L[pg.layout].frames[s], ph = album.photos[pg.slots[s]];
+      if (!ph?.width || !ph?.height) { toast('Dimensions de la photo inconnues : recadrage impossible', 'bad'); return; }
+      const r = ph.width / ph.height, A = frameAspect(fr);
+      let crop = { ...(pg.crops?.[s] ?? { x: 0.5, y: 0.5, zoom: 1 }) };
+      // scène à la proportion du cadre, au plus 560 × 400 px
+      const sw = Math.min(560, 400 * A), sh = sw / A;
+      const img = h('img', { src: ph.preview || ph.thumb, alt: '', draggable: 'false' });
+      const stage = h('div.crop-stage', { style: { width: sw + 'px', height: sh + 'px' } }, img, h('div.crop-thirds'));
+      const zoom = h('input', { type: 'range', min: 1, max: 5, step: 0.01, value: crop.zoom });
+      const info = h('small.dim');
+      const frameMm = fr.w * album.width_mm;
+      function draw() {
+        const b = cropBox(r, A, crop); crop.x = b.cx; crop.y = b.cy; // centre ramené dans les limites
+        Object.assign(img.style, imgStyle(b));
+        zoom.value = crop.zoom;
+        const dpi = Math.round(25.4 * ph.width * b.w / frameMm);
+        info.textContent = `Zoom × ${crop.zoom.toFixed(2)} · résolution à l'impression ≈ ${dpi} ppp` + (dpi < albumMeta.dpiAdvised ? ` (${albumMeta.dpiAdvised} conseillés)` : '');
+        info.className = dpi < 150 ? 'bad' : dpi < albumMeta.dpiAdvised ? 'warn' : 'dim';
+      }
+      let start = null;
+      stage.addEventListener('pointerdown', e => { start = { x: e.clientX, y: e.clientY, cx: crop.x, cy: crop.y }; try { stage.setPointerCapture(e.pointerId); } catch { /* pointeur sans capture possible */ } stage.classList.add('grabbing'); });
+      stage.addEventListener('pointermove', e => {
+        if (!start) return;
+        const b = cropBox(r, A, crop);
+        crop.x = start.cx - (e.clientX - start.x) / (sw * b.iw); crop.y = start.cy - (e.clientY - start.y) / (sh * b.ih);
+        draw();
+      });
+      const stop = () => { start = null; stage.classList.remove('grabbing'); };
+      stage.addEventListener('pointerup', stop); stage.addEventListener('pointercancel', stop);
+      stage.addEventListener('wheel', e => { e.preventDefault(); crop.zoom = Math.min(5, Math.max(1, crop.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); draw(); }, { passive: false });
+      zoom.addEventListener('input', () => { crop.zoom = +zoom.value; draw(); });
+      const m = modal({ title: `Recadrer — page ${n}, cadre ${s + 1}`, wide: true, body: h('div.crop-dialog',
+        stage,
+        h('div.row', h('span', 'Zoom'), zoom, info),
+        h('p.dim', 'Faites glisser la photo pour choisir la partie visible ; molette ou curseur pour zoomer. L’original n’est pas modifié.')), actions: [
+        h('button.ghost', { onclick: () => { crop = { x: 0.5, y: 0.5, zoom: 1 }; draw(); } }, 'Réinitialiser'),
+        h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+        h('button', { onclick: async () => { const r2 = await change(pageUrl(n), 'PUT', { crops: setCrop(cropsOf(n), s, crop) }); if (r2) m.close(); } }, 'Enregistrer'),
+      ] });
+      draw();
     }
 
     function pageView(pg, n) {
@@ -643,9 +707,14 @@ const App = (() => {
           ondrop: e => { e.preventDefault(); cell.classList.remove('over'); dropOn(n, s); },
         });
         if (ph) {
-          const src = ph.preview || ph.thumb;
-          cell.appendChild(src ? h('img', { src, alt: ph.title || '', draggable: 'true', ondragstart: () => { drag = { page: n, slot: s }; } }) : h('span', '🖼️'));
-          cell.appendChild(h('button.frame-clear', { title: 'Retirer la photo du cadre', onclick: e => { e.stopPropagation(); change(pageUrl(n), 'PUT', { slots: setSlot(n, s, null) }); } }, '×'));
+          const src = ph.preview || ph.thumb, crop = pg.crops?.[s] ?? null;
+          const im = src ? h('img', { src, alt: ph.title || '', draggable: 'true', ondragstart: () => { drag = { page: n, slot: s }; } }) : null;
+          if (im && ph.width && ph.height) Object.assign(im.style, imgStyle(cropBox(ph.width / ph.height, frameAspect(fr), crop)));
+          cell.appendChild(im ?? h('span', '🖼️'));
+          if (crop) cell.appendChild(h('span.frame-cropped', { title: `Recadrée (zoom × ${crop.zoom.toFixed(2)})` }, '✂'));
+          cell.appendChild(h('div.frame-tools',
+            src ? h('button', { title: 'Recadrer la photo dans le cadre', onclick: e => { e.stopPropagation(); cropDialog(n, s); } }, '✂') : null,
+            h('button', { title: 'Retirer la photo du cadre', onclick: e => { e.stopPropagation(); change(pageUrl(n), 'PUT', { slots: setSlot(n, s, null) }); } }, '×')));
         } else cell.appendChild(h('span', id ? '⚠' : '+'));
         sheet.appendChild(cell);
       });

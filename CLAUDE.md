@@ -127,7 +127,8 @@ bibliothèque).
    `lib/albums.mjs` : formats, pages à gabarits, glisser-déposer entre
    cadres, textes, contrôles, export JSON du projet (format documenté dans
    `docs/ARCHITECTURE.md` §9). Aperçu et export PDF livrés en v0.5.0
-   (`lib/albumpdf.mjs` + `lib/pdf.mjs`, sans dépendance). Restent :
-   recadrage manuel, doubles pages, annulation.
+   (`lib/albumpdf.mjs` + `lib/pdf.mjs`, sans dépendance). Recadrage manuel
+   livré en v0.6.0 (`cropWindow`, même calcul éditeur / contrôles / PDF).
+   Restent : doubles pages, annulation.
 4. Retouches non destructives + exports.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

@@ -4,6 +4,35 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.6.0] — 2026-11-05
+
+### Ajouté
+
+- **Recadrage manuel des photos dans les cadres d'album**
+  (`lib/albums.mjs`, `cleanCrop`, `cropWindow`) :
+  - bouton ✂ sur chaque cadre garni : on fait glisser la photo pour choisir
+    la partie visible et on zoome (molette ou curseur, de × 1 à × 5), avec
+    une grille des tiers ; « Réinitialiser » revient au cadrage centré ;
+  - la résolution à l'impression est recalculée en direct pendant le
+    recadrage (le zoom réduit les pixels utiles) ;
+  - le recadrage est enregistré dans la page (centre + zoom, en fractions
+    de l'image) : il ne modifie jamais l'original et reste valable si l'on
+    change de format ou de gabarit ;
+  - il suit la photo quand on la fait glisser vers un autre cadre ; il est
+    oublié quand on met une autre photo dans le cadre ;
+  - même calcul dans l'éditeur, les contrôles de résolution et l'export
+    PDF, qui ne découpe que la partie visible (toujours sans agrandissement) ;
+  - un petit ✂ signale les cadres recadrés.
+- **Projet d'album :** champ `crops` dans les pages (facultatif, compatible
+  avec la version 1 du format).
+- **Tests :** 244 vérifications (15 nouvelles : recadrage et orientation).
+
+### Corrigé
+
+- **Contrôle de résolution des photos tournées** : une photo dont l'EXIF
+  indique une rotation d'un quart de tour (orientation 5 à 8) était évaluée
+  avec largeur et hauteur inversées.
+
 ## [0.5.0] — 2026-11-05
 
 ### Ajouté

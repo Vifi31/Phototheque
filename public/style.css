@@ -283,8 +283,21 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 .album-frame.warn { outline: 3px solid var(--warn); outline-offset: -3px; }
 .album-frame.bad { outline: 3px solid var(--bad); outline-offset: -3px; }
 .album-frame.over { outline: 3px solid var(--accent); outline-offset: -3px; }
-.album-frame .frame-clear { position: absolute; top: 4px; right: 4px; padding: 0 7px; font-size: 14px; line-height: 20px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; opacity: 0; }
-.album-frame:hover .frame-clear { opacity: 1; }
+.album-frame .frame-tools { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; opacity: 0; z-index: 2; }
+.album-frame .frame-tools button { padding: 0 7px; font-size: 14px; line-height: 20px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; }
+.album-frame:hover .frame-tools { opacity: 1; }
+.album-frame .frame-cropped { position: absolute; left: 4px; bottom: 4px; padding: 0 5px; font-size: 11px; line-height: 16px; background: rgba(15, 23, 42, .6); color: #fff; border-radius: 4px; z-index: 2; pointer-events: none; }
+.crop-dialog { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.crop-dialog .row { width: min(560px, 100%); }
+.crop-dialog input[type=range] { flex: 1; }
+.crop-dialog small.warn { color: var(--warn); }
+.crop-dialog small.bad { color: var(--bad); }
+.crop-stage { position: relative; overflow: hidden; flex: none; background: #0f172a; cursor: grab; touch-action: none; user-select: none; outline: 2px solid var(--accent); }
+.crop-stage.grabbing { cursor: grabbing; }
+.crop-stage img { pointer-events: none; }
+.crop-thirds { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to right, transparent calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
+    linear-gradient(to bottom, transparent calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% - .5px), rgba(255, 255, 255, .45) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% - .5px), rgba(255, 255, 255, .45) calc(66.66% + .5px), transparent calc(66.66% + .5px)); }
 .album-title { position: absolute; inset: 12%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px; }
 .album-title .t1 { font-size: clamp(14px, 2.2vw, 26px); font-weight: 700; }
 .album-title .t2 { font-size: 13px; opacity: .8; }

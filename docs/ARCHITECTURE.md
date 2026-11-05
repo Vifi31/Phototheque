@@ -164,7 +164,14 @@ enregistrement ; il sert au filtre `albumId` de la recherche.
   `albums.data` : `{ formatVersion, width_mm, height_mm }`.
 * `album_pages` : une ligne par page (`page` = ordre, à partir de 1),
   `layout` (gabarit), `background` (couleur `#rrggbb`), `data` :
-  `{ slots: [photoId | null, …], title, caption }`.
+  `{ slots: [photoId | null, …], crops: [crop | null, …], title, caption }`.
+* Recadrage (`crops`, v0.6.0, facultatif) : pour chaque cadre,
+  `{ x, y, zoom }` — centre de la partie visible en fractions de l'image
+  orientée (0,5 ; 0,5 = centré) et zoom de 1 (la photo couvre juste le
+  cadre) à 5 ; `null` = cadrage centré par défaut. `cropWindow` (dans
+  `lib/albums.mjs`) en déduit la partie visible ; l'éditeur
+  (`public/app.js`, `cropBox`), les contrôles de résolution et l'export PDF
+  font le même calcul. Un cadre perd son recadrage quand sa photo change.
 * Gabarits (`LAYOUTS`, `lib/albums.mjs`) : cadres en fractions de la page
   (`x`, `y`, `w`, `h` entre 0 et 1), donc valables pour tout format. Marge
   de sécurité 6 %, gouttière 3 %, bande de légende 6 % en bas ; seul le
@@ -181,7 +188,7 @@ L'export (`GET /api/albums/<id>/export`, fichier `*.album.json`) produit :
   "format": "phototheque-album", "formatVersion": 1, "exportedAt": "…",
   "album": { "id", "name", "description", "format", "orientation", "width_mm", "height_mm", "created_at", "updated_at" },
   "layouts": { "<gabarit>": { "label", "frames": [{ "x", "y", "w", "h" }], "fullBleed?" } },
-  "pages": [{ "page", "layout", "background", "title", "caption", "slots" }],
+  "pages": [{ "page", "layout", "background", "title", "caption", "slots", "crops" }],
   "photos": { "<photoId>": { "path", "sha256", "title", "width", "height" } }
 }
 ```
@@ -210,7 +217,6 @@ les images en mémoire.
 * Compte rendu renvoyé dans l'en-tête `X-Pdf-Report` (JSON en base64) et
   enregistré dans `exports` (`kind = 'album-pdf'`).
 
-Non encore réalisé (cahier des charges §13) : recadrage manuel dans les
-cadres, rotation, placement libre, bordures, doubles pages,
+Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures, doubles pages,
 annulation/rétablissement, gestion des couleurs (CMJN, profils ICC), traits
 de coupe, modèles graphiques personnalisés, réimport d'un projet.

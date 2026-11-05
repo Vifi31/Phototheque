@@ -565,6 +565,47 @@ group('Albums : export PDF (impression et aperçu)');
   check('aucun fichier accessible → cadres toujours remplis', fb.rep.unfilled.filter(u => u.reason !== 'cadre vide').length, 0, 0);
   restore();
 
+  // --- recadrage manuel : modèle, conservation, contrôles, PDF, projet ---
+  const { cleanCrop, cropWindow, ZOOM_MAX } = await import('../lib/albums.mjs');
+  check('recadrage par défaut → aucun', cleanCrop({ x: 0.5, y: 0.5, zoom: 1 }), null);
+  check('recadrage : bornes (zoom, centre)', JSON.stringify(cleanCrop({ x: -3, y: '0.25', zoom: 99 })), JSON.stringify({ x: 0, y: 0.25, zoom: ZOOM_MAX }));
+  check('recadrage invalide → aucun', cleanCrop('n’importe quoi'), null);
+  let w0 = cropWindow(1200, 800, 100, 100, null);
+  check('fenêtre par défaut : photo paysage dans un carré, centrée', `${w0.width.toFixed(4)}|${w0.left.toFixed(4)}|${w0.height}`, '0.6667|0.1667|1');
+  w0 = cropWindow(1200, 800, 100, 100, { x: 0.5, y: 0.5, zoom: 2 });
+  check('fenêtre zoom × 2 : moitié de la largeur et de la hauteur', `${w0.width.toFixed(4)}|${w0.height}`, '0.3333|0.5');
+  w0 = cropWindow(1200, 800, 100, 100, { x: 0, y: 1, zoom: 2 });
+  check('fenêtre : centre ramené pour ne jamais montrer de vide', `${w0.left}|${w0.top}`, '0|0.5');
+
+  let c = ALB.updatePage(a.id, 2, { crops: [{ x: 0.3, y: 0.4, zoom: 2 }, { x: 0.5, y: 0.5, zoom: 1 }] });
+  check('recadrage enregistré', JSON.stringify(c.pages[1].crops), JSON.stringify([{ x: 0.3, y: 0.4, zoom: 2 }, null]));
+  const dpiOf = (al, pg, sl) => al.issues.find(i => i.page === pg && i.slot === sl && i.dpi)?.dpi;
+  const d1 = dpiOf(ALB.get(a.id), 2, 0);
+  ALB.updatePage(a.id, 2, { crops: [null, null] });
+  const d0 = dpiOf(ALB.get(a.id), 2, 0);
+  check('contrôle : le zoom divise la résolution effective', Math.abs(d1 - d0 / 2) <= 1, true, 0);
+  c = ALB.updatePage(a.id, 2, { crops: [{ x: 0.3, y: 0.4, zoom: 2 }] });
+  c = ALB.updatePage(a.id, 2, { caption: 'autre légende', slots: [ids[0], ids[1]] });
+  check('recadrage gardé si la photo reste dans son cadre', c.pages[1].crops[0]?.zoom, 2, 0);
+  c = ALB.updatePage(a.id, 2, { slots: [ids[1], ids[0]] });
+  check('recadrage oublié si la photo du cadre change', c.pages[1].crops[0], null);
+  c = ALB.updatePage(a.id, 3, { crops: [null, { x: 0.2, y: 0.2, zoom: 3 }] });
+  check('pas de recadrage sur un cadre vide', c.pages[2].crops[1] ?? null, null);
+  check('projet exporté : recadrages inclus', JSON.stringify(ALB.exportProject(a.id).pages[1].crops), JSON.stringify([null, null]));
+
+  DB.prepare('UPDATE photos SET orientation = 6 WHERE id = ?').run(ids[0]);
+  const turned = ALB.get(a.id).photos[ids[0]];
+  check('photo tournée (EXIF 6) : dimensions affichées échangées', `${turned.width}x${turned.height}`, `${real[0].height}x${real[0].width}`);
+  DB.prepare('UPDATE photos SET orientation = 1 WHERE id = ?').run(ids[0]);
+
+  // pleine page (photo 1200 × 800 recadrée au format A4 portrait) : zoom × 2 → deux fois moins de pixels utiles
+  ALB.updatePage(a.id, 4, { crops: [{ x: 0.2, y: 0.5, zoom: 2 }] });
+  const cr = await render({ quality: 'print' }), ct = cr.buf.toString('latin1');
+  const base = Math.round(real[0].height * 210 / 297);
+  check('PDF : partie recadrée seule, sans agrandissement', ct.includes(`/Width ${Math.round(base / 2)} /Height ${real[0].height / 2}`), true, 0);
+  check('PDF : recadrage = nouvelle image (pas de réutilisation)', cr.rep.images, 4, 0);
+  ALB.updatePage(a.id, 4, { crops: [null] });
+
   let err = null; try { await APDF.render('inconnu', { write: () => {} }); } catch (x) { err = x.message; }
   check('album inconnu refusé', err, 'Album inconnu');
   ALB.remove(a.id);
