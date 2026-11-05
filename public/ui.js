@@ -101,8 +101,8 @@ const UI = (() => {
 
   // ---------- visionneuse ----------
   let lbState = { list: [], index: 0, onNav: null };
-  function lightboxOpen(list, index, onNav) {
-    lbState = { list, index, onNav };
+  function lightboxOpen(list, index, onNav, actions) {
+    lbState = { list, index, onNav, actions };
     const box = document.getElementById('lightbox');
     box.hidden = false;
     renderLb();
@@ -118,6 +118,9 @@ const UI = (() => {
       h('div', p.title || ''),
       h('div', { class: 'dim' }, [p.captured_at ? fmtDate(p.captured_at) : '', p.camera_model ? ' · ' + p.camera_model : '', p.width ? ` · ${p.width}×${p.height}` : '', p.missing ? ' · indisponible' : ''].join('')),
     );
+    // boutons propres à l'appelant (ex. « Retoucher », « Exporter… »)
+    const acts = lbState.actions?.(p) ?? [];
+    if (acts.length) document.getElementById('lbMeta').append(h('div.lb-actions', ...acts));
     document.getElementById('lbPrev').style.display = index > 0 ? '' : 'none';
     document.getElementById('lbNext').style.display = index < list.length - 1 ? '' : 'none';
   }

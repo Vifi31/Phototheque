@@ -330,3 +330,26 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 .planche > .album-page-wrap.left .album-page-tools { padding-right: 14px; }
 .planche > .album-page-wrap.right .album-page-tools { padding-left: 14px; }
 .planche-blank { min-height: 1px; }
+/* Retouche */
+.row.wrap { flex-wrap: wrap; }
+.rt-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .rt-layout { grid-template-columns: 1fr; } }
+.rt-view { position: relative; }
+.rt-stage { background: #0b1120; border: 1px solid var(--border); border-radius: var(--radius); min-height: 300px; display: grid; place-items: center; padding: 12px; }
+.rt-frame { position: relative; display: inline-block; line-height: 0; }
+.rt-img { max-width: 100%; max-height: 72vh; display: block; user-select: none; -webkit-user-drag: none; }
+.rt-busy { position: absolute; top: 10px; left: 10px; padding: 2px 8px; font-size: 12px; background: rgba(15, 23, 42, .8); color: #fff; border-radius: 6px; }
+.rt-crop { position: absolute; outline: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); cursor: move; touch-action: none;
+  background: linear-gradient(to right, transparent 33.2%, rgba(255,255,255,.4) 33.3%, transparent 33.4%, transparent 66.5%, rgba(255,255,255,.4) 66.6%, transparent 66.7%),
+    linear-gradient(to bottom, transparent 33.2%, rgba(255,255,255,.4) 33.3%, transparent 33.4%, transparent 66.5%, rgba(255,255,255,.4) 66.6%, transparent 66.7%); }
+.rt-handle { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; background: #fff; border: 2px solid var(--accent); border-radius: 3px; cursor: nwse-resize; }
+.rt-frame { overflow: hidden; }
+.rt-panel { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 160px); overflow: auto; padding-right: 4px; }
+.rt-sect { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #94a3b8); margin-top: 6px; }
+.rt-slider label { display: flex; justify-content: space-between; font-size: 13px; }
+.rt-slider input { width: 100%; }
+.rt-val { font-variant-numeric: tabular-nums; opacity: .8; }
+.rt-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+button.on { outline: 2px solid var(--accent); }
+.photo-cell .ph-edit { position: absolute; right: 6px; bottom: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; background: rgba(15, 23, 42, .75); color: #fff; border-radius: 6px; }
+.lb-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }

@@ -6,7 +6,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { ROOT, DATA_DIR, THUMBS_DIR, PORT, INSTALLED } from './lib/paths.mjs';
+import { ROOT, DATA_DIR, THUMBS_DIR, EXPORT_DIR, PORT, INSTALLED } from './lib/paths.mjs';
 import { setupExtra } from './lib/extra.mjs';
 import { setupAdmin, licenseBrief } from './lib/admin.mjs';
 import { setupDbAdmin } from './lib/dbadmin.mjs';
@@ -20,6 +20,8 @@ import { createImports } from './lib/imports.mjs';
 import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
 import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN } from './lib/albums.mjs';
 import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
+import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION } from './lib/edits.mjs';
+import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -33,6 +35,8 @@ const imports = createImports(db, store, library, keywords);
 const collections = createCollections(db, library);
 const albums = createAlbums(db, library);
 const albumPdf = createAlbumPdf(db, library, albums);
+const edits = createEdits(db, library);
+const exportsSvc = createExports(db, edits);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -172,7 +176,46 @@ async function api(req, res, url) {
   if (p === '/api/photos' && m === 'PUT') { const b = await readBody(req); const d = library.update(b.id, sanitize(b) ?? {}); if (b.keywords) { db.prepare('DELETE FROM photo_keywords WHERE photo_id=?').run(b.id); keywords.attachNames(b.id, b.keywords); library.syncKeywordsText(b.id); } return json(res, 200, { photo: d }); }
   if (p === '/api/photos/remove' && m === 'POST') { const b = await readBody(req); return json(res, 200, library.removeFromIndex(b.ids)); } // retire de l'index, jamais des originaux
   if (p.startsWith('/api/photos/')) {
-    if (m === 'GET') { const d = library.detail(id); return d ? json(res, 200, { photo: d }) : json(res, 404, { error: 'Photo inconnue' }); }
+    const sub = p.split('/')[4];
+    // ---- Retouche non destructive : versions, rendu ----
+    if (sub === 'edits' && m === 'GET') return json(res, 200, { versions: edits.list(id), capability: edits.capability(id), fields: EDIT_FIELDS, presets: PRESETS, defaults: DEFAULT_PARAMS, paramsVersion: EDIT_PARAMS_VERSION });
+    if (sub === 'edits' && m === 'POST') return json(res, 200, { version: edits.create(id, sanitize(await readBody(req)) ?? {}) });
+    if (sub === 'render' && m === 'GET') {
+      // aperçu retouché : réglages d'une version (?edit=) ou à l'essai (?params= JSON), taille ?size=
+      const sp = url.searchParams;
+      let params = {};
+      if (sp.get('edit')) { const v = edits.get(sp.get('edit')); if (!v || v.photo_id !== id) return json(res, 404, { error: 'Version inconnue' }); params = v.params; }
+      else if (sp.get('params')) { try { params = JSON.parse(sp.get('params')); } catch { return json(res, 400, { error: 'Réglages illisibles' }); } }
+      const file = await edits.preview(id, params, { size: sp.get('size'), noCrop: sp.get('nocrop') === '1' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600' });
+      return fs.createReadStream(file).pipe(res);
+    }
+    if (!sub && m === 'GET') { const d = library.detail(id); return d ? json(res, 200, { photo: d }) : json(res, 404, { error: 'Photo inconnue' }); }
+  }
+  if (p.startsWith('/api/edits/')) {
+    const action = p.split('/')[4];
+    if (!edits.get(id)) return json(res, 404, { error: 'Version inconnue' });
+    if (!action && m === 'GET') return json(res, 200, { version: edits.get(id) });
+    if (!action && m === 'PUT') return json(res, 200, { version: edits.update(id, sanitize(await readBody(req)) ?? {}) });
+    if (!action && m === 'DELETE') return json(res, 200, edits.remove(id));
+    if (action === 'undo' && m === 'POST') return json(res, 200, { version: edits.undo(id) });
+    if (action === 'redo' && m === 'POST') return json(res, 200, { version: edits.redo(id) });
+    if (action === 'reset' && m === 'POST') return json(res, 200, { version: edits.reset(id) });
+  }
+
+  // ---- Exports de photos (travail en arrière-plan, suivi par /api/jobs/<id>) ----
+  if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR });
+  if (p === '/api/exports/profiles' && m === 'POST') return json(res, 200, exportsSvc.saveProfile(sanitize(await readBody(req)) ?? {}));
+  if (p.startsWith('/api/exports/profiles/') && m === 'DELETE') return json(res, 200, exportsSvc.removeProfile(decodeURIComponent(p.split('/')[4] ?? '')));
+  if (p === '/api/exports' && m === 'GET') return json(res, 200, { list: db.prepare("SELECT id, kind, target, profile, count, status, created_at FROM exports ORDER BY created_at DESC LIMIT 30").all() });
+  if (p === '/api/exports' && m === 'POST') {
+    const b = sanitize(await readBody(req)) ?? {};
+    const jobId = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const job = { id: jobId, kind: 'export', done: 0, total: 0, current: null, status: 'running', result: null, error: null };
+    JOBS.set(jobId, job);
+    exportsSvc.run(b.photoIds, b.profile, { onProgress: pr => Object.assign(job, pr) })
+      .then(r => { job.status = 'done'; job.result = r; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
+    return json(res, 200, { jobId, job });
   }
 
   // ---- Navigation : années, appareils, formats ----

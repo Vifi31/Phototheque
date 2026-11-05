@@ -54,6 +54,8 @@ lib/
   albums.mjs       Albums : formats, pages à gabarits, contrôles, export du projet (§9)
   albumpdf.mjs     Albums : export PDF d'impression / d'aperçu (§9)
   pdf.mjs          Écriture PDF minimale sans dépendance (JPEG, Helvetica WinAnsi)
+  edits.mjs        Retouche non destructive : réglages versionnés, versions, historique, rendu (§10)
+  exports.mjs      Export de photos : formats, métadonnées, filigrane, profils, lots (§11)
   search.mjs       Moteur de recherche (FTS5, critères avancés, critères enregistrés)
   duplicates.mjs   Doublons exacts (empreintes) et similaires (empreintes visuelles)
   backup.mjs       Sauvegardes / vérification / restauration
@@ -238,3 +240,52 @@ les images en mémoire.
 Non encore réalisé (cahier des charges §13) : rotation, placement libre, bordures,
 gestion des couleurs (CMJN, profils ICC), traits
 de coupe, modèles graphiques personnalisés, réimport d'un projet.
+
+## 10. Retouche non destructive (v0.9.0)
+
+Les réglages vivent dans la table `edits` (une ligne par **version** d'une
+photo) ; aucun fichier n'est jamais réécrit. `edits.params` est un JSON
+versionné (`EDIT_PARAMS_VERSION` = 1) :
+
+```json
+{ "v": 1, "rotate": 0, "flipH": false, "flipV": false, "straighten": 0,
+  "crop": { "x": 0, "y": 0, "w": 1, "h": 1 } | null,
+  "exposure": 0, "brightness": 0, "contrast": 0, "temperature": 0, "tint": 0,
+  "saturation": 0, "sharpen": 0, "mono": null | "bw" | "sepia" }
+```
+
+* `edits.is_default` désigne la version utilisée par l'export ;
+  `edits.data` = `{ v, history: [params…], future: [params…] }` (annuler /
+  rétablir persistants, 50 étapes).
+* Rendu (`pipeline()`, sharp) : orientation EXIF → quarts de tour +
+  redressement → découpe (plus grand rectangle sans coin vide, puis
+  recadrage) → miroirs → redimensionnement → lumière et couleur. La géométrie
+  passe par un tampon intermédiaire pour garantir l'ordre ; comme sharp
+  retourne toujours après la découpe, le recadrage (exprimé dans l'image
+  affichée, en fractions) est converti en coordonnées non retournées.
+* Couleur : une seule opération linéaire par canal
+  `v' = v·2^IL·wb·c + (lum − 128)·c + 128` (wb = balance des blancs par
+  température et teinte), puis saturation, noir et blanc ou sépia, netteté.
+* Aperçus : `GET /api/photos/<id>/render`, mis en cache dans
+  `data/thumbs/edits/` (clé = photo + source + réglages + taille), calculés
+  depuis l'aperçu en cache pour la vitesse. L'export, lui, part de
+  l'original en pleine définition.
+* Limites : sharp ne décode pas les RAW (repli sur l'aperçu, signalé) ;
+  sortie en sRGB uniquement.
+
+## 11. Export de photos (v0.9.0)
+
+`lib/exports.mjs` exporte vers `Exports/<sous-dossier>` (par défaut
+`Exports/Export <date heure>`), jamais ailleurs (le sous-dossier est nettoyé
+et contrôlé), sans jamais écraser un fichier (`uniqueName`).
+
+* Profil : `{ name, format: jpeg|png|tiff|webp, quality, maxSide, version:
+  default|original, metadata: keep|nogps|none, watermark: { text, position,
+  opacity, size }, naming, folder }`. Profils intégrés (`BUILTIN_PROFILES`)
+  et profils personnels dans `config` (clé `export.profiles`).
+* Métadonnées : réécrites depuis la fiche (appareil, date, auteur,
+  copyright, titre, et GPS en mode `keep`) ; l'orientation est appliquée aux
+  pixels ; profil ICC sRGB intégré.
+* Lot en tâche de fond : `POST /api/exports` → `jobId`, progression par
+  `GET /api/jobs/<id>` ; compte rendu consigné dans `exports`
+  (`kind = 'photos'`) et l'historique.

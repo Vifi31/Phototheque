@@ -4,6 +4,77 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.9.0] — 2026-11-05
+
+Étape 4 de la feuille de route (retouches non destructives + exports),
+première version.
+
+### Ajouté
+
+- **Retouche non destructive** (`lib/edits.mjs`) : les réglages sont
+  enregistrés dans la table `edits` (JSON versionné, `EDIT_PARAMS_VERSION`
+  1), jamais dans les fichiers ; les originaux ne sont lus qu'en lecture.
+  - **Géométrie :** rotation par quarts de tour, miroirs horizontal et
+    vertical, redressement de −15° à +15° (l'image est recoupée pour ne
+    jamais montrer de coin vide), recadrage libre ou à proportion fixe
+    (1:1, 4:3, 3:2, 16:9, 4:5, 2:3, proportion d'origine) avec un cadre
+    déplaçable et redimensionnable et une grille des tiers.
+  - **Lumière et couleur :** exposition, luminosité, contraste, température,
+    teinte, saturation, netteté, noir et blanc, sépia.
+  - **Filtres :** sept préréglages intégrés (noir et blanc, noir et blanc
+    contrasté, sépia, chaud, froid, couleurs vives, doux) ; ils remplacent
+    les réglages de lumière et de couleur sans toucher à la géométrie.
+  - **Versions** (variantes virtuelles) : plusieurs versions par photo,
+    nommées, copiables, supprimables ; une version « par défaut » (★) est
+    utilisée par l'export.
+  - **Historique par version, conservé en base** : annuler, rétablir
+    (boutons et Ctrl+Z / Ctrl+Y), réinitialiser (annulable), 50 étapes.
+  - **Avant / après :** maintenir le bouton affiche l'original.
+  - Aperçus rendus par le serveur et mis en cache dans `data/thumbs/edits`
+    (régénérable) ; ils partent de l'aperçu en cache pour être rapides.
+- **Export de photos** (`lib/exports.mjs`) vers le dossier `Exports/`
+  (à côté de `Sauvegardes/`) :
+  - formats JPEG, PNG, TIFF (LZW) et WebP ; qualité ; plus grand côté en
+    pixels (jamais d'agrandissement) ;
+  - version retouchée par défaut ou original non retouché ; rendu depuis
+    l'original en pleine définition ;
+  - métadonnées principales (appareil, date, auteur, copyright, titre) avec
+    ou sans GPS, ou aucune ; profil sRGB intégré ;
+  - filigrane texte (position, opacité, taille) ;
+  - renommage par modèle (`{nom}`, `{titre}`, `{date}`, `{n}`) et
+    sous-dossier ; un fichier existant n'est jamais écrasé ;
+  - export par lot en tâche de fond avec progression, compte rendu
+    (fichiers, taille, erreurs par photo, photos tirées de l'aperçu) et
+    consignation dans la table `exports` ;
+  - quatre profils intégrés (partage web, réseaux sociaux avec filigrane,
+    tirage, archive TIFF) et profils personnels enregistrables.
+- **Interface :** bouton « ✎ Retoucher » et « Exporter… » dans la
+  visionneuse ; vue de retouche (aperçu, panneau de réglages) ; action de
+  lot « Exporter… » dans la Photothèque ; badge ✎ sur les photos qui ont
+  une version retouchée.
+- **API :** `GET/POST /api/photos/<id>/edits`, `GET /api/photos/<id>/render`
+  (`edit`, `params`, `size`, `nocrop`), `GET/PUT/DELETE /api/edits/<id>`,
+  `POST /api/edits/<id>/undo|redo|reset`, `GET/POST /api/exports`,
+  `GET/POST /api/exports/profiles`, `DELETE /api/exports/profiles/<id>`.
+- **Tests :** 335 vérifications (51 nouvelles : réglages, rendu géométrique
+  et colorimétrique sur image de contrôle, versions et historique, export,
+  métadonnées, profils, intégrité de l'original).
+
+### Non encore réalisé
+
+- **RAW :** sharp (libvips) ne décode pas les fichiers RAW ; leur retouche
+  et leur export s'appuient sur l'aperçu en cache (définition réduite,
+  signalé). Un moteur RAW (LibRaw…) reste à évaluer.
+- Courbes, réduction du bruit, hautes lumières / ombres, vibrance.
+- Gestion des couleurs : sortie toujours en sRGB (pas de choix de profil ICC
+  ni de conversion CMJN) ; métadonnées réécrites (pas de copie intégrale de
+  l'EXIF, IPTC ni XMP d'origine) ; les accents des champs EXIF sont
+  ramenés en ASCII (limite du format EXIF).
+- Préréglages personnels, densité (ppp) inscrite dans le fichier, ouverture
+  dans un logiciel externe.
+- Les albums, vignettes et la visionneuse montrent encore l'original non
+  retouché.
+
 ## [0.8.0] — 2026-11-05
 
 ### Ajouté

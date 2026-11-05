@@ -1,7 +1,7 @@
 // Contrôleur principal de l'interface Photothèque. Scripts classiques (globaux), aucune dépendance.
 // La logique métier vit côté serveur (lib/*.mjs) ; ici on appelle l'API /api/* et on affiche.
 'use strict';
-const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen } = UI;
+const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose } = UI;
 
 const App = (() => {
   const state = {
@@ -41,7 +41,7 @@ const App = (() => {
     clear(nav);
     for (const item of NAV) {
       if (item.group) { nav.appendChild(h('div.nav-group', item.group)); continue; }
-      const active = state.view === item.id || (item.id === 'admin' && state.view.startsWith('admin-')) || (item.id === 'albums' && state.view === 'album');
+      const active = state.view === item.id || (item.id === 'admin' && state.view.startsWith('admin-')) || (item.id === 'albums' && state.view === 'album') || (item.id === 'photos' && state.view === 'retouche');
       nav.appendChild(h('button.nav-item' + (active ? '.active' : ''), { onclick: () => go(item.id), title: item.label },
         h('span.ico', item.icon), h('span', item.label), badgeFor(item.id)));
     }
@@ -65,6 +65,7 @@ const App = (() => {
       else if (view === 'collections') await viewCollections(v);
       else if (view === 'albums') await viewAlbums(v);
       else if (view === 'album') await viewAlbum(v);
+      else if (view === 'retouche') await viewRetouche(v);
       else if (view === 'duplicates') await viewDuplicates(v);
       else if (view === 'stats') await viewStats(v);
       else if (view === 'settings') await viewSettings(v);
@@ -131,6 +132,7 @@ const App = (() => {
           h('button.small.ghost', { onclick: batchKeyword }, 'Mot-clé…'),
           h('button.small.ghost', { onclick: batchCollection }, 'Ajouter à une collection…'),
           h('button.small.ghost', { onclick: batchAlbum }, 'Ajouter à un album…'),
+          h('button.small.ghost', { onclick: () => exportDialog([...state.selection]) }, 'Exporter…'),
           coll?.kind === 'static' ? h('button.small.ghost', { onclick: batchUncollect }, 'Retirer de la collection') : null,
           h('button.small.danger', { onclick: batchRemoveIndex }, "Retirer de l'index"),
           h('button.small.ghost', { onclick: () => { state.selection.clear(); renderGrid(); } }, 'Tout désélectionner'),
@@ -155,12 +157,15 @@ const App = (() => {
         cell.appendChild(h('div.ph-sel', { onclick: e => { e.stopPropagation(); toggleSel(p.id); } }, state.selection.has(p.id) ? '✓' : ''));
         if (p.missing) cell.appendChild(h('div.ph-miss', 'indisponible'));
         if (p.rating) cell.appendChild(h('div.ph-rating', '★'.repeat(p.rating)));
+        if (p.edits) cell.appendChild(h('div.ph-edit', { title: `${p.edits} version(s) retouchée(s)` }, '✎'));
         grid.appendChild(cell);
       });
     }
     function toggleSel(id) { if (state.selection.has(id)) state.selection.delete(id); else state.selection.add(id); renderGrid(); refreshSelection(); }
     function openViewer(i) {
-      lightboxOpen(state.rows, i, () => {});
+      lightboxOpen(state.rows, i, () => {}, p => [
+        h('button.small', { onclick: () => { lightboxClose(); openRetouche(p.id); } }, '✎ Retoucher'),
+        h('button.small.ghost', { onclick: () => { lightboxClose(); exportDialog([p.id]); } }, 'Exporter…')]);
     }
 
     async function refresh() {
@@ -554,6 +559,237 @@ const App = (() => {
     });
     return parts.length ? parts.join(' · ') : 'aucun critère';
   }
+  // ---------- Retouche non destructive (réglages enregistrés à part : lib/edits.mjs) ----------
+  function openRetouche(photoId) { state.editPhotoId = photoId; state.editBack = state.view === 'retouche' ? state.editBack : state.view; go('retouche'); }
+
+  async function viewRetouche(v) {
+    const pid = state.editPhotoId, enc = encodeURIComponent(pid);
+    const photo = (await api('/photos/' + enc)).photo;
+    let meta = await api(`/photos/${enc}/edits`);
+    const F = meta.fields, neutral = { ...meta.defaults };
+    let versions = meta.versions;
+    let cur = versions.find(x => x.is_default) ?? versions[0] ?? null; // null : original, aucune version encore
+    let params = { ...(cur?.params ?? neutral) };
+    let cropMode = false, cropBox = null, ratio = 'free';
+    const fileName = photo.files?.[0]?.file_name || photo.title || 'Photo';
+
+    // ---- aperçu (rendu par le serveur, mis en cache) ----
+    const img = h('img.rt-img', { alt: '' });
+    const overlay = h('div.rt-crop', { hidden: true });
+    const stage = h('div.rt-stage', h('div.rt-frame', img, overlay));
+    const busy = h('div.rt-busy', { hidden: true }, 'Rendu…');
+    let seq = 0, timer = null;
+    const renderUrl = (prm, noCrop) => `/api/photos/${enc}/render?size=1400${noCrop ? '&nocrop=1' : ''}&params=${encodeURIComponent(JSON.stringify(prm))}`;
+    function refreshPreview(delay = 120) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const n = ++seq, url = renderUrl(params, cropMode), pre = new Image();
+        busy.hidden = false;
+        pre.onload = () => { if (n !== seq) return; img.src = url; busy.hidden = true; if (cropMode) drawCrop(); };
+        pre.onerror = () => { if (n === seq) { busy.hidden = true; toast('Rendu impossible pour cette photo', 'bad'); } };
+        pre.src = url;
+      }, delay);
+    }
+    // avant / après : l'original (aperçu non retouché) tant que le bouton est enfoncé
+    const beforeBtn = h('button.ghost.small', { title: 'Maintenir pour voir l’original' }, '◐ Avant / après');
+    const showBefore = on => { img.src = on ? renderUrl(neutral, false) : renderUrl(params, cropMode); };
+    beforeBtn.addEventListener('pointerdown', () => showBefore(true));
+    for (const ev of ['pointerup', 'pointerleave']) beforeBtn.addEventListener(ev, () => showBefore(false));
+
+    // ---- enregistrement : chaque modification validée est une étape annulable de la version ----
+    async function commit() {
+      try {
+        if (!cur) { cur = (await api(`/photos/${enc}/edits`, 'POST', { params })).version; versions = [...versions, cur]; }
+        else cur = (await api('/edits/' + encodeURIComponent(cur.id), 'PUT', { params })).version;
+        params = { ...cur.params }; versions = versions.map(x => (x.id === cur.id ? cur : x));
+        drawPanel();
+      } catch (e) { toast(e.message, 'bad'); }
+    }
+    async function act(path, method = 'POST', payload) {
+      try { cur = (await api('/edits/' + encodeURIComponent(cur.id) + path, method, payload)).version; params = { ...cur.params }; versions = versions.map(x => (x.id === cur.id ? cur : x)); drawPanel(); refreshPreview(0); }
+      catch (e) { toast(e.message, 'bad'); }
+    }
+    const set = (patch, now = false) => { Object.assign(params, patch); refreshPreview(); if (now) commit(); };
+
+    // ---- géométrie : quarts de tour et miroirs transforment aussi le recadrage (exprimé dans l'image affichée) ----
+    function turn(dir) {
+      const c = params.crop;
+      const crop = c ? (dir > 0 ? { x: 1 - c.y - c.h, y: c.x, w: c.h, h: c.w } : { x: c.y, y: 1 - c.x - c.w, w: c.h, h: c.w }) : null;
+      set({ rotate: (params.rotate + dir * 90 + 360) % 360, crop }, true);
+    }
+    function flip(axis) {
+      const c = params.crop;
+      const crop = c ? (axis === 'h' ? { ...c, x: 1 - c.x - c.w } : { ...c, y: 1 - c.y - c.h }) : null;
+      set(axis === 'h' ? { flipH: !params.flipH, crop } : { flipV: !params.flipV, crop }, true);
+    }
+
+    // ---- recadrage : cadre déplaçable et redimensionnable sur l'image entière (sans recadrage) ----
+    const RATIOS = { free: 'Libre', orig: 'Proportion d’origine', '1:1': 'Carré 1:1', '4:3': '4:3', '3:2': '3:2', '16:9': '16:9', '4:5': '4:5 (portrait)', '2:3': '2:3 (portrait)' };
+    const aspect = () => (img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1);
+    const ratioValue = () => { if (ratio === 'free') return null; if (ratio === 'orig') return aspect(); const [a, b] = ratio.split(':').map(Number); return a / b; };
+    function fitRatio(b) {
+      const r = ratioValue(); if (!r) return b;
+      const A = aspect(); let w = b.w, hh = (w * A) / r;
+      if (hh > 1) { hh = 1; w = (hh * r) / A; }
+      return { x: Math.min(b.x, 1 - w), y: Math.min(b.y, 1 - hh), w, h: hh };
+    }
+    function drawCrop() {
+      overlay.hidden = !cropMode; if (!cropMode || !cropBox) return;
+      Object.assign(overlay.style, { left: cropBox.x * 100 + '%', top: cropBox.y * 100 + '%', width: cropBox.w * 100 + '%', height: cropBox.h * 100 + '%' });
+    }
+    let dragC = null;
+    overlay.appendChild(h('div.rt-handle'));
+    overlay.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      dragC = { x: e.clientX, y: e.clientY, box: { ...cropBox }, resize: e.target.classList.contains('rt-handle') };
+      try { overlay.setPointerCapture(e.pointerId); } catch { /* sans capture */ }
+    });
+    overlay.addEventListener('pointermove', e => {
+      if (!dragC) return;
+      const R = img.getBoundingClientRect(), dx = (e.clientX - dragC.x) / R.width, dy = (e.clientY - dragC.y) / R.height, b = dragC.box;
+      if (dragC.resize) {
+        let w = Math.max(0.05, Math.min(1 - b.x, b.w + dx)), hh = Math.max(0.05, Math.min(1 - b.y, b.h + dy));
+        const r = ratioValue(); if (r) { hh = (w * aspect()) / r; if (b.y + hh > 1) { hh = 1 - b.y; w = (hh * r) / aspect(); } }
+        cropBox = { x: b.x, y: b.y, w, h: hh };
+      } else cropBox = { ...b, x: Math.max(0, Math.min(1 - b.w, b.x + dx)), y: Math.max(0, Math.min(1 - b.h, b.y + dy)) };
+      drawCrop();
+    });
+    overlay.addEventListener('pointerup', () => { dragC = null; });
+    function startCrop() { cropMode = true; cropBox = params.crop ? { ...params.crop } : { x: 0, y: 0, w: 1, h: 1 }; drawPanel(); refreshPreview(0); }
+    function endCrop(apply) {
+      cropMode = false; overlay.hidden = true;
+      if (apply) set({ crop: cropBox && (cropBox.w < 0.999 || cropBox.h < 0.999) ? cropBox : null }, true);
+      else { drawPanel(); refreshPreview(0); }
+    }
+
+    // ---- panneau de réglages ----
+    const panel = h('div.rt-panel');
+    function slider(key) {
+      const f = F[key], out = h('span.rt-val', String(params[key]));
+      const input = h('input', { type: 'range', min: f.min, max: f.max, step: f.step, value: params[key] });
+      input.addEventListener('input', () => { out.textContent = input.value; set({ [key]: +input.value }); });
+      input.addEventListener('change', () => commit());
+      input.addEventListener('dblclick', () => { input.value = 0; out.textContent = '0'; set({ [key]: 0 }, true); });
+      return h('div.rt-slider', h('label', f.label, out), input);
+    }
+    function drawPanel() {
+      const verSel = h('select', { onchange: e => { cur = versions.find(x => x.id === e.target.value) ?? null; params = { ...(cur?.params ?? neutral) }; drawPanel(); refreshPreview(0); } },
+        versions.length ? null : h('option', { value: '' }, 'Original (aucune retouche)'),
+        ...versions.map(x => h('option', { value: x.id, selected: x.id === cur?.id }, x.name + (x.is_default ? ' ★' : ''))));
+      const groups = {};
+      for (const key of Object.keys(F)) if (key !== 'straighten') (groups[F[key].group] ??= []).push(slider(key));
+      const cap = meta.capability;
+      mount(panel,
+        cap.fullRes === false ? h('div.album-alert.warn', cap.reason) : null,
+        h('div.rt-sect', 'Version'),
+        h('div.row', verSel),
+        h('div.row.wrap',
+          h('button.ghost.small', { title: 'Nouvelle version à partir des réglages actuels', onclick: async () => { cur = (await api(`/photos/${enc}/edits`, 'POST', cur ? { from: cur.id } : { params })).version; versions = [...versions, cur]; params = { ...cur.params }; drawPanel(); } }, '+ Nouvelle version'),
+          cur ? h('button.ghost.small', { onclick: async () => { const nm = prompt('Nom de la version', cur.name); if (nm) await act('', 'PUT', { name: nm }); } }, 'Renommer…') : null,
+          cur && !cur.is_default ? h('button.ghost.small', { title: 'Version utilisée par l’export', onclick: async () => { await act('', 'PUT', { isDefault: true }); versions = (await api(`/photos/${enc}/edits`)).versions; drawPanel(); } }, '★ Par défaut') : null,
+          cur ? h('button.ghost.small.danger', { onclick: async () => { if (!(await confirmDialog('Supprimer la version', `Supprimer « ${cur.name} » ? L’original n’est jamais modifié.`))) return; await api('/edits/' + encodeURIComponent(cur.id), 'DELETE'); meta = await api(`/photos/${enc}/edits`); versions = meta.versions; cur = versions.find(x => x.is_default) ?? null; params = { ...(cur?.params ?? neutral) }; drawPanel(); refreshPreview(0); } }, 'Supprimer') : null),
+        h('div.row.wrap',
+          h('button.ghost.small', { disabled: !cur?.undo, title: 'Ctrl+Z', onclick: () => act('/undo') }, '↶ Annuler'),
+          h('button.ghost.small', { disabled: !cur?.redo, title: 'Ctrl+Y', onclick: () => act('/redo') }, '↷ Rétablir'),
+          h('button.ghost.small', { disabled: !cur || cur.neutral, title: 'Revenir aux réglages neutres (annulable)', onclick: () => act('/reset') }, 'Réinitialiser'),
+          beforeBtn),
+        h('div.rt-sect', 'Filtres'),
+        h('div.rt-presets', ...Object.entries(meta.presets).map(([k, pr]) => h('button.ghost.small', { onclick: () => {
+          const tone = Object.fromEntries(['exposure', 'brightness', 'contrast', 'temperature', 'tint', 'saturation', 'sharpen', 'mono'].map(t => [t, neutral[t]]));
+          set({ ...tone, ...pr.params }, true);
+        } }, pr.label))),
+        h('div.rt-sect', 'Géométrie'),
+        cropMode
+          ? h('div', h('div.form', field('Proportion', h('select', { onchange: e => { ratio = e.target.value; cropBox = fitRatio(cropBox); drawCrop(); } }, ...Object.entries(RATIOS).map(([k, l]) => h('option', { value: k, selected: k === ratio }, l))))),
+              h('p.dim', 'Faites glisser le cadre ; le coin en bas à droite le redimensionne.'),
+              h('div.row', h('button.ghost.small', { onclick: () => { cropBox = { x: 0, y: 0, w: 1, h: 1 }; drawCrop(); } }, 'Image entière'), h('div.spacer'),
+                h('button.ghost.small', { onclick: () => endCrop(false) }, 'Annuler'), h('button.small', { onclick: () => endCrop(true) }, 'Appliquer')))
+          : h('div.row.wrap',
+              h('button.ghost.small', { title: 'Tourner à gauche', onclick: () => turn(-1) }, '↺'),
+              h('button.ghost.small', { title: 'Tourner à droite', onclick: () => turn(1) }, '↻'),
+              h('button.ghost.small' + (params.flipH ? '.on' : ''), { title: 'Miroir horizontal', onclick: () => flip('h') }, '⇋'),
+              h('button.ghost.small' + (params.flipV ? '.on' : ''), { title: 'Miroir vertical', onclick: () => flip('v') }, '⇵'),
+              h('button.ghost.small' + (params.crop ? '.on' : ''), { onclick: startCrop }, '✂ Recadrer')),
+        cropMode ? null : slider('straighten'),
+        ...Object.entries(groups).flatMap(([g, list]) => [h('div.rt-sect', g), ...list]),
+        h('div.form', field('Noir et blanc', h('select', { onchange: e => set({ mono: e.target.value || null }, true) },
+          h('option', { value: '' }, 'Couleur'), h('option', { value: 'bw', selected: params.mono === 'bw' }, 'Noir et blanc'), h('option', { value: 'sepia', selected: params.mono === 'sepia' }, 'Sépia')))),
+        h('p.dim', 'Double-clic sur un curseur : remise à zéro. Les réglages sont enregistrés à part ; l’original n’est jamais modifié.'));
+      drawCrop();
+    }
+
+    // raccourcis Ctrl+Z / Ctrl+Y (hors champs de saisie)
+    keyHandler = e => {
+      if (state.view !== 'retouche' || state.editPhotoId !== pid || !cur) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, textarea, select') || document.querySelector('.modal')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey && cur.undo) { e.preventDefault(); act('/undo'); }
+      else if ((k === 'y' || (k === 'z' && e.shiftKey)) && cur.redo) { e.preventDefault(); act('/redo'); }
+    };
+
+    mount(v,
+      h('div.row', h('h2.page-title', `Retouche — ${fileName}`), h('div.spacer'),
+        h('button.ghost.small', { onclick: () => go(state.editBack || 'photos') }, '← Retour'),
+        h('button.small', { onclick: () => exportDialog([pid]) }, 'Exporter…')),
+      h('div.rt-layout', h('div.rt-view', stage, busy), panel));
+    drawPanel(); refreshPreview(0);
+  }
+
+  // ---------- Export de photos (lib/exports.mjs) : profil, réglages, travail suivi, compte rendu ----------
+  async function exportDialog(ids) {
+    if (!ids.length) return;
+    let meta = await api('/exports/profiles');
+    const keyOf = () => [...Object.keys(meta.builtin).map(k => 'b:' + k), ...Object.keys(meta.saved).map(k => 's:' + k)];
+    const profOf = k => (k.startsWith('b:') ? meta.builtin[k.slice(2)] : meta.saved[k.slice(2)]);
+    const sel = h('select'), fmt = h('select', {}, ...Object.entries(meta.formats).map(([k, f]) => h('option', { value: k }, f.label)));
+    const quality = h('input', { type: 'number', min: 30, max: 100 }), maxSide = h('input', { type: 'number', min: 64, max: 20000, placeholder: 'pleine définition' });
+    const version = h('select', {}, h('option', { value: 'default' }, 'Version retouchée par défaut (sinon l’original)'), h('option', { value: 'original' }, 'Original non retouché'));
+    const metaSel = h('select', {}, ...Object.entries(meta.metadata).map(([k, l]) => h('option', { value: k }, l)));
+    const wmText = h('input', { type: 'text', placeholder: 'aucun' }), wmPos = h('select', {}, ...Object.entries(meta.positions).map(([k, l]) => h('option', { value: k }, l)));
+    const naming = h('input', { type: 'text' }), folder = h('input', { type: 'text', placeholder: 'Export <date et heure>' });
+    const status = h('div'), delBtn = h('button.ghost.small.danger', { hidden: true }, 'Supprimer ce profil');
+    function fillSel(selected) { mount(sel, ...keyOf().map(k => h('option', { value: k, selected: k === selected }, (k.startsWith('s:') ? '★ ' : '') + profOf(k).name))); }
+    function load(k) {
+      const p = profOf(k); if (!p) return;
+      fmt.value = p.format; quality.value = p.quality; maxSide.value = p.maxSide ?? ''; version.value = p.version; metaSel.value = p.metadata;
+      wmText.value = p.watermark.text; wmPos.value = p.watermark.position; naming.value = p.naming; folder.value = p.folder;
+      delBtn.hidden = !k.startsWith('s:'); quality.disabled = !meta.formats[p.format].quality;
+    }
+    const current = () => ({ format: fmt.value, quality: +quality.value, maxSide: maxSide.value ? +maxSide.value : null, version: version.value, metadata: metaSel.value,
+      watermark: { text: wmText.value, position: wmPos.value }, naming: naming.value, folder: folder.value });
+    sel.addEventListener('change', () => load(sel.value));
+    fmt.addEventListener('change', () => { quality.disabled = !meta.formats[fmt.value].quality; });
+    delBtn.addEventListener('click', async () => { await api('/exports/profiles/' + encodeURIComponent(sel.value.slice(2)), 'DELETE'); meta = await api('/exports/profiles'); fillSel('b:web'); load('b:web'); });
+    const saveBtn = h('button.ghost.small', { onclick: async () => {
+      const nm = prompt('Nom du profil d’export'); if (!nm) return;
+      const r = await api('/exports/profiles', 'POST', { ...current(), name: nm }); meta = await api('/exports/profiles'); fillSel('s:' + r.id); load('s:' + r.id); toast('Profil enregistré');
+    } }, 'Enregistrer comme profil…');
+    const go2 = h('button', { onclick: async () => {
+      go2.disabled = true;
+      try {
+        const { jobId } = await api('/exports', 'POST', { photoIds: ids, profile: current() });
+        let job;
+        do { await new Promise(r => setTimeout(r, 400)); job = (await api('/jobs/' + jobId)).job; mount(status, h('p.dim', `Export en cours… ${job.done ?? 0} / ${job.total || ids.length}`)); } while (job.status === 'running');
+        if (job.status === 'error') throw new Error(job.error);
+        const r = job.result;
+        mount(status, h('p', `✓ ${r.files.length} fichier(s) · ${fmtBytes(r.bytes)}`), h('p.dim', 'Dossier : ' + r.dir),
+          r.fromPreview ? h('div.album-alert.warn', `${r.fromPreview} photo(s) exportée(s) depuis l’aperçu en cache (original indisponible ou RAW) : définition réduite.`) : null,
+          ...r.errors.slice(0, 8).map(e => h('div.album-alert.bad', `${e.photoId.slice(0, 8)}… : ${e.error}`)));
+        toast(`${r.files.length} photo(s) exportée(s)`);
+      } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+      go2.disabled = false;
+    } }, `Exporter ${ids.length} photo(s)`);
+    fillSel('b:web'); load('b:web');
+    const m = modal({ title: 'Exporter', wide: true, body: h('div',
+      h('div.form', field('Profil', sel)),
+      h('div.form', field('Format', fmt), field('Qualité (JPEG, WebP)', quality), field('Plus grand côté (pixels)', maxSide)),
+      h('div.form', field('Version', version), field('Métadonnées', metaSel)),
+      h('div.form', field('Filigrane (texte)', wmText), field('Position du filigrane', wmPos)),
+      h('div.form', field('Nom des fichiers', naming), field('Sous-dossier', folder)),
+      h('p.dim', `Modèles de nom : {nom} (fichier d’origine), {titre}, {date}, {n} (rang). Les fichiers vont dans ${meta.dir} ; un fichier existant n’est jamais écrasé et les originaux ne sont jamais modifiés.`),
+      h('div.row', saveBtn, delBtn), status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), go2] });
+  }
+
   // ---------- Albums : liste + éditeur de pages ----------
   // Formats et gabarits viennent du serveur (lib/albums.mjs) : l'interface ne fait que les dessiner.
   let albumMeta = null;

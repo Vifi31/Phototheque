@@ -74,7 +74,8 @@ data/
 └── thumbs/          # vignettes + aperçus (cache régénérable)
 ```
 
-Sauvegardes → `Sauvegardes/` ; instantanés de version → `Versions/`.
+Sauvegardes → `Sauvegardes/` ; instantanés de version → `Versions/` ;
+photos exportées → `Exports/` (jamais à côté des originaux, jamais écrasées).
 
 Base SQLite ouverte avec `PRAGMA foreign_keys=ON`, mode WAL,
 `busy_timeout=5000`.
@@ -133,5 +134,10 @@ bibliothèque).
    `folios`). Annuler / rétablir en v0.8.0 (piles en mémoire,
    `mutate()` dans `lib/albums.mjs` : toute nouvelle modification d'album
    doit passer par ce wrapper pour être annulable).
-4. Retouches non destructives + exports.
+4. Retouches non destructives + exports — **première version livrée
+   (v0.9.0)** : `lib/edits.mjs` (réglages JSON versionnés dans `edits`,
+   versions, historique persistant, rendu sharp) et `lib/exports.mjs`
+   (formats, métadonnées, filigrane, profils, export par lot). Restent : RAW
+   (sharp ne les décode pas), courbes / bruit, profils ICC, albums et
+   vignettes avec la version retouchée.
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié.

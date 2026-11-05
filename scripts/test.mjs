@@ -694,6 +694,127 @@ group('Albums : export PDF (impression et aperçu)');
 }
 
 // ===================================================================
+group('Retouche non destructive et export de photos');
+// ===================================================================
+{
+  const E = await import('../lib/edits.mjs');
+  const X = await import('../lib/exports.mjs');
+  const { default: exifr } = await import('exifr');
+  const { EXPORT_DIR } = await import('../lib/paths.mjs');
+
+  // --- réglages : nettoyage et bornes ---
+  const cp = E.cleanParams({ exposure: 9, rotate: 450, crop: { x: 0.9, y: -1, w: 0.5, h: 2 }, mono: 'rouge', inconnu: 1 });
+  check('réglages : exposition bornée', cp.exposure, 2, 0);
+  check('réglages : rotation ramenée au quart de tour', `${cp.rotate}|${E.cleanParams({ rotate: -90 }).rotate}`, '90|270');
+  check('réglages : recadrage ramené dans l’image', JSON.stringify(cp.crop), JSON.stringify({ x: 0.5, y: 0, w: 0.5, h: 1 }));
+  check('réglages : valeur inconnue ignorée', 'inconnu' in cp || cp.mono !== null, false, 0);
+  check('réglages neutres reconnus', E.isNeutral({ crop: { x: 0, y: 0, w: 1, h: 1 } }), true, 0);
+  check('redressement : rectangle sans coin vide plus petit', E.inscribedRect(1000, 500, 5).w < 1000 && E.inscribedRect(1000, 500, 0).w === 1000, true, 0);
+  check('géométrie : quart de tour échange largeur et hauteur', JSON.stringify((({ width, height }) => [width, height])(E.geometry(400, 200, { rotate: 90 }))), '[200,400]');
+
+  // --- rendu : image de test moitié rouge (gauche) / moitié bleue (droite) ---
+  const sharpTest = (await import('sharp')).default;
+  const half = path.join(TMP, 'retouche', 'moitie.png');
+  fs.mkdirSync(path.dirname(half), { recursive: true });
+  await sharpTest({ create: { width: 400, height: 200, channels: 3, background: '#0000ff' } })
+    .composite([{ input: await sharpTest({ create: { width: 200, height: 200, channels: 3, background: '#ff0000' } }).png().toBuffer(), left: 0, top: 0 }]).png().toFile(half);
+  const sumHalf = crypto.createHash('sha256').update(fs.readFileSync(half)).digest('hex');
+  const px = async (r, x, y) => { const { data, info } = await r.image.raw().toBuffer({ resolveWithObject: true }); const i = (y * info.width + x) * info.channels; return [data[i], data[i + 1], data[i + 2]]; };
+  const isRed = c => c[0] > 200 && c[2] < 60, isBlue = c => c[2] > 200 && c[0] < 60;
+  let r = await E.pipeline(half, { crop: { x: 0, y: 0, w: 0.5, h: 1 } });
+  check('rendu : recadrage sur la moitié gauche', `${r.width}x${r.height}|${isRed(await px(r, 100, 100))}`, '200x200|true');
+  r = await E.pipeline(half, { flipH: true, crop: { x: 0, y: 0, w: 0.5, h: 1 } });
+  check('rendu : recadrage exprimé dans l’image retournée', isBlue(await px(r, 100, 100)), true, 0);
+  r = await E.pipeline(half, { rotate: 90 });
+  check('rendu : quart de tour (rouge en haut)', `${r.width}x${r.height}|${isRed(await px(r, 100, 50))}`, '200x400|true');
+  r = await E.pipeline(half, { straighten: 10 });
+  const corner = await px(r, 0, 0);
+  check('rendu : redressement sans coin blanc', corner[0] === 255 && corner[1] === 255 && corner[2] === 255, false, 0);
+  r = await E.pipeline(half, { mono: 'bw' });
+  const g = await px(r, 300, 100);
+  check('rendu : noir et blanc', g[0] === g[1] && g[1] === g[2], true, 0);
+  r = await E.pipeline(half, { maxSide: 100 }, { maxSide: 100 });
+  check('rendu : réduction sans déformation', `${r.width}x${r.height}`, '100x50');
+  const sepia = await px(await E.pipeline(half, { mono: 'sepia' }), 300, 100);
+  check('rendu : sépia (teinte chaude)', sepia[0] > sepia[2], true, 0);
+  const lit = await px(await E.pipeline(half, { exposure: 1, crop: { x: 0, y: 0, w: 0.5, h: 1 } }), 10, 10);
+  check('rendu : exposition (le rouge sature, pas de bleu ajouté)', lit[0] === 255 && lit[2] < 60, true, 0);
+
+  // --- versions : création, historique, annulation, version par défaut ---
+  await LIB.indexFile(half, {});
+  const hid = DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(half).photo_id;
+  const ED = E.createEdits(DB, LIB);
+  check('aucune version au départ', ED.list(hid).length, 0, 0);
+  let v1 = ED.create(hid, { params: { exposure: 0.5 } });
+  check('première version : par défaut', `${v1.is_default}|${v1.name}`, 'true|Version 1');
+  let v2 = ED.create(hid, { from: v1.id });
+  check('copie d’une version', `${v2.is_default}|${v2.params.exposure}|${v2.name}`, 'false|0.5|Version 1 (copie)');
+  v1 = ED.update(v1.id, { params: { ...v1.params, contrast: 20 } });
+  v1 = ED.update(v1.id, { params: { ...v1.params, mono: 'bw' } });
+  check('réglages enregistrés, 2 étapes', `${v1.params.contrast}|${v1.params.mono}|${v1.undo}`, '20|bw|2');
+  check('modification sans effet : pas d’étape', ED.update(v1.id, { params: v1.params }).undo, 2, 0);
+  v1 = ED.undo(v1.id);
+  check('annuler', `${v1.params.mono}|${v1.undo}|${v1.redo}`, 'null|1|1');
+  v1 = ED.redo(v1.id);
+  check('rétablir', v1.params.mono, 'bw');
+  v1 = ED.reset(v1.id);
+  check('réinitialiser (annulable)', `${v1.neutral}|${v1.undo}`, 'true|3');
+  v1 = ED.undo(v1.id);
+  check('annuler la réinitialisation', v1.params.mono, 'bw');
+  let e3 = null; try { ED.redo(v1.id); ED.redo(v1.id); } catch (x) { e3 = x.message; }
+  check('rien à rétablir signalé', e3, 'Rien à rétablir');
+  v2 = ED.update(v2.id, { isDefault: true, name: '  Tirage   ' });
+  check('version par défaut changée, renommée', `${v2.is_default}|${ED.get(v1.id).is_default}|${v2.name}`, 'true|false|Tirage');
+  check('historique persistant (relu de la base)', E.createEdits(DB, LIB).get(v1.id).undo, 3, 0);
+  check('recherche : photo marquée retouchée', LIB.search({}, { limit: 500 }).rows.find(p => p.id === hid)?.edits, 2, 0);
+  const prevFile = await ED.preview(hid, v1.params, { size: 300 });
+  check('aperçu retouché mis en cache', fs.existsSync(prevFile) && prevFile.includes(path.join('thumbs', 'edits')), true, 0);
+  check('aperçu : même réglages, même fichier', await ED.preview(hid, v1.params, { size: 300 }), prevFile);
+  check('photo retouchable en pleine définition', ED.capability(hid).fullRes, true, 0);
+
+  // --- export ---
+  const EX = X.createExports(DB, ED);
+  check('nom de fichier : modèle', X.fileNameFor('{date}-{n}-{nom}', { original: 'IMG 1.JPG', captured_at: '2024-07-15T10:00:00Z', index: 3 }), '2024-07-15-003-IMG 1');
+  check('nom de fichier : caractères interdits retirés', X.fileNameFor('{titre}', { title: 'a/b:c*?', original: 'x.jpg', index: 1 }), 'a_b_c_');
+  DB.prepare('UPDATE photos SET gps_lat = 48.8566, gps_lon = 2.3522, camera_make = ? WHERE id = ?').run('Canon', hid);
+  let rep = await EX.run([hid], { format: 'jpeg', quality: 80, maxSide: 200, metadata: 'nogps', watermark: { text: '© Test' }, naming: '{nom}', folder: 'Essai' });
+  check('export : un fichier, dans Exports/Essai', `${rep.files.length}|${rep.dir === path.join(EXPORT_DIR, 'Essai')}|${fs.existsSync(rep.files[0].file)}`, '1|true|true');
+  check('export : taille réduite (plus grand côté 200)', `${rep.files[0].width}x${rep.files[0].height}`, '200x100');
+  const bw = await sharpTest(rep.files[0].file).raw().toBuffer({ resolveWithObject: true });
+  const p0 = [bw.data[3 * (50 * 200 + 30)], bw.data[3 * (50 * 200 + 30) + 1], bw.data[3 * (50 * 200 + 30) + 2]];
+  check('export : version par défaut appliquée (copie d’exposition, couleur)', p0[0] > 200 && p0[2] < 80, true, 0);
+  let tags = await exifr.parse(rep.files[0].file, { gps: true, tiff: true });
+  check('export sans GPS : marque conservée, pas de position', `${tags?.Make}|${tags?.latitude ?? 'aucune'}`, 'Canon|aucune');
+  rep = await EX.run([hid], { format: 'jpeg', maxSide: 200, metadata: 'keep', version: 'original', folder: 'Essai' });
+  tags = await exifr.parse(rep.files[0].file, { gps: true, tiff: true });
+  check('export : nom unique, rien n’est écrasé', rep.files[0].name, 'moitie (2).jpg');
+  check('export avec GPS : position écrite', Math.abs((tags?.latitude ?? 0) - 48.8566) < 0.001, true, 0);
+  ED.update(v2.id, { params: { mono: 'bw' } });
+  rep = await EX.run([hid], { format: 'png', maxSide: 200, metadata: 'none', folder: 'Essai' });
+  const nb = await sharpTest(rep.files[0].file).raw().toBuffer({ resolveWithObject: true });
+  check('export : PNG, version par défaut en noir et blanc', `${path.extname(rep.files[0].name)}|${nb.data[0] === nb.data[1] && nb.data[1] === nb.data[2]}`, '.png|true');
+  check('export sans métadonnées', (await exifr.parse(rep.files[0].file, { tiff: true }))?.Make ?? 'aucune', 'aucune');
+  rep = await EX.run([hid, 'inconnue'], { format: 'tiff', maxSide: 120, folder: '../../hors' });
+  check('export : dossier ramené dans Exports', rep.dir.startsWith(EXPORT_DIR), true, 0);
+  check('export : erreur par photo, le lot continue', `${rep.files.length}|${rep.errors.length}|${path.extname(rep.files[0].name)}`, '1|1|.tif');
+  check('export consigné', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'photos'").get().n, 4, 0);
+  const sp2 = EX.saveProfile({ name: 'Mon profil', format: 'webp', quality: 70 });
+  check('profil enregistré', EX.profiles().saved[sp2.id]?.format, 'webp');
+  check('profil du même nom remplacé', EX.saveProfile({ name: 'Mon profil', format: 'png' }).id, sp2.id);
+  EX.removeProfile(sp2.id);
+  check('profil supprimé', Object.keys(EX.profiles().saved).length, 0, 0);
+  let e4 = null; try { EX.saveProfile({ name: ' ' }); } catch (x) { e4 = x.message; }
+  check('profil sans nom refusé', e4, 'Nom de profil vide');
+  check('original jamais modifié', crypto.createHash('sha256').update(fs.readFileSync(half)).digest('hex'), sumHalf);
+
+  // --- suppression d'une version ---
+  const rm = ED.remove(v2.id);
+  check('suppression de la version par défaut : une autre le devient', `${rm.originalUntouched}|${ED.get(v1.id).is_default}`, 'true|true');
+  LIB.removeFromIndex([hid]);
+  check('photo retirée : ses versions disparaissent', DB.prepare('SELECT COUNT(*) n FROM edits WHERE photo_id = ?').get(hid).n, 0, 0);
+}
+
+// ===================================================================
 group('Sauvegardes : création, vérification, restauration');
 // ===================================================================
 {
