@@ -4,6 +4,25 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.21.0] — 2026-11-06
+
+### Ajouté
+
+- **Guide de l'utilisateur** (menu ❓ Aide) : 14 chapitres illustrés de
+  captures d'écran et de schémas (principes, prise en main, import,
+  supports, recherche, classement, retouche, albums, doublons, documents,
+  rapports, sauvegardes, questions fréquentes, glossaire). Consultable dans
+  l'application, imprimable, et téléchargeable en PDF.
+- `scripts/guide.mjs` : régénère les captures et le PDF à partir d'une
+  photothèque d'exemple (jamais vos données).
+
+### Corrigé
+
+- Barre d'actions de la sélection : le mot « null » s'affichait entre les
+  boutons hors d'une collection.
+- Nombre de photos par mot-clé : il n'était pas mis à jour après la
+  modification des mots-clés d'une photo (fiche ou action « Mot-clé… »).
+
 ## [0.20.0] — 2026-11-06
 
 ### Ajouté

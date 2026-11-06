@@ -500,3 +500,29 @@ Quatrième mise en page du moteur des planches-contact
 Colonnes et lignes ne s'appliquent pas. Consigné dans `exports`
 (`kind = 'portfolio'`). La police reste Helvetica (polices standard de
 `lib/pdf.mjs`).
+
+## 18. Guide de l'utilisateur (v0.21.0)
+
+`public/aide/index.html` : guide autonome (HTML + CSS intégrés, schémas en
+SVG dans la page, aucune ressource externe), servi par l'application sous
+`/aide/` (un dossier de `public/` sert son `index.html`) et ouvert par le
+menu **Aide** dans un nouvel onglet. Mise en page écran (sommaire latéral)
+et impression A4 (`@media print` : une page par chapitre, couverture sans
+marge, sommaire imprimé).
+
+`scripts/guide.mjs` régénère les captures (`public/aide/img/*.jpg`) et le
+PDF (`public/aide/Guide-utilisateur-Phototheque.pdf`) :
+
+1. photothèque d'exemple dans `%TEMP%/phototheque-guide` (paysages de
+   synthèse en SVG rendus par sharp, EXIF date / appareil, une copie pour
+   l'outil Doublons) ; les vraies données ne sont jamais lues ;
+2. serveur de démonstration (port 3298) alimenté par l'API : support,
+   dossier indexé, titres, notes, mots-clés, collections, version
+   retouchée, album, empreintes visuelles, sauvegarde ;
+3. Microsoft Edge (ou Chrome) sans fenêtre, piloté par le protocole
+   DevTools (WebSocket natif de Node) : une capture par écran
+   (`SHOTS`), puis `Page.printToPDF` (pied de page « Page n / N »,
+   signets du sommaire).
+
+Options : `--pdf` (PDF seul), `--serve` (photothèque d'exemple laissée
+ouverte), `--apercu` (capture du rendu impression dans `%TEMP%`).

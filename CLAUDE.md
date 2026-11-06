@@ -17,6 +17,7 @@ npm install          # dépendances (sharp, exifr)
 npm start            # démarre le serveur → http://localhost:3212
 npm test             # lance scripts/test.mjs (tests automatisés)
 node scripts/journal.mjs "texte du prompt" [statut] [version]
+node scripts/guide.mjs   # guide utilisateur : captures + PDF (public/aide/)
 ```
 
 Sous Windows, `.\Phototheque.bat` installe les dépendances si besoin, ouvre le
@@ -161,3 +162,7 @@ bibliothèque).
    `lib/reportdoc.mjs` (documents tabulaires PDF), §16.
    Portfolios en v0.20.0 (mise en page `portfolio`, couverture, fonds,
    §17) : toutes les familles de documents du §14 ont une première version.
+
+Guide de l'utilisateur : `public/aide/` (menu Aide), captures et PDF
+régénérés par `node scripts/guide.mjs` (Edge sans fenêtre, photothèque
+d'exemple) — à relancer quand l'interface change (`docs/ARCHITECTURE.md` §18).

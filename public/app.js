@@ -37,6 +37,7 @@ const App = (() => {
     { group: 'Administration' },
     { id: 'admin', label: 'Administration', icon: '⚙️' },
     { id: 'settings', label: 'Paramètres', icon: '🛠️' },
+    { id: 'help', label: 'Aide', icon: '❓' },
   ];
 
   function renderNav() {
@@ -56,6 +57,8 @@ const App = (() => {
   }
 
   async function go(view) {
+    // guide de l'utilisateur (public/aide/) : page à part, dans un nouvel onglet
+    if (view === 'help') { window.open('/aide/', '_blank', 'noopener'); return; }
     state.view = view; state.selection.clear();
     renderNav();
     const v = document.getElementById('view');
@@ -138,7 +141,7 @@ const App = (() => {
       selInfo.textContent = state.selection.size ? `${state.selection.size} sélectionnée(s)` : '';
       clear(batchBar);
       if (state.selection.size) {
-        batchBar.append(
+        batchBar.append(...[ // null filtré : append(null) écrirait « null »
           h('button.small', { onclick: batchRate }, 'Noter…'),
           h('button.small.ghost', { onclick: batchKeyword }, 'Mot-clé…'),
           h('button.small.ghost', { onclick: batchCollection }, 'Ajouter à une collection…'),
@@ -147,7 +150,7 @@ const App = (() => {
           coll?.kind === 'static' ? h('button.small.ghost', { onclick: batchUncollect }, 'Retirer de la collection') : null,
           h('button.small.danger', { onclick: batchRemoveIndex }, "Retirer de l'index"),
           h('button.small.ghost', { onclick: () => { state.selection.clear(); renderGrid(); } }, 'Tout désélectionner'),
-        );
+        ].filter(Boolean));
       }
     }
     // critères courants (texte + filtres), tels qu'enregistrés dans une recherche sauvegardée

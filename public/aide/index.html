@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photothèque — Guide de l’utilisateur</title>
+<style>
+  :root {
+    --ink: #1e293b; --soft: #475569; --mute: #64748b; --line: #e2e8f0; --paper: #ffffff; --bg: #f1f5f9;
+    --blue: #0284c7; --blue-l: #e0f2fe; --cyan: #06b6d4; --green: #16a34a; --green-l: #dcfce7;
+    --orange: #ea580c; --orange-l: #ffedd5; --violet: #7c3aed; --violet-l: #ede9fe; --rose: #e11d48; --rose-l: #ffe4e6;
+    --amber: #d97706; --amber-l: #fef3c7;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15.5px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+  a { color: var(--blue); }
+  .wrap { display: grid; grid-template-columns: 270px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; gap: 28px; padding: 24px; }
+  nav.toc { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow: auto; background: var(--paper); border-radius: 14px; padding: 18px 16px; box-shadow: 0 1px 3px #0f172a14; }
+  nav.toc b { display: block; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); margin-bottom: 8px; }
+  nav.toc ol { margin: 0; padding-left: 20px; font-size: 14px; }
+  nav.toc li { margin: 3px 0; }
+  nav.toc a { color: var(--ink); text-decoration: none; }
+  nav.toc a:hover { color: var(--blue); }
+  .tools { display: flex; gap: 8px; margin: 14px 0 0; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9px; background: var(--blue); color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; border: 0; cursor: pointer; }
+  .btn.ghost { background: var(--blue-l); color: var(--blue); }
+  main { min-width: 0; }
+  .page { background: var(--paper); border-radius: 16px; padding: 44px 52px; margin-bottom: 26px; box-shadow: 0 1px 3px #0f172a14; }
+
+  /* couverture */
+  .cover { padding: 0; overflow: hidden; }
+  .cover .band { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 45%, #0891b2 100%); color: #fff; padding: 64px 56px 52px; position: relative; }
+  .cover .band::after { content: ""; position: absolute; right: -60px; top: -60px; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, #22d3ee55, transparent 70%); }
+  .cover .kicker { text-transform: uppercase; letter-spacing: .18em; font-size: 13px; color: #a5f3fc; }
+  .cover h1 { font-size: 46px; line-height: 1.1; margin: 10px 0 12px; }
+  .cover .lead { font-size: 19px; max-width: 640px; color: #e0f2fe; }
+  .cover .meta { margin-top: 26px; font-size: 13px; color: #bae6fd; }
+  .cover .shot { padding: 30px 56px 40px; }
+  .pillars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 24px; }
+  .pillar { border-radius: 12px; padding: 14px 16px; font-size: 14px; }
+  .pillar b { display: block; font-size: 15px; margin-bottom: 2px; }
+
+  /* titres */
+  h2.ch { display: flex; align-items: center; gap: 14px; font-size: 28px; margin: 0 0 6px; }
+  h2.ch .n { flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-size: 22px; background: var(--c, var(--blue)); }
+  .sub { color: var(--soft); margin: 0 0 22px; font-size: 16.5px; }
+  h3 { font-size: 19px; margin: 28px 0 8px; color: var(--c, var(--ink)); }
+  h4 { font-size: 16px; margin: 18px 0 4px; }
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .k { display: inline-block; padding: 0 7px; border-radius: 6px; background: #0f172a; color: #e2e8f0; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .ui { font-weight: 600; color: var(--c, var(--blue)); }
+
+  /* encadrés */
+  .note { border-radius: 12px; padding: 12px 16px 12px 52px; margin: 16px 0; position: relative; break-inside: avoid; }
+  .note::before { position: absolute; left: 16px; top: 11px; font-size: 20px; }
+  .note.tip { background: var(--green-l); } .note.tip::before { content: "💡"; }
+  .note.warn { background: var(--orange-l); } .note.warn::before { content: "⚠️"; }
+  .note.key { background: var(--blue-l); } .note.key::before { content: "📌"; }
+  .note b:first-child { display: block; }
+
+  /* figures */
+  figure { margin: 18px 0 22px; break-inside: avoid; }
+  figure img { width: 100%; display: block; border-radius: 10px; box-shadow: 0 6px 24px #0f172a2e, 0 0 0 1px #0f172a1a; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 13.5px; color: var(--mute); margin-top: 8px; text-align: center; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+
+  /* tableaux */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14.5px; break-inside: avoid; }
+  th { text-align: left; background: #0f172a; color: #fff; padding: 9px 12px; font-weight: 600; }
+  th:first-child { border-radius: 8px 0 0 0; } th:last-child { border-radius: 0 8px 0 0; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+
+  /* étapes */
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding: 2px 0 8px 46px; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--c, var(--blue)); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+
+  .grid-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; break-inside: avoid; }
+  .card .ico { font-size: 24px; }
+  .card b { display: block; margin: 4px 0 2px; }
+  .card p { font-size: 14px; color: var(--soft); margin: 0; }
+
+  dl.glo { display: grid; grid-template-columns: 200px 1fr; gap: 6px 18px; }
+  dl.glo dt { font-weight: 700; } dl.glo dd { margin: 0; color: var(--soft); }
+
+  @media screen and (max-width: 980px) {
+    .wrap { grid-template-columns: 1fr; padding: 12px; }
+    nav.toc { position: static; max-height: none; }
+    .page { padding: 26px 20px; }
+    .pillars, .grid-cards, .two { grid-template-columns: 1fr; }
+    .cover .band, .cover .shot { padding-left: 22px; padding-right: 22px; }
+    .cover h1 { font-size: 34px; }
+  }
+
+  /* impression / PDF : une page A4 par chapitre, sans la table latérale */
+  @page { size: A4; margin: 14mm 0 16mm; }
+  @page :first { margin: 0; }
+  @media print {
+    body { background: #fff; font-size: 10.5pt; }
+    .wrap { display: block; padding: 0; max-width: none; }
+    nav.toc.screen, .tools { display: none !important; }
+    .page { box-shadow: none; border-radius: 0; margin: 0; padding: 0 16mm; break-before: page; }
+    .page.cover { break-before: auto; padding: 0; }
+    .cover .band { padding: 26mm 18mm 14mm; }
+    .cover .shot { padding: 10mm 18mm; }
+    .cover .shot img { height: 92mm; object-fit: cover; object-position: top; }
+    .pillars { margin-top: 7mm; }
+    .toc-print { display: block !important; }
+    figure img { box-shadow: 0 0 0 1px #cbd5e1; }
+    h3, h4 { break-after: avoid; }
+    a { color: inherit; text-decoration: none; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+  .toc-print { display: none; }
+  .toc-print ol { columns: 2; column-gap: 28px; font-size: 10.5pt; margin: 0; }
+  .toc-print li { margin: 2px 0; break-inside: avoid; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc screen" aria-label="Sommaire">
+  <b>Sommaire</b>
+  <ol>
+    <li><a href="#principes">Les principes</a></li>
+    <li><a href="#prise-en-main">Prise en main</a></li>
+    <li><a href="#importer">Importer et indexer</a></li>
+    <li><a href="#supports">Les supports</a></li>
+    <li><a href="#rechercher">Parcourir et rechercher</a></li>
+    <li><a href="#classer">Classer : notes, mots-clés, collections</a></li>
+    <li><a href="#retoucher">Retoucher sans abîmer</a></li>
+    <li><a href="#albums">Créer un album</a></li>
+    <li><a href="#doublons">Doublons et photos similaires</a></li>
+    <li><a href="#documents">Planches, catalogues, portfolios</a></li>
+    <li><a href="#rapports">Rapports et inventaires</a></li>
+    <li><a href="#proteger">Sauvegarder et administrer</a></li>
+    <li><a href="#faq">Questions fréquentes</a></li>
+    <li><a href="#glossaire">Glossaire</a></li>
+  </ol>
+  <div class="tools">
+    <a class="btn" href="Guide-utilisateur-Phototheque.pdf" download>⬇ Guide en PDF</a>
+    <button class="btn ghost" onclick="print()">🖨 Imprimer</button>
+  </div>
+</nav>
+
+<main>
+
+<!-- ============================================================ couverture -->
+<section class="page cover">
+  <div class="band">
+    <div class="kicker">Guide de l’utilisateur</div>
+    <h1>📷 Photothèque</h1>
+    <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
+    <div class="meta">Version 0.21 · application locale pour Windows · aucune connexion Internet nécessaire</div>
+  </div>
+  <div class="shot">
+    <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
+    <div class="pillars">
+      <div class="pillar" style="background:var(--blue-l)"><b>🔒 Originaux protégés</b>Vos fichiers ne sont jamais modifiés, déplacés ou effacés.</div>
+      <div class="pillar" style="background:var(--green-l)"><b>🔎 Tout retrouver</b>Par date, mot-clé, appareil, note, lieu, support…</div>
+      <div class="pillar" style="background:var(--violet-l)"><b>🎨 Créer</b>Retouches, albums, planches, catalogues, portfolios.</div>
+      <div class="pillar" style="background:var(--amber-l)"><b>🛟 Préserver</b>Sauvegardes, contrôles d’intégrité, inventaires.</div>
+    </div>
+  </div>
+  <div class="toc-print" style="padding: 4mm 18mm 0">
+    <h3 style="margin-top:0">Sommaire</h3>
+    <ol>
+      <li>Les principes</li><li>Prise en main</li><li>Importer et indexer</li><li>Les supports</li><li>Parcourir et rechercher</li>
+      <li>Classer : notes, mots-clés, collections</li><li>Retoucher sans abîmer</li><li>Créer un album</li><li>Doublons et photos similaires</li>
+      <li>Planches, catalogues, portfolios</li><li>Rapports et inventaires</li><li>Sauvegarder et administrer</li><li>Questions fréquentes</li><li>Glossaire</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================================================ 1. principes -->
+<section class="page" id="principes" style="--c: var(--blue)">
+  <h2 class="ch"><span class="n">1</span>Les principes</h2>
+  <p class="sub">Trois idées simples expliquent tout le fonctionnement de la Photothèque.</p>
+
+  <h3>Le catalogue n’est pas la photo</h3>
+  <p>La Photothèque tient un <b>catalogue</b> : une fiche par photo, avec sa date, son appareil, ses mots-clés, sa note, ses retouches… et l’adresse du fichier. Les photos elles-mêmes restent là où elles sont, sur votre disque, votre clé USB ou votre disque externe. L’application les <b>lit</b> pour fabriquer des vignettes, mais ne les <b>écrit</b> jamais.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Schéma : les originaux sont lus, le catalogue et les vignettes sont dans l'application">
+      <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0284c7"/></marker></defs>
+      <rect x="10" y="30" width="250" height="240" rx="16" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="135" y="62" text-anchor="middle" font-size="17" font-weight="700" fill="#1e293b">Vos supports</text>
+      <g font-size="14" fill="#1e293b">
+        <rect x="34" y="82" width="202" height="48" rx="10" fill="#fff" stroke="#cbd5e1"/><text x="54" y="111">💽  Disque de l’ordinateur</text>
+        <rect x="34" y="140" width="202" height="48" rx="10" fill="#fff" stroke="#cbd5e1"/><text x="54" y="169">🗄️  Disque externe</text>
+        <rect x="34" y="198" width="202" height="48" rx="10" fill="#fff" stroke="#cbd5e1"/><text x="54" y="227">🔌  Clé USB, carte SD</text>
+      </g>
+      <path d="M268 150 H 470" stroke="#0284c7" stroke-width="3" marker-end="url(#a1)"/>
+      <text x="369" y="138" text-anchor="middle" font-size="14" font-weight="700" fill="#0284c7">lecture seule</text>
+      <text x="369" y="172" text-anchor="middle" font-size="12.5" fill="#64748b">métadonnées, empreinte, vignette</text>
+      <rect x="480" y="30" width="370" height="240" rx="16" fill="#e0f2fe" stroke="#7dd3fc"/>
+      <text x="665" y="62" text-anchor="middle" font-size="17" font-weight="700" fill="#0c4a6e">La Photothèque</text>
+      <rect x="504" y="82" width="160" height="164" rx="12" fill="#fff" stroke="#7dd3fc"/>
+      <text x="584" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#0c4a6e">📒 Catalogue</text>
+      <g font-size="12.5" fill="#334155"><text x="520" y="136">• date, appareil, GPS</text><text x="520" y="156">• mots-clés, note, titre</text><text x="520" y="176">• collections, albums</text><text x="520" y="196">• retouches (réglages)</text><text x="520" y="216">• emplacement du fichier</text></g>
+      <rect x="678" y="82" width="148" height="164" rx="12" fill="#fff" stroke="#7dd3fc"/>
+      <text x="752" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#0c4a6e">🖼️ Vignettes</text>
+      <g fill="#bae6fd"><rect x="694" y="124" width="52" height="38" rx="5"/><rect x="756" y="124" width="52" height="38" rx="5"/><rect x="694" y="170" width="52" height="38" rx="5"/><rect x="756" y="170" width="52" height="38" rx="5"/></g>
+      <text x="752" y="232" text-anchor="middle" font-size="12" fill="#64748b">recréables à tout moment</text>
+    </svg>
+    <figcaption>Les originaux restent sur leurs supports ; la Photothèque n’en garde que la description et des vignettes.</figcaption>
+  </figure>
+
+  <div class="grid-cards">
+    <div class="card"><div class="ico">🔒</div><b>Jamais de suppression</b><p>Ni l’indexation, ni l’import, ni l’outil Doublons n’effacent un fichier. « Retirer de l’index » enlève seulement la fiche.</p></div>
+    <div class="card"><div class="ico">🔌</div><b>Absent ≠ supprimé</b><p>Un disque débranché rend ses photos « indisponibles ». Rebranchez-le : tout revient, même sur une autre lettre de lecteur.</p></div>
+    <div class="card"><div class="ico">🎚️</div><b>Retouches réversibles</b><p>Une retouche est une liste de réglages. L’original reste intact ; on revient en arrière quand on veut.</p></div>
+  </div>
+
+  <h3>Le parcours type</h3>
+  <figure>
+    <svg viewBox="0 0 860 150" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Parcours : importer, classer, retoucher, créer, protéger">
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
+      <g font-size="14" text-anchor="middle">
+        <rect x="6" y="24" width="150" height="100" rx="14" fill="#0284c7"/><text x="81" y="64" font-size="26">📥</text><text x="81" y="94" fill="#fff" font-weight="700">1. Importer</text><text x="81" y="113" fill="#e0f2fe" font-size="11.5">supports, dossiers</text>
+        <rect x="182" y="24" width="150" height="100" rx="14" fill="#16a34a"/><text x="257" y="64" font-size="26">🏷️</text><text x="257" y="94" fill="#fff" font-weight="700">2. Classer</text><text x="257" y="113" fill="#dcfce7" font-size="11.5">notes, mots-clés</text>
+        <rect x="358" y="24" width="150" height="100" rx="14" fill="#7c3aed"/><text x="433" y="64" font-size="26">🎚️</text><text x="433" y="94" fill="#fff" font-weight="700">3. Retoucher</text><text x="433" y="113" fill="#ede9fe" font-size="11.5">versions</text>
+        <rect x="534" y="24" width="150" height="100" rx="14" fill="#ea580c"/><text x="609" y="64" font-size="26">📖</text><text x="609" y="94" fill="#fff" font-weight="700">4. Créer</text><text x="609" y="113" fill="#ffedd5" font-size="11.5">albums, documents</text>
+        <rect x="710" y="24" width="144" height="100" rx="14" fill="#0f172a"/><text x="782" y="64" font-size="26">🛟</text><text x="782" y="94" fill="#fff" font-weight="700">5. Protéger</text><text x="782" y="113" fill="#cbd5e1" font-size="11.5">sauvegardes</text>
+      </g>
+      <g stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2)"><path d="M158 74 H180"/><path d="M334 74 H356"/><path d="M510 74 H532"/><path d="M686 74 H708"/></g>
+    </svg>
+    <figcaption>Chaque étape correspond à un chapitre de ce guide.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ 2. prise en main -->
+<section class="page" id="prise-en-main" style="--c: var(--cyan)">
+  <h2 class="ch"><span class="n">2</span>Prise en main</h2>
+  <p class="sub">Lancer l’application et se repérer dans la fenêtre.</p>
+
+  <h3>Démarrer</h3>
+  <ol class="steps">
+    <li>Double-cliquez sur <b>Phototheque.bat</b> dans le dossier de l’application. Une petite fenêtre noire s’ouvre : c’est le moteur de la Photothèque. <b>Laissez-la ouverte</b> pendant que vous travaillez.</li>
+    <li>Votre navigateur s’ouvre tout seul sur l’adresse <span class="k">http://localhost:3212</span>. Si ce n’est pas le cas, tapez cette adresse vous-même.</li>
+    <li>Pour quitter, fermez l’onglet puis la fenêtre noire.</li>
+  </ol>
+  <div class="note key"><b>Tout reste chez vous.</b> L’application fonctionne sans Internet ; elle n’est accessible que depuis cet ordinateur. Vos photos et votre catalogue ne sont envoyés nulle part.</div>
+
+  <h3>L’écran principal</h3>
+  <figure>
+    <svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Plan de l'écran principal">
+      <rect x="0" y="0" width="860" height="380" rx="14" fill="#0b1220"/>
+      <rect x="10" y="10" width="170" height="360" rx="10" fill="#111a2e"/>
+      <rect x="196" y="12" width="420" height="34" rx="8" fill="#1e293b"/>
+      <rect x="196" y="60" width="650" height="120" rx="8" fill="#16213a"/>
+      <g fill="#334155"><rect x="196" y="196" width="122" height="96" rx="6"/><rect x="328" y="196" width="122" height="96" rx="6"/><rect x="460" y="196" width="122" height="96" rx="6"/><rect x="592" y="196" width="122" height="96" rx="6"/><rect x="724" y="196" width="122" height="96" rx="6"/></g>
+      <g font-size="15" font-weight="700" text-anchor="middle">
+        <circle cx="95" cy="40" r="15" fill="#06b6d4"/><text x="95" y="45" fill="#fff">A</text>
+        <circle cx="406" cy="29" r="15" fill="#16a34a"/><text x="406" y="34" fill="#fff">B</text>
+        <circle cx="520" cy="120" r="15" fill="#7c3aed"/><text x="520" y="125" fill="#fff">C</text>
+        <circle cx="520" cy="244" r="15" fill="#ea580c"/><text x="520" y="249" fill="#fff">D</text>
+      </g>
+      <g font-size="13" fill="#e2e8f0"><text x="24" y="90">Photothèque</text><text x="24" y="114">Importation</text><text x="24" y="138">Supports</text><text x="24" y="162">Mots-clés</text><text x="24" y="186">Collections</text><text x="24" y="210">Albums</text><text x="24" y="244" fill="#94a3b8">Doublons</text><text x="24" y="268" fill="#94a3b8">Statistiques</text><text x="24" y="292" fill="#94a3b8">Rapports</text><text x="24" y="326" fill="#94a3b8">Administration</text><text x="24" y="350" fill="#94a3b8">Paramètres</text></g>
+      <text x="210" y="34" font-size="13" fill="#94a3b8">🔍 Rechercher : mots-clés, appareil, titre…</text>
+      <text x="210" y="84" font-size="13" fill="#94a3b8">Filtres : année, appareil, format, note, disponibilité, variantes</text>
+      <text x="210" y="108" font-size="13" fill="#94a3b8">▸ Recherche avancée</text>
+      <text x="210" y="160" font-size="13" fill="#94a3b8">Tri · Planches, catalogues, portfolio…</text>
+      <text x="196" y="320" font-size="13" fill="#94a3b8">Clic sur une vignette : visionneuse · case en haut à gauche : sélection</text>
+    </svg>
+    <figcaption>A — le menu · B — la recherche rapide · C — filtres, tri et documents · D — la grille des photos.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th style="width:28%">Menu</th><th>À quoi ça sert</th></tr>
+    <tr><td>🖼️ <b>Photothèque</b></td><td>Voir, chercher, sélectionner et traiter vos photos.</td></tr>
+    <tr><td>📥 <b>Importation</b></td><td>Ajouter des dossiers de photos au catalogue, ou copier des photos dans votre bibliothèque.</td></tr>
+    <tr><td>💾 <b>Supports</b></td><td>Déclarer vos disques, clés et cartes, savoir lesquels sont branchés.</td></tr>
+    <tr><td>🏷️ <b>Mots-clés</b> · 🗂️ <b>Collections</b></td><td>Organiser : vocabulaire de classement, sélections et recherches enregistrées.</td></tr>
+    <tr><td>📖 <b>Albums</b></td><td>Mettre en page des albums photo, les vérifier et les exporter en PDF.</td></tr>
+    <tr><td>🧬 <b>Doublons</b> · 📊 <b>Statistiques</b> · 📋 <b>Rapports</b></td><td>Analyser votre fonds : copies, répartition, contrôles.</td></tr>
+    <tr><td>⚙️ <b>Administration</b> · 🛠️ <b>Paramètres</b></td><td>Sauvegardes, base de données, réglages de l’indexation.</td></tr>
+    <tr><td>❓ <b>Aide</b></td><td>Ce guide.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 3. importer -->
+<section class="page" id="importer" style="--c: var(--blue)">
+  <h2 class="ch"><span class="n">3</span>Importer et indexer</h2>
+  <p class="sub">Faire entrer vos photos dans le catalogue — avec ou sans copie.</p>
+
+  <figure><img src="img/importation.jpg" alt="L'écran Importation"><figcaption>L’écran Importation : ajouter un dossier, suivre les dossiers indexés, importer avec copie.</figcaption></figure>
+
+  <div class="two">
+    <div>
+      <h3>Indexer un dossier (sans copie)</h3>
+      <p>C’est la méthode recommandée pour des photos <b>déjà rangées</b> sur un disque.</p>
+      <ol class="steps">
+        <li>Saisissez le chemin du dossier, par exemple <span class="k">D:\Photos</span>.</li>
+        <li>Choisissez le <b>support</b> qui le contient (voir chapitre 4).</li>
+        <li>Cliquez <span class="ui">Ajouter le dossier</span>, puis <span class="ui">Indexer</span>.</li>
+      </ol>
+      <p>La Photothèque parcourt les sous-dossiers, lit les métadonnées (date, appareil, GPS…), calcule l’empreinte de chaque fichier et crée les vignettes. Relancez <span class="ui">Indexer</span> après avoir ajouté des photos : seules les nouveautés sont traitées.</p>
+    </div>
+    <div>
+      <h3>Importer (avec copie)</h3>
+      <p>Pour vider une <b>carte mémoire</b> ou un téléphone : les fichiers sont <b>copiés</b> dans votre dossier de bibliothèque (réglable dans Paramètres), classés par année si vous le souhaitez.</p>
+      <ul>
+        <li>Les photos déjà présentes (même empreinte) sont repérées et ne sont pas copiées deux fois.</li>
+        <li>En cas de nom identique, un nom unique est créé : rien n’est écrasé.</li>
+        <li>La source n’est jamais vidée : effacez la carte vous-même, une fois rassuré.</li>
+      </ul>
+    </div>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 860 170" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Comparaison indexation et import">
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0284c7"/></marker><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ea580c"/></marker></defs>
+      <rect x="0" y="0" width="420" height="170" rx="14" fill="#e0f2fe"/>
+      <text x="210" y="28" text-anchor="middle" font-weight="700" font-size="15" fill="#0c4a6e">Indexer : les photos restent en place</text>
+      <rect x="24" y="56" width="130" height="72" rx="10" fill="#fff" stroke="#7dd3fc"/><text x="89" y="88" text-anchor="middle" font-size="22">🗄️</text><text x="89" y="114" text-anchor="middle" font-size="13">D:\Photos</text>
+      <path d="M160 92 H262" stroke="#0284c7" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#a3)"/><text x="211" y="82" text-anchor="middle" font-size="12" fill="#0369a1">lecture</text>
+      <rect x="268" y="56" width="130" height="72" rx="10" fill="#fff" stroke="#7dd3fc"/><text x="333" y="88" text-anchor="middle" font-size="22">📒</text><text x="333" y="114" text-anchor="middle" font-size="13">Catalogue</text>
+      <rect x="440" y="0" width="420" height="170" rx="14" fill="#ffedd5"/>
+      <text x="650" y="28" text-anchor="middle" font-weight="700" font-size="15" fill="#7c2d12">Importer : copie puis indexation</text>
+      <rect x="456" y="56" width="110" height="72" rx="10" fill="#fff" stroke="#fdba74"/><text x="511" y="88" text-anchor="middle" font-size="22">💳</text><text x="511" y="114" text-anchor="middle" font-size="13">Carte SD</text>
+      <path d="M570 92 H612" stroke="#ea580c" stroke-width="3" marker-end="url(#a4)"/><text x="591" y="82" text-anchor="middle" font-size="12" fill="#c2410c">copie</text>
+      <rect x="616" y="56" width="110" height="72" rx="10" fill="#fff" stroke="#fdba74"/><text x="671" y="88" text-anchor="middle" font-size="22">📁</text><text x="671" y="114" text-anchor="middle" font-size="13">Bibliothèque</text>
+      <path d="M730 92 H760" stroke="#ea580c" stroke-width="3" stroke-dasharray="6 4" marker-end="url(#a4)"/>
+      <rect x="764" y="56" width="84" height="72" rx="10" fill="#fff" stroke="#fdba74"/><text x="806" y="88" text-anchor="middle" font-size="22">📒</text><text x="806" y="114" text-anchor="middle" font-size="12">Catalogue</text>
+      <text x="650" y="156" text-anchor="middle" font-size="12" fill="#9a3412">la carte n’est jamais vidée par l’application</text>
+    </svg>
+    <figcaption>Deux façons d’alimenter le catalogue.</figcaption>
+  </figure>
+  <div class="note tip"><b>Combien de temps ?</b> Comptez quelques secondes pour cent photos sur un disque interne. La progression s’affiche ; vous pouvez continuer à naviguer pendant ce temps.</div>
+</section>
+
+<!-- ============================================================ 4. supports -->
+<section class="page" id="supports" style="--c: var(--violet)">
+  <h2 class="ch"><span class="n">4</span>Les supports</h2>
+  <p class="sub">Disques, clés, cartes : savoir où se trouve chaque photo, même quand le disque est rangé dans un tiroir.</p>
+  <figure><img src="img/supports.jpg" alt="L'écran Supports"><figcaption>L’inventaire des supports : état (connecté ou absent), chemin, rôle, actions.</figcaption></figure>
+
+  <p>Un <b>support</b> est un disque (ou une clé, une carte, un NAS…) que vous déclarez une fois : nom, type, rôle (originaux, sauvegarde, archive…), marque, numéro de série et <b>emplacement physique</b> (« bureau, étagère du haut »). La Photothèque lui attribue une <b>empreinte</b> pour le reconnaître.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 190" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="États d'un support">
+      <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+      <rect x="20" y="40" width="240" height="110" rx="16" fill="#dcfce7" stroke="#86efac"/>
+      <text x="140" y="80" text-anchor="middle" font-size="26">🟢</text><text x="140" y="108" text-anchor="middle" font-weight="700" font-size="16" fill="#14532d">Connecté</text><text x="140" y="130" text-anchor="middle" font-size="12.5" fill="#166534">photos disponibles</text>
+      <rect x="600" y="40" width="240" height="110" rx="16" fill="#fef3c7" stroke="#fcd34d"/>
+      <text x="720" y="80" text-anchor="middle" font-size="26">🟠</text><text x="720" y="108" text-anchor="middle" font-weight="700" font-size="16" fill="#78350f">Non connecté</text><text x="720" y="130" text-anchor="middle" font-size="12.5" fill="#92400e">photos « indisponibles », fiches conservées</text>
+      <path d="M270 74 C 400 20, 460 20, 590 74" fill="none" stroke="#475569" stroke-width="2.5" marker-end="url(#a5)"/><text x="430" y="36" text-anchor="middle" font-size="13" fill="#334155">vous débranchez le disque</text>
+      <path d="M590 118 C 460 172, 400 172, 270 118" fill="none" stroke="#475569" stroke-width="2.5" marker-end="url(#a5)"/><text x="430" y="178" text-anchor="middle" font-size="13" fill="#334155">vous le rebranchez (même sur une autre lettre) → reconnu par son empreinte</text>
+    </svg>
+    <figcaption>Un support absent n’est jamais considéré comme supprimé.</figcaption>
+  </figure>
+  <ul>
+    <li><span class="ui">Actualiser</span> vérifie quels supports sont branchés.</li>
+    <li>Les vignettes et les fiches d’un support débranché restent consultables : vous savez quel disque aller chercher.</li>
+    <li><span class="ui">Retirer</span> supprime la déclaration du support, jamais ses fichiers.</li>
+  </ul>
+  <div class="note tip"><b>Astuce.</b> Renseignez le champ <i>Emplacement</i> : le rapport des fichiers manquants vous indiquera où ranger la main pour retrouver le bon disque.</div>
+</section>
+
+<!-- ============================================================ 5. rechercher -->
+<section class="page" id="rechercher" style="--c: var(--green)">
+  <h2 class="ch"><span class="n">5</span>Parcourir et rechercher</h2>
+  <p class="sub">La grille, la visionneuse, les filtres et la recherche avancée.</p>
+
+  <h3>La visionneuse</h3>
+  <p>Cliquez sur une vignette pour l’afficher en grand. Les flèches <span class="k">←</span> <span class="k">→</span> passent d’une photo à l’autre, <span class="k">Échap</span> referme. Si la photo a une version retouchée, c’est elle qui s’affiche ; <span class="ui">Voir l’original</span> permet de comparer.</p>
+  <figure><img src="img/visionneuse.jpg" alt="La visionneuse"><figcaption>La visionneuse : titre, date, appareil, dimensions, et les boutons Retoucher et Exporter.</figcaption></figure>
+
+  <h3>Rechercher</h3>
+  <ul>
+    <li><b>Recherche rapide</b> (en haut) : tapez un mot — titre, mot-clé, appareil, lieu… Les accents et majuscules n’ont pas d’importance : « ete » trouve « Été ».</li>
+    <li><b>Filtres</b> : année, appareil, format, note minimale, disponibilité, variantes. <span class="ui">Réinitialiser</span> efface tout.</li>
+    <li><b>Recherche avancée</b> : combinez mots-clés (tous / au moins un / aucun), période de prise de vue, objectif, auteur, orientation, dimensions, présence de légende ou de GPS, doublons…</li>
+  </ul>
+  <figure><img src="img/recherche.jpg" alt="La recherche avancée"><figcaption>La recherche avancée déployée : chaque critère restreint le résultat.</figcaption></figure>
+  <div class="note tip"><b>Enregistrer une recherche.</b> Une fois vos critères posés, <span class="ui">Enregistrer la recherche…</span> en fait une <b>collection dynamique</b> qui se met à jour seule.</div>
+
+  <h3>Sélectionner pour agir en lot</h3>
+  <p>Cochez la petite case en haut à gauche des vignettes. Une barre d’actions apparaît : noter, ajouter un mot-clé, ajouter à une collection ou à un album, exporter, retirer de l’index.</p>
+  <figure><img src="img/selection.jpg" alt="Trois photos sélectionnées et la barre d'actions"><figcaption>Trois photos cochées : les actions s’appliquent à toute la sélection.</figcaption></figure>
+  <div class="note warn"><b>« Retirer de l’index »</b> enlève les fiches du catalogue, pas les fichiers. Si vous réindexez le dossier, elles reviendront.</div>
+</section>
+
+<!-- ============================================================ 6. classer -->
+<section class="page" id="classer" style="--c: var(--green)">
+  <h2 class="ch"><span class="n">6</span>Classer : notes, mots-clés, collections</h2>
+  <p class="sub">Un peu de rangement aujourd’hui, beaucoup de temps gagné demain.</p>
+
+  <div class="grid-cards">
+    <div class="card"><div class="ico">⭐</div><b>Notes</b><p>De 1 à 5 étoiles. Filtrez ensuite « note ≥ 4 » pour ne garder que le meilleur.</p></div>
+    <div class="card"><div class="ico">🏷️</div><b>Mots-clés</b><p>Lieux, personnes, thèmes, événements. Une photo peut en avoir autant que nécessaire.</p></div>
+    <div class="card"><div class="ico">🗂️</div><b>Collections</b><p>Des regroupements libres, sans déplacer aucun fichier.</p></div>
+  </div>
+
+  <h3>Les mots-clés</h3>
+  <figure><img src="img/mots-cles.jpg" alt="L'écran Mots-clés"><figcaption>La liste des mots-clés avec le nombre de photos de chacun.</figcaption></figure>
+  <p>Créez, renommez, fusionnez ou supprimez des mots-clés. <span class="ui">Voir</span> affiche toutes les photos qui le portent.</p>
+
+  <h3>Les collections</h3>
+  <figure><img src="img/collections.jpg" alt="L'écran Collections"><figcaption>Une sélection fixe (« Vacances d’été ») et une recherche enregistrée (« Mes meilleures photos »).</figcaption></figure>
+  <table>
+    <tr><th>Type</th><th>Contenu</th><th>Exemple</th></tr>
+    <tr><td><b>Sélection</b></td><td>Les photos que vous y ajoutez vous-même.</td><td>« À imprimer pour mamie »</td></tr>
+    <tr><td><b>Recherche enregistrée</b></td><td>Toutes les photos qui répondent aux critères, aujourd’hui et demain.</td><td>« Note 5 étoiles », « Mot-clé Montagne depuis 2020 »</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 7. retoucher -->
+<section class="page" id="retoucher" style="--c: var(--violet)">
+  <h2 class="ch"><span class="n">7</span>Retoucher sans abîmer</h2>
+  <p class="sub">Lumière, couleurs, recadrage, redressement — et l’original reste intact.</p>
+  <figure><img src="img/retouche.jpg" alt="L'écran de retouche"><figcaption>L’atelier de retouche : l’image à gauche, versions, filtres et réglages à droite.</figcaption></figure>
+
+  <div class="two">
+    <div>
+      <h3>Les outils</h3>
+      <ul>
+        <li><b>Filtres</b> : noir et blanc, sépia, chaud, froid, couleurs vives, doux.</li>
+        <li><b>Géométrie</b> : rotation, miroir, <span class="ui">Recadrer</span>, redressement en degrés.</li>
+        <li><b>Lumière</b> : exposition, luminosité, contraste.</li>
+        <li><b>Couleur</b> : température, teinte, saturation ; <b>Détail</b> : netteté.</li>
+        <li><span class="ui">Avant / après</span>, <span class="ui">Annuler</span>, <span class="ui">Rétablir</span>, <span class="ui">Réinitialiser</span>.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Les versions</h3>
+      <p>Une photo peut avoir plusieurs <b>versions</b> : « Noir et blanc pour l’expo », « Recadrée carré »… La version marquée d’une étoile ★ est la <b>version par défaut</b> : c’est elle que montrent la grille, la visionneuse, les albums et les documents.</p>
+    </div>
+  </div>
+  <figure>
+    <svg viewBox="0 0 860 200" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Schéma des versions">
+      <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker></defs>
+      <rect x="20" y="50" width="190" height="110" rx="14" fill="#f1f5f9" stroke="#cbd5e1"/><text x="115" y="92" text-anchor="middle" font-size="26">🖼️</text><text x="115" y="120" text-anchor="middle" font-weight="700" font-size="15">Original</text><text x="115" y="141" text-anchor="middle" font-size="12" fill="#64748b">jamais modifié</text>
+      <path d="M214 90 C 290 40, 330 34, 390 40" fill="none" stroke="#7c3aed" stroke-width="2.5" marker-end="url(#a6)"/>
+      <path d="M214 120 C 290 170, 330 176, 390 170" fill="none" stroke="#7c3aed" stroke-width="2.5" marker-end="url(#a6)"/>
+      <rect x="396" y="10" width="230" height="64" rx="12" fill="#ede9fe" stroke="#c4b5fd"/><text x="511" y="38" text-anchor="middle" font-weight="700" font-size="14" fill="#4c1d95">★ Chaude et contrastée</text><text x="511" y="58" text-anchor="middle" font-size="12" fill="#6d28d9">contraste +12, saturation +22…</text>
+      <rect x="396" y="136" width="230" height="64" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/><text x="511" y="164" text-anchor="middle" font-weight="700" font-size="14" fill="#4c1d95">Noir et blanc</text><text x="511" y="184" text-anchor="middle" font-size="12" fill="#6d28d9">monochrome, recadrage carré</text>
+      <path d="M630 42 H 680" stroke="#7c3aed" stroke-width="2.5" marker-end="url(#a6)"/>
+      <rect x="686" y="10" width="160" height="64" rx="12" fill="#7c3aed"/><text x="766" y="38" text-anchor="middle" font-weight="700" font-size="13" fill="#fff">Grille, albums,</text><text x="766" y="57" text-anchor="middle" font-weight="700" font-size="13" fill="#fff">documents</text>
+      <text x="766" y="120" text-anchor="middle" font-size="12.5" fill="#64748b">les réglages sont appliqués</text><text x="766" y="138" text-anchor="middle" font-size="12.5" fill="#64748b">à l’affichage, à la volée</text>
+    </svg>
+    <figcaption>Une version n’est qu’une recette de réglages ; l’image est recalculée quand on en a besoin.</figcaption>
+  </figure>
+  <div class="note tip"><b>Exporter une photo retouchée.</b> <span class="ui">Exporter…</span> crée un nouveau fichier (JPEG, PNG, WebP, TIFF) dans le dossier <i>Exports</i>, avec ou sans métadonnées et filigrane. Il n’écrase jamais rien.</div>
+</section>
+
+<!-- ============================================================ 8. albums -->
+<section class="page" id="albums" style="--c: var(--orange)">
+  <h2 class="ch"><span class="n">8</span>Créer un album</h2>
+  <p class="sub">De la sélection de photos au PDF prêt pour l’imprimeur.</p>
+  <ol class="steps">
+    <li>Menu <b>Albums</b> : donnez un nom, choisissez le format (carré 30 × 30, A4 paysage…) puis <span class="ui">Créer</span>.</li>
+    <li><span class="ui">Remplir depuis une collection…</span> ou, dans la Photothèque, sélectionnez des photos puis <span class="ui">Ajouter à un album…</span>.</li>
+    <li>Pour chaque page, choisissez un <b>gabarit</b> : pleine page, 2 côte à côte, 3, 4, 6 photos, page de titre, double page panoramique…</li>
+    <li>Glissez-déposez les photos d’un cadre à l’autre ; le bouton ✂ d’un cadre permet de <b>recadrer</b> la photo ; ajoutez une légende.</li>
+    <li>Consultez les <b>alertes</b> (résolution trop faible, cadre vide…), puis <span class="ui">Aperçu</span> et <span class="ui">Exporter en PDF…</span>.</li>
+  </ol>
+  <figure><img src="img/album-editeur.jpg" alt="L'éditeur d'album"><figcaption>L’éditeur d’album : pages, gabarits, légendes, annuler / rétablir, vue en planches et marges de sécurité.</figcaption></figure>
+  <div class="two">
+    <div class="note key"><b>Résolution.</b> Pour une impression nette, il faut au moins 240 points par pouce. L’album vous prévient cadre par cadre si une photo est trop petite pour la place qu’elle occupe.</div>
+    <div class="note tip"><b>Garder une copie du projet.</b> <span class="ui">Exporter le projet</span> produit un fichier <i>.album.json</i> que vous pourrez réimporter (menu Albums → <span class="ui">Importer un projet…</span>), même sur un autre ordinateur.</div>
+  </div>
+  <figure><img src="img/albums.jpg" alt="La liste des albums"><figcaption>La liste des albums, avec la couverture de chacun.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 9. doublons -->
+<section class="page" id="doublons" style="--c: var(--rose)">
+  <h2 class="ch"><span class="n">9</span>Doublons et photos similaires</h2>
+  <p class="sub">Repérer les copies et les quasi-doublons — et décider vous-même.</p>
+  <figure><img src="img/doublons.jpg" alt="L'outil Doublons"><figcaption>Deux fichiers identiques pour une même photo : l’original et sa copie dans la sauvegarde du téléphone.</figcaption></figure>
+  <table>
+    <tr><th style="width:24%">Onglet</th><th>Ce qu’il trouve</th><th style="width:28%">Comment</th></tr>
+    <tr><td>🟰 <b>Doublons exacts</b></td><td>Le même fichier présent à plusieurs endroits.</td><td>Empreinte SHA-256 identique.</td></tr>
+    <tr><td>🔍 <b>Potentiels</b></td><td>Des fichiers au contenu différent qui semblent être la même prise de vue (ré-enregistrement, export…).</td><td>Même nom et mêmes dimensions, ou même date, appareil et dimensions.</td></tr>
+    <tr><td>👯 <b>Similaires</b></td><td>Des images qui se ressemblent : recadrage, retouche, autre taille.</td><td>Empreinte visuelle (bouton <span class="ui">Calculer</span>).</td></tr>
+    <tr><td>📸 <b>Rafales</b></td><td>Plusieurs photos prises en quelques secondes.</td><td>Écart entre les heures de prise de vue.</td></tr>
+  </table>
+  <h3>Que faire d’un groupe ?</h3>
+  <ul>
+    <li><b>Choisir la référence</b> : la meilleure photo du groupe ; les autres deviennent ses <b>variantes</b>, masquées dans la Photothèque (filtre « Masquer les variantes »).</li>
+    <li><b>Écarter</b> le groupe s’il ne s’agit pas de vrais doublons : il ne sera plus proposé.</li>
+    <li><b>Supprimer la fiche…</b> d’une copie : la fiche quitte le catalogue et le fichier ne sera plus réindexé. <b>Le fichier reste sur le disque.</b></li>
+  </ul>
+  <div class="note warn"><b>Aucune suppression automatique.</b> L’application ne supprime jamais un fichier. Pour libérer de la place, supprimez vous-même les copies dans l’Explorateur Windows, après vérification.</div>
+</section>
+
+<!-- ============================================================ 10. documents -->
+<section class="page" id="documents" style="--c: var(--orange)">
+  <h2 class="ch"><span class="n">10</span>Planches, catalogues, portfolios</h2>
+  <p class="sub">Des documents PDF prêts à imprimer ou à envoyer, en quelques clics.</p>
+  <p>Dans la Photothèque, cliquez sur <span class="ui">Planches, catalogues, portfolio…</span>. Le document porte sur <b>la sélection</b> si vous avez coché des photos, sinon sur <b>toutes les photos affichées</b> (avec vos filtres, votre tri, votre collection).</p>
+  <figure><img src="img/planche-dialogue.jpg" alt="La fenêtre de création de documents"><figcaption>La fenêtre des documents : type, titre, format, grille, marges, qualité, légende.</figcaption></figure>
+
+  <figure>
+    <svg viewBox="0 0 860 210" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Les cinq documents">
+      <g font-size="13" text-anchor="middle">
+        <rect x="6" y="10" width="160" height="190" rx="14" fill="#ffedd5"/>
+        <g fill="#fdba74"><rect x="30" y="34" width="34" height="26" rx="3"/><rect x="70" y="34" width="34" height="26" rx="3"/><rect x="110" y="34" width="34" height="26" rx="3"/><rect x="30" y="66" width="34" height="26" rx="3"/><rect x="70" y="66" width="34" height="26" rx="3"/><rect x="110" y="66" width="34" height="26" rx="3"/><rect x="30" y="98" width="34" height="26" rx="3"/><rect x="70" y="98" width="34" height="26" rx="3"/></g>
+        <text x="86" y="152" font-weight="700" fill="#7c2d12">Planche-contact</text><text x="86" y="172" fill="#9a3412" font-size="11.5">vignettes légendées</text>
+        <rect x="180" y="10" width="160" height="190" rx="14" fill="#e0f2fe"/>
+        <rect x="204" y="34" width="112" height="58" rx="4" fill="#7dd3fc"/><g fill="#bae6fd"><rect x="204" y="100" width="40" height="5"/><rect x="250" y="100" width="66" height="5"/><rect x="204" y="110" width="40" height="5"/><rect x="250" y="110" width="50" height="5"/><rect x="204" y="120" width="40" height="5"/><rect x="250" y="120" width="60" height="5"/></g>
+        <text x="260" y="152" font-weight="700" fill="#0c4a6e">Fiches détaillées</text><text x="260" y="172" fill="#075985" font-size="11.5">1 photo + toutes ses infos</text>
+        <rect x="354" y="10" width="160" height="190" rx="14" fill="#dcfce7"/>
+        <rect x="378" y="30" width="112" height="9" rx="3" fill="#86efac"/><g fill="#bbf7d0"><rect x="378" y="46" width="34" height="24" rx="3"/><rect x="417" y="46" width="34" height="24" rx="3"/><rect x="456" y="46" width="34" height="24" rx="3"/></g><rect x="378" y="80" width="112" height="9" rx="3" fill="#86efac"/><g fill="#bbf7d0"><rect x="378" y="96" width="34" height="24" rx="3"/><rect x="417" y="96" width="34" height="24" rx="3"/></g>
+        <text x="434" y="152" font-weight="700" fill="#14532d">Catalogue thématique</text><text x="434" y="172" fill="#166534" font-size="11.5">par année, lieu, mot-clé…</text>
+        <rect x="528" y="10" width="160" height="190" rx="14" fill="#1f2937"/>
+        <rect x="560" y="30" width="96" height="70" rx="3" fill="#a78bfa"/><rect x="580" y="110" width="56" height="5" rx="2" fill="#e5e7eb"/><rect x="590" y="120" width="36" height="4" rx="2" fill="#9ca3af"/>
+        <text x="608" y="152" font-weight="700" fill="#f9fafb">Portfolio</text><text x="608" y="172" fill="#d1d5db" font-size="11.5">couverture, 1 photo / page</text>
+        <rect x="702" y="10" width="152" height="190" rx="14" fill="#f1f5f9"/>
+        <g fill="#cbd5e1"><rect x="722" y="34" width="112" height="10"/></g><g fill="#e2e8f0"><rect x="722" y="50" width="112" height="7"/><rect x="722" y="62" width="112" height="7"/><rect x="722" y="74" width="112" height="7"/><rect x="722" y="86" width="112" height="7"/><rect x="722" y="98" width="112" height="7"/><rect x="722" y="110" width="112" height="7"/></g>
+        <text x="778" y="152" font-weight="700" fill="#1e293b">Export CSV</text><text x="778" y="172" fill="#475569" font-size="11.5">tableur, 1 ligne / photo</text>
+      </g>
+    </svg>
+    <figcaption>Cinq façons de présenter la même sélection de photos.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th style="width:22%">Document</th><th>Pour…</th><th style="width:36%">Réglages principaux</th></tr>
+    <tr><td><b>Planche-contact</b></td><td>avoir une vue d’ensemble imprimable, choisir des photos sur papier.</td><td>colonnes × lignes, champs de légende (numéro, nom, date, titre, note, appareil, mots-clés…).</td></tr>
+    <tr><td><b>Fiches détaillées</b></td><td>documenter chaque photo : archives, dépôt, assurance.</td><td>une photo par page, avec titre, description, date, lieu, appareil, emplacements, empreinte.</td></tr>
+    <tr><td><b>Catalogue thématique</b></td><td>présenter un fonds organisé, avec sommaire.</td><td>regrouper par année, mois, mot-clé, lieu, dossier, support ou appareil.</td></tr>
+    <tr><td><b>Portfolio</b></td><td>montrer vos plus belles images.</td><td>couverture (titre, sous-titre, auteur), fond blanc, gris ou noir, marges.</td></tr>
+    <tr><td><b>Export CSV</b></td><td>travailler dans Excel ou LibreOffice.</td><td>34 colonnes, séparateur « ; », accents corrects.</td></tr>
+  </table>
+  <div class="note tip"><b>Toujours un aperçu.</b> <span class="ui">Aperçu</span> montre le PDF dans l’application avant de le télécharger. La qualité « écran » est rapide ; « impression » relit les originaux à 300 ppp.</div>
+</section>
+
+<!-- ============================================================ 11. rapports -->
+<section class="page" id="rapports" style="--c: var(--blue)">
+  <h2 class="ch"><span class="n">11</span>Rapports et inventaires</h2>
+  <p class="sub">Contrôler l’état de votre fonds, en PDF ou en tableur.</p>
+  <figure><img src="img/rapports.jpg" alt="La vue Rapports"><figcaption>Menu Rapports : chaque rapport propose Aperçu, PDF et CSV.</figcaption></figure>
+  <div class="grid-cards" style="grid-template-columns: 1fr 1fr">
+    <div class="card"><div class="ico">💾</div><b>Inventaire par support</b><p>Pour chaque disque : identité, capacité, emplacement, dossiers, nombre de fichiers et volume.</p></div>
+    <div class="card"><div class="ico">🔎</div><b>Fichiers manquants</b><p>Vérifie la présence réelle de chaque fichier ; indique s’il en existe une autre copie, et quel disque rebrancher.</p></div>
+    <div class="card"><div class="ico">🩺</div><b>Rapport d’intégrité</b><p>Contrôle de la base, puis des fichiers : rapide (présence, taille) ou complet (empreinte recalculée, détecte une altération).</p></div>
+    <div class="card"><div class="ico">🛟</div><b>Rapport de sauvegardes</b><p>Liste et vérification des sauvegardes, programmation, ancienneté de la dernière.</p></div>
+  </div>
+  <div class="note key"><b>Un rapport ne change rien.</b> Il observe et rend compte ; il ne modifie ni le catalogue ni vos fichiers. Lancez le contrôle complet de temps en temps, par exemple après avoir recopié vos photos sur un nouveau disque.</div>
+  <figure><img src="img/statistiques.jpg" alt="La vue Statistiques"><figcaption>Les Statistiques : chiffres clés, répartition par année, appareils et formats.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 12. protéger -->
+<section class="page" id="proteger" style="--c: #0f172a">
+  <h2 class="ch"><span class="n">12</span>Sauvegarder et administrer</h2>
+  <p class="sub">Votre catalogue représente des heures de classement : protégez-le.</p>
+  <figure><img src="img/administration.jpg" alt="L'administration, onglet Sauvegardes"><figcaption>Administration → Sauvegardes : créer, vérifier, télécharger, restaurer, programmer.</figcaption></figure>
+  <table>
+    <tr><th style="width:22%">Type</th><th>Contient</th></tr>
+    <tr><td><b>Données</b></td><td>le catalogue (base), les réglages et vos documents de travail. <b>À faire régulièrement.</b></td></tr>
+    <tr><td><b>Programme</b></td><td>l’application elle-même, sans vos données.</td></tr>
+    <tr><td><b>Complète</b></td><td>les deux, plus les rapports.</td></tr>
+  </table>
+  <div class="note warn"><b>Les photos ne sont pas dans la sauvegarde.</b> Une sauvegarde de la Photothèque protège le <i>catalogue</i>, pas les originaux. Vos photos doivent être copiées sur au moins un autre disque (déclaré comme support de rôle « Sauvegarde »).</div>
+
+  <figure>
+    <svg viewBox="0 0 860 170" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" role="img" aria-label="Règle 3-2-1">
+      <g text-anchor="middle">
+        <rect x="10" y="10" width="270" height="150" rx="16" fill="#e0f2fe"/><text x="145" y="70" font-size="46" font-weight="800" fill="#0284c7">3</text><text x="145" y="104" font-weight="700" font-size="15" fill="#0c4a6e">copies de vos photos</text><text x="145" y="128" font-size="12.5" fill="#075985">l’original + 2 sauvegardes</text>
+        <rect x="295" y="10" width="270" height="150" rx="16" fill="#dcfce7"/><text x="430" y="70" font-size="46" font-weight="800" fill="#16a34a">2</text><text x="430" y="104" font-weight="700" font-size="15" fill="#14532d">supports différents</text><text x="430" y="128" font-size="12.5" fill="#166534">ex. disque interne + disque externe</text>
+        <rect x="580" y="10" width="270" height="150" rx="16" fill="#fef3c7"/><text x="715" y="70" font-size="46" font-weight="800" fill="#d97706">1</text><text x="715" y="104" font-weight="700" font-size="15" fill="#78350f">copie ailleurs</text><text x="715" y="128" font-size="12.5" fill="#92400e">chez un proche, au bureau…</text>
+      </g>
+    </svg>
+    <figcaption>La règle « 3-2-1 », simple et efficace pour ne jamais perdre ses photos.</figcaption>
+  </figure>
+  <ul>
+    <li><b>Sauvegarde automatique</b> : réglez la fréquence, l’heure et le nombre de sauvegardes à conserver.</li>
+    <li><b>Restaurer</b> : une sauvegarde de sécurité de l’état actuel est toujours créée avant.</li>
+    <li>Les autres onglets (Versions, Base de données, Licence, Manifeste, Prompts, Modèle) servent surtout à la maintenance.</li>
+  </ul>
+  <h3>Paramètres</h3>
+  <figure><img src="img/parametres.jpg" alt="Les paramètres"><figcaption>Taille des vignettes et des aperçus, empreintes, dossier de destination des imports.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 13. FAQ -->
+<section class="page" id="faq" style="--c: var(--cyan)">
+  <h2 class="ch"><span class="n">13</span>Questions fréquentes</h2>
+  <p class="sub">Les réponses aux situations les plus courantes.</p>
+  <h4>Mes photos apparaissent « indisponibles ».</h4>
+  <p>Le disque qui les contient n’est pas branché, ou a changé de lettre. Branchez-le puis cliquez <span class="ui">Actualiser</span> dans <b>Supports</b>. Le rapport <b>Fichiers manquants</b> indique précisément lesquels manquent et où les chercher.</p>
+  <h4>J’ai déplacé un dossier de photos dans l’Explorateur.</h4>
+  <p>Ajoutez le nouveau dossier dans <b>Importation</b> et indexez-le : grâce aux empreintes, les fiches existantes (mots-clés, notes, retouches) sont rattachées aux fichiers retrouvés.</p>
+  <h4>Est-ce que la retouche modifie mon fichier JPEG ?</h4>
+  <p>Non. Seuls les réglages sont enregistrés. Pour obtenir un fichier retouché, utilisez <span class="ui">Exporter…</span> : un nouveau fichier est créé dans <i>Exports</i>.</p>
+  <h4>Une photo apparaît en double dans la grille.</h4>
+  <p>Si c’est le même fichier copié ailleurs, il est déjà réuni sous une seule fiche. Si ce sont deux fiches proches (ré-enregistrement, recadrage), ouvrez <b>Doublons</b> et choisissez une référence : l’autre deviendra une variante masquée.</p>
+  <h4>Je ne trouve plus une photo.</h4>
+  <p>Cliquez <span class="ui">Réinitialiser</span> sous les filtres, vérifiez le filtre « variantes », puis tapez un mot de son titre ou de ses mots-clés dans la recherche rapide.</p>
+  <h4>Le PDF d’un album affiche des alertes de résolution.</h4>
+  <p>La photo est trop petite pour la taille de son cadre : choisissez un gabarit avec des cadres plus petits ou une photo de meilleure définition.</p>
+  <h4>Comment transférer la Photothèque sur un nouvel ordinateur ?</h4>
+  <p>Faites une sauvegarde <b>Données</b>, installez l’application sur le nouvel ordinateur, puis restaurez-la dans <b>Administration → Sauvegardes</b>. Rebranchez vos supports : ils seront reconnus.</p>
+</section>
+
+<!-- ============================================================ 14. glossaire -->
+<section class="page" id="glossaire" style="--c: var(--violet)">
+  <h2 class="ch"><span class="n">14</span>Glossaire</h2>
+  <p class="sub">Les mots de la Photothèque.</p>
+  <dl class="glo">
+    <dt>Catalogue</dt><dd>La base de données de la Photothèque : une fiche par photo, avec ses informations.</dd>
+    <dt>Indexer</dt><dd>Lire un dossier pour créer ou mettre à jour les fiches de ses photos, sans copier ni modifier les fichiers.</dd>
+    <dt>Importer</dt><dd>Copier des photos dans la bibliothèque, puis les indexer.</dd>
+    <dt>Support</dt><dd>Un disque, une clé, une carte, un NAS… déclaré dans l’application et reconnu par son empreinte.</dd>
+    <dt>Empreinte (SHA-256)</dt><dd>Un code calculé à partir du contenu d’un fichier ; deux fichiers identiques ont la même empreinte. Sert à repérer les doublons et à vérifier l’intégrité.</dd>
+    <dt>Empreinte visuelle</dt><dd>Un résumé de l’image elle-même, qui permet de reconnaître des photos ressemblantes.</dd>
+    <dt>Métadonnées</dt><dd>Les informations enregistrées dans le fichier par l’appareil ou un logiciel : date, appareil, réglages, GPS, mots-clés (EXIF, IPTC, XMP).</dd>
+    <dt>Version</dt><dd>Un jeu de réglages de retouche ; la version ★ est celle affichée par défaut.</dd>
+    <dt>Référence / variante</dt><dd>Dans un groupe de doublons, la photo que vous gardez en avant (référence) et celles qui lui sont rattachées (variantes).</dd>
+    <dt>Collection</dt><dd>Un regroupement de photos : sélection manuelle ou recherche enregistrée.</dd>
+    <dt>Gabarit</dt><dd>La disposition des cadres d’une page d’album.</dd>
+    <dt>ppp</dt><dd>Points par pouce : la finesse d’impression d’une image à une taille donnée.</dd>
+    <dt>CSV</dt><dd>Un fichier texte en colonnes, lisible par Excel ou LibreOffice Calc.</dd>
+  </dl>
+  <div class="note key" style="margin-top:28px"><b>Besoin d’aide ?</b> Ce guide est disponible à tout moment depuis le menu <b>❓ Aide</b> de l’application, et en PDF pour l’imprimer.</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
