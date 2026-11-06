@@ -524,5 +524,18 @@ PDF (`public/aide/Guide-utilisateur-Phototheque.pdf`) :
    (`SHOTS`), puis `Page.printToPDF` (pied de page « Page n / N »,
    signets du sommaire).
 
+**Table des matières paginée** : la page `#table` est remplie au chargement
+(une ligne par `h2.ch` et par `h3` des chapitres). `printPdf` imprime une
+première fois, lit les signets du PDF (`pdfOutline` : arbre `/Outlines`,
+`/Dest` → rang de la page dans l'arbre `/Pages`), associe chaque titre à
+sa page, pose les numéros (`setTocPages`) et imprime à nouveau ; il vérifie
+que la pagination n'a pas bougé entre les deux impressions.
+
+**Pas de coupure** : en impression, `break-inside: avoid` sur paragraphes,
+listes, encadrés, figures, cartes, lignes de tableau ; titres collés à ce
+qui suit (`break-after: avoid`) ; tableaux coupés entre deux lignes avec
+en-tête répété (`thead`, créé au chargement depuis la ligne de `th`).
+
 Options : `--pdf` (PDF seul), `--serve` (photothèque d'exemple laissée
-ouverte), `--apercu` (capture du rendu impression dans `%TEMP%`).
+ouverte), `--apercu` (capture du rendu impression dans `%TEMP%`),
+`--controle` (chaque page du PDF photographiée, planches dans `%TEMP%`).

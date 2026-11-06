@@ -69,7 +69,7 @@
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
 
   /* tableaux */
-  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14.5px; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14.5px; }
   th { text-align: left; background: #0f172a; color: #fff; padding: 9px 12px; font-weight: 600; }
   th:first-child { border-radius: 8px 0 0 0; } th:last-child { border-radius: 0 8px 0 0; }
   td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -112,14 +112,26 @@
     .cover .shot img { height: 92mm; object-fit: cover; object-position: top; }
     .pillars { margin-top: 7mm; }
     .toc-print { display: block !important; }
+    /* ne jamais couper un élément sur deux pages */
+    p, li, tr, dt, dd, .note, .card, .pillar, figure, svg, .two > div, .toc-line { break-inside: avoid; }
+    table { break-inside: auto; } /* coupé entre deux lignes seulement, en-tête répété (thead) */
+    thead { display: table-header-group; }
+    h2, h3, h4, .sub { break-after: avoid; }
+    p, li { orphans: 3; widows: 3; }
     figure img { box-shadow: 0 0 0 1px #cbd5e1; }
     h3, h4 { break-after: avoid; }
     a { color: inherit; text-decoration: none; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
   .toc-print { display: none; }
-  .toc-print ol { columns: 2; column-gap: 28px; font-size: 10.5pt; margin: 0; }
-  .toc-print li { margin: 2px 0; break-inside: avoid; }
+  .toc-title { font-size: 26px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 3px solid var(--blue); }
+  .toc-line { display: flex; align-items: baseline; gap: 8px; }
+  .toc-line.l1 { margin-top: 11px; font-weight: 700; font-size: 12pt; }
+  .toc-line.l2 { padding-left: 34px; font-size: 10pt; color: var(--soft); margin-top: 2px; }
+  .toc-line .num { flex: none; width: 26px; height: 22px; border-radius: 6px; color: #fff; display: inline-grid; place-items: center; font-size: 10.5pt; }
+  .toc-line .t { flex: none; max-width: 80%; }
+  .toc-line .dots { flex: 1; border-bottom: 1.5px dotted #94a3b8; transform: translateY(-4px); min-width: 20px; }
+  .toc-line .pg { flex: none; width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -157,7 +169,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version 0.21 · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version 0.21.1 · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -168,14 +180,12 @@
       <div class="pillar" style="background:var(--amber-l)"><b>🛟 Préserver</b>Sauvegardes, contrôles d’intégrité, inventaires.</div>
     </div>
   </div>
-  <div class="toc-print" style="padding: 4mm 18mm 0">
-    <h3 style="margin-top:0">Sommaire</h3>
-    <ol>
-      <li>Les principes</li><li>Prise en main</li><li>Importer et indexer</li><li>Les supports</li><li>Parcourir et rechercher</li>
-      <li>Classer : notes, mots-clés, collections</li><li>Retoucher sans abîmer</li><li>Créer un album</li><li>Doublons et photos similaires</li>
-      <li>Planches, catalogues, portfolios</li><li>Rapports et inventaires</li><li>Sauvegarder et administrer</li><li>Questions fréquentes</li><li>Glossaire</li>
-    </ol>
-  </div>
+</section>
+
+<!-- ============================================================ table des matières (impression / PDF) -->
+<section class="page toc-print" id="table">
+  <h2 class="toc-title">Table des matières</h2>
+  <div id="toc-lines"></div>
 </section>
 
 <!-- ============================================================ 1. principes -->
@@ -258,7 +268,7 @@
       <g fill="#334155"><rect x="196" y="196" width="122" height="96" rx="6"/><rect x="328" y="196" width="122" height="96" rx="6"/><rect x="460" y="196" width="122" height="96" rx="6"/><rect x="592" y="196" width="122" height="96" rx="6"/><rect x="724" y="196" width="122" height="96" rx="6"/></g>
       <g font-size="15" font-weight="700" text-anchor="middle">
         <circle cx="95" cy="40" r="15" fill="#06b6d4"/><text x="95" y="45" fill="#fff">A</text>
-        <circle cx="406" cy="29" r="15" fill="#16a34a"/><text x="406" y="34" fill="#fff">B</text>
+        <circle cx="640" cy="29" r="15" fill="#16a34a"/><text x="640" y="34" fill="#fff">B</text>
         <circle cx="520" cy="120" r="15" fill="#7c3aed"/><text x="520" y="125" fill="#fff">C</text>
         <circle cx="520" cy="244" r="15" fill="#ea580c"/><text x="520" y="249" fill="#fff">D</text>
       </g>
@@ -351,7 +361,7 @@
       <text x="140" y="80" text-anchor="middle" font-size="26">🟢</text><text x="140" y="108" text-anchor="middle" font-weight="700" font-size="16" fill="#14532d">Connecté</text><text x="140" y="130" text-anchor="middle" font-size="12.5" fill="#166534">photos disponibles</text>
       <rect x="600" y="40" width="240" height="110" rx="16" fill="#fef3c7" stroke="#fcd34d"/>
       <text x="720" y="80" text-anchor="middle" font-size="26">🟠</text><text x="720" y="108" text-anchor="middle" font-weight="700" font-size="16" fill="#78350f">Non connecté</text><text x="720" y="130" text-anchor="middle" font-size="12.5" fill="#92400e">photos « indisponibles », fiches conservées</text>
-      <path d="M270 74 C 400 20, 460 20, 590 74" fill="none" stroke="#475569" stroke-width="2.5" marker-end="url(#a5)"/><text x="430" y="36" text-anchor="middle" font-size="13" fill="#334155">vous débranchez le disque</text>
+      <path d="M270 74 C 400 20, 460 20, 590 74" fill="none" stroke="#475569" stroke-width="2.5" marker-end="url(#a5)"/><text x="430" y="18" text-anchor="middle" font-size="13" fill="#334155">vous débranchez le disque</text>
       <path d="M590 118 C 460 172, 400 172, 270 118" fill="none" stroke="#475569" stroke-width="2.5" marker-end="url(#a5)"/><text x="430" y="178" text-anchor="middle" font-size="13" fill="#334155">vous le rebranchez (même sur une autre lettre) → reconnu par son empreinte</text>
     </svg>
     <figcaption>Un support absent n’est jamais considéré comme supprimé.</figcaption>
@@ -623,5 +633,31 @@
 
 </main>
 </div>
+<script>
+  // Table des matières imprimée : une ligne par chapitre (h2.ch) et par rubrique (h3), dans l'ordre du
+  // document. Les numéros de page sont posés par scripts/guide.mjs (window.setTocPages) après une
+  // première impression, d'après les signets du PDF.
+  (() => {
+    const box = document.getElementById('toc-lines');
+    for (const sec of document.querySelectorAll('main > section.page[id]:not(#table)')) {
+      const h2 = sec.querySelector('h2.ch'); if (!h2) continue;
+      const color = getComputedStyle(sec).getPropertyValue('--c').trim() || '#0284c7';
+      const line = (cls, title, num) => {
+        const d = document.createElement('div'); d.className = 'toc-line ' + cls;
+        d.innerHTML = (num ? '<span class="num"></span>' : '') + '<span class="t"></span><span class="dots"></span><span class="pg"></span>';
+        if (num) { d.querySelector('.num').textContent = num; d.querySelector('.num').style.background = color; }
+        d.querySelector('.t').textContent = title; box.appendChild(d);
+      };
+      line('l1', h2.lastChild.textContent.trim(), h2.querySelector('.n').textContent);
+      for (const h3 of sec.querySelectorAll('h3')) line('l2', h3.textContent.trim());
+    }
+    // tableaux : la ligne d'en-tête passe dans un thead, répété en haut de page si le tableau est coupé
+    for (const t of document.querySelectorAll('main table')) {
+      const first = t.querySelector('tr'); if (!first || !first.querySelector('th') || t.tHead) continue;
+      t.createTHead().appendChild(first);
+    }
+    window.setTocPages = pages => document.querySelectorAll('#toc-lines .pg').forEach((el, i) => { el.textContent = pages[i] ?? ''; });
+  })();
+</script>
 </body>
 </html>

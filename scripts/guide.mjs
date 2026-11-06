@@ -177,10 +177,95 @@ async function printPdf(b) {
   await b.s('Page.navigate', { url: BASE + '/aide/index.html' }); await sleep(1500);
   await b.s('Runtime.evaluate', { expression: 'Promise.all([...document.images].map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; })))', awaitPromise: true });
   const foot = '<div style="width:100%;font:8px Segoe UI,Arial;color:#64748b;padding:0 14mm;display:flex;justify-content:space-between"><span>Photothèque — Guide de l’utilisateur</span><span>Page <span class="pageNumber"></span> / <span class="totalPages"></span></span></div>';
-  const { data } = await b.s('Page.printToPDF', { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: foot, marginTop: 0.5, marginBottom: 0.6, marginLeft: 0, marginRight: 0, generateDocumentOutline: true, generateTaggedPDF: true });
+  const print = async () => Buffer.from((await b.s('Page.printToPDF', { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: foot, marginTop: 0.5, marginBottom: 0.6, marginLeft: 0, marginRight: 0, generateDocumentOutline: true, generateTaggedPDF: true })).data, 'base64');
+  // 1re impression : la table des matières a sa place mais pas encore ses numéros ; les signets du PDF
+  // (un par titre, dans l'ordre du document) donnent la page de chaque titre. 2e impression : numéros posés.
+  const first = await print();
+  const outline = pdfOutline(first);
+  const heads = (await b.s('Runtime.evaluate', { returnByValue: true, expression: `[...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter(h => h.offsetParent !== null || getComputedStyle(h).display !== 'none').filter(h => !h.closest('nav')).map(h => ({ text: h.textContent.replace(/\\s+/g, ' ').trim(), toc: !!h.closest('main > section.page[id]:not(#table)') && (h.matches('h2.ch') || h.tagName === 'H3') }))` })).result.value;
+  const norm = t => t.replace(/[\s ]+/g, ' ').trim();
+  let k = 0; const pages = [];
+  for (const h of heads) {
+    // le signet correspondant au titre, en avançant dans l'ordre (repli : recherche par texte)
+    let j = outline.findIndex((o, i) => i >= k && norm(o.title) === norm(h.text));
+    if (j < 0) j = outline.findIndex(o => norm(o.title) === norm(h.text));
+    if (j >= 0) k = j + 1;
+    if (h.toc) pages.push(j >= 0 ? outline[j].page : null);
+  }
+  if (pages.some(p => p == null)) throw new Error('Table des matières : page introuvable pour ' + pages.filter(p => p == null).length + ' titre(s)');
+  await b.s('Runtime.evaluate', { expression: `setTocPages(${JSON.stringify(pages)})` });
+  const pdf = await print();
+  const check = pdfOutline(pdf);
+  if (JSON.stringify(check.map(o => o.page)) !== JSON.stringify(outline.map(o => o.page))) throw new Error('La pagination a changé entre les deux impressions');
   const f = path.join(OUT, 'Guide-utilisateur-Phototheque.pdf');
-  fs.writeFileSync(f, Buffer.from(data, 'base64'));
-  console.log('  PDF', path.relative(ROOT, f), Math.round(fs.statSync(f).size / 1024), 'Ko');
+  fs.writeFileSync(f, pdf);
+  console.log('  PDF', path.relative(ROOT, f), Math.round(fs.statSync(f).size / 1024), 'Ko,', pdfPageCount(pdf), 'pages ; table des matières :', pages.join(' '));
+}
+
+/** Objets d'un PDF non compressé en flux d'objets (cas de Chrome) : numéro → texte du dictionnaire. */
+function pdfObjects(buf) {
+  const s = buf.toString('latin1'), objs = new Map();
+  for (const m of s.matchAll(/(\d+) 0 obj\s*(<<[\s\S]*?>>)\s*(?:stream|endobj)/g)) objs.set(+m[1], m[2]);
+  return { s, objs };
+}
+/** Pages dans l'ordre (arbre /Pages parcouru en profondeur) : numéro d'objet → numéro de page (1…). */
+function pdfPageOrder(buf) {
+  const { s, objs } = pdfObjects(buf);
+  const root = +/\/Root (\d+) 0 R/.exec(s)[1], pagesRef = +/\/Pages (\d+) 0 R/.exec(objs.get(root))[1];
+  const order = [];
+  const walk = ref => {
+    const d = objs.get(ref) ?? '';
+    if (/\/Type\s*\/Pages\b/.test(d)) for (const m of (/\/Kids\s*\[([^\]]*)\]/.exec(d)?.[1] ?? '').matchAll(/(\d+) 0 R/g)) walk(+m[1]);
+    else order.push(ref);
+  };
+  walk(pagesRef);
+  return { objs, s, root, index: new Map(order.map((r, i) => [r, i + 1])), count: order.length };
+}
+const pdfPageCount = buf => pdfPageOrder(buf).count;
+/** Chaîne PDF : littérale ( … ) avec échappements, ou hexadécimale UTF-16BE <FEFF…>. */
+function pdfText(raw) {
+  if (raw.startsWith('<')) {
+    const hex = raw.slice(1, -1).replace(/\s+/g, '');
+    if (/^feff/i.test(hex)) { let t = ''; for (let i = 4; i + 3 < hex.length; i += 4) t += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16)); return t; }
+    return Buffer.from(hex, 'hex').toString('latin1');
+  }
+  return raw.slice(1, -1).replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, c) => /\d/.test(c) ? String.fromCharCode(parseInt(c, 8)) : ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' })[c] ?? c);
+}
+/** Signets du PDF dans l'ordre du document : [{ title, page }]. */
+function pdfOutline(buf) {
+  const { objs, root, index } = pdfPageOrder(buf);
+  const ol = /\/Outlines (\d+) 0 R/.exec(objs.get(root) ?? ''); if (!ol) return [];
+  const out = [];
+  const item = ref => {
+    for (let r = ref, guard = 0; r && guard < 10000; guard++) {
+      const d = objs.get(r) ?? '';
+      const t = /\/Title\s*(\((?:\\.|[^\\)])*\)|<[0-9A-Fa-f\s]*>)/.exec(d), dest = /\/Dest\s*\[\s*(\d+) 0 R/.exec(d);
+      if (t) out.push({ title: pdfText(t[1]), page: dest ? index.get(+dest[1]) ?? null : null });
+      const first = /\/First (\d+) 0 R/.exec(d); if (first) item(+first[1]);
+      const next = /\/Next (\d+) 0 R/.exec(d); r = next ? +next[1] : 0;
+    }
+  };
+  const top = /\/First (\d+) 0 R/.exec(objs.get(+ol[1]) ?? ''); if (top) item(+top[1]);
+  return out;
+}
+
+/** Contrôle visuel du PDF : chaque page affichée par le lecteur PDF du navigateur, assemblées en planches dans %TEMP%. */
+async function pagesPreview(b) {
+  const { default: sharp } = await import('sharp');
+  const n = pdfPageCount(fs.readFileSync(path.join(OUT, 'Guide-utilisateur-Phototheque.pdf')));
+  await b.s('Emulation.setEmulatedMedia', { media: 'screen' });
+  await b.s('Emulation.setDeviceMetricsOverride', { width: 620, height: 860, deviceScaleFactor: 1, mobile: false });
+  const shots = [];
+  for (let p = 1; p <= n; p++) {
+    await b.s('Page.navigate', { url: `${BASE}/aide/Guide-utilisateur-Phototheque.pdf?p=${p}#page=${p}&toolbar=0&navpanes=0&view=Fit` }); await sleep(2500);
+    shots.push(Buffer.from((await b.s('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+  }
+  for (let i = 0; i < shots.length; i += 8) {
+    const part = shots.slice(i, i + 8);
+    const f = path.join(os.tmpdir(), `phototheque-guide-pages-${i / 8 + 1}.png`);
+    await sharp({ create: { width: 4 * 630, height: 2 * 870, channels: 3, background: '#666' } }).composite(part.map((input, k) => ({ input, left: (k % 4) * 630, top: Math.floor(k / 4) * 870 }))).png().toFile(f);
+    console.log('  pages', i + 1, '→', Math.min(i + 8, n), ':', f);
+  }
 }
 
 /** Contrôle visuel : la page en mode impression (largeur A4), capturée en entier dans le dossier temporaire. */
@@ -225,6 +310,7 @@ async function main() {
     if (!args.has('--pdf')) { console.log('Captures…'); await capture(browser, SHOTS(ctx)); }
     console.log('PDF…'); await printPdf(browser);
     if (args.has('--apercu')) await preview(browser);
+    if (args.has('--controle')) await pagesPreview(browser);
   } finally { await browser?.close(); server?.kill(); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(e => { console.error(e); process.exit(1); });

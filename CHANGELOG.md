@@ -4,6 +4,17 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.21.1] — 2026-11-07
+
+### Modifié
+
+- Guide de l'utilisateur en PDF : **table des matières** avec les numéros de
+  page (chapitres et rubriques), calculée d'après la mise en page réelle.
+- Aucun élément n'est plus coupé entre deux pages (paragraphes, encadrés,
+  figures, cartes, lignes de tableau) ; un long tableau se poursuit sur la
+  page suivante avec son en-tête répété.
+- Deux schémas retouchés (étiquettes qui chevauchaient un trait).
+
 ## [0.21.0] — 2026-11-06
 
 ### Ajouté
