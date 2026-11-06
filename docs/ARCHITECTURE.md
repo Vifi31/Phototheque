@@ -455,3 +455,28 @@ et `cells` ; consigné dans `exports` (`kind = 'catalog'`).
 
 Le lieu est aussi ajouté aux fiches détaillées et au CSV (colonne `lieu`,
 34 colonnes).
+
+## 16. Inventaires et rapports (v0.19.0)
+
+Vue **Rapports** (groupe Analyse). `lib/reports.mjs` (`createReports(db,
+{ backups, backupSettings })`) calcule chaque rapport en un modèle commun
+— `title`, `subtitle`, `sections` (indicateurs, blocs libellé / valeur,
+tableaux), `summary` (compte rendu chiffré), `csv` (colonnes + lignes) —
+rendu ensuite en PDF par `lib/reportdoc.mjs` (`renderTableDoc` : tableaux
+paginés, en-tête de colonnes répété, section « (suite) », pied de page
+« Page n / N » ; composition puis écriture) ou en CSV (mêmes conventions
+que le catalogue : BOM, « ; », CRLF, anti-formule).
+
+| Rapport | Contenu |
+| --- | --- |
+| `inventory` | vue d'ensemble des supports, puis une page par support : identité (type, rôle, état, marque, n° de série, volume, système de fichiers, capacité, chemin, emplacement physique), indicateurs, tableau par dossier (chemin relatif au support). Option `supportId`. Fichiers sans support à part. CSV : une ligne par fichier. |
+| `missing` | constat immédiat (`fs.existsSync`), sans écriture en base : « Support non connecté », « Fichier introuvable », « Erreur de lecture ». Pour chaque fichier, autre copie disponible de la même photo ; photos sans aucune copie disponible. Fichiers marqués indisponibles mais présents : « retrouvés ». |
+| `integrity` | `PRAGMA integrity_check` et `foreign_key_check` ; fichiers : présence, taille (`quick`), plus empreinte SHA-256 recalculée (`full`) comparée à `files.sha256` (à défaut `photos.sha256`) ; photos sans fichier, en un seul exemplaire, ou dont toutes les copies sont sur le même support. |
+| `backups` | liste des sauvegardes (`lib/backup.mjs` : `list`, `verify` CRC de chaque entrée si `verify`), programmation (`store.backup`), ancienneté de la dernière sauvegarde des données (alerte au-delà de deux périodes, au moins 7 jours). |
+
+Aucun rapport ne modifie le catalogue ni les fichiers (les statuts restent
+ceux de la dernière indexation ou du dernier rafraîchissement des
+supports). Routes : `GET /api/reports` (rapports, supports) et
+`POST /api/reports/<kind>/pdf|csv` (`{ options, inline }`), compte rendu
+dans l'en-tête `X-Report` (JSON en base64) ; chaque rapport est consigné
+dans `exports` (`kind = 'report-<kind>'`) et l'historique.

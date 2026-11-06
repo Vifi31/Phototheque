@@ -4,6 +4,27 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.19.0] — 2026-11-06
+
+### Ajouté
+
+- **Rapports et inventaires** (nouvelle vue Analyse → Rapports), chacun en
+  PDF (avec aperçu) ou en CSV :
+  - **Inventaire par support** : identité de chaque support (type, rôle,
+    état, marque, n° de série, capacité, emplacement physique), puis ses
+    dossiers avec nombre de fichiers, volume et fichiers indisponibles ; pour
+    tous les supports ou un seul.
+  - **Fichiers manquants** : existence de chaque fichier vérifiée au moment
+    du rapport, regroupés par support avec la raison (support non connecté,
+    fichier introuvable) et l'existence d'une autre copie ; photos sans
+    aucune copie disponible mises en évidence.
+  - **Rapport d'intégrité** : contrôle de la base SQLite, puis des fichiers
+    (présence et taille, ou contrôle complet par recalcul de l'empreinte
+    SHA-256) ; photos sans copie de sécurité.
+  - **Rapport de sauvegardes** : sauvegardes présentes, vérification de
+    chaque archive, programmation et ancienneté de la dernière.
+- Aucun rapport ne modifie le catalogue ni les fichiers.
+
 ## [0.18.0] — 2026-11-06
 
 ### Ajouté

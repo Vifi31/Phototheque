@@ -310,6 +310,7 @@ a.btn.small { padding: 5px 10px; font-size: 12.5px; }
 .album-issues .warn, .album-alert.warn { color: var(--warn); }
 .album-issues .bad, .album-alert.bad { color: var(--bad); }
 .album-alert { font-size: 13px; padding: 2px 0; }
+.album-alert.ok { color: var(--ok); }
 
 /* Sélecteur de photo (cadres d'album) */
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 10px; max-height: 55vh; overflow-y: auto; }

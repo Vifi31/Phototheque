@@ -33,6 +33,7 @@ const App = (() => {
     { group: 'Analyse' },
     { id: 'duplicates', label: 'Doublons', icon: '🧬' },
     { id: 'stats', label: 'Statistiques', icon: '📊' },
+    { id: 'reports', label: 'Rapports', icon: '📋' },
     { group: 'Administration' },
     { id: 'admin', label: 'Administration', icon: '⚙️' },
     { id: 'settings', label: 'Paramètres', icon: '🛠️' },
@@ -70,6 +71,7 @@ const App = (() => {
       else if (view === 'retouche') await viewRetouche(v);
       else if (view === 'duplicates') await viewDuplicates(v);
       else if (view === 'stats') await viewStats(v);
+      else if (view === 'reports') await viewReports(v);
       else if (view === 'settings') await viewSettings(v);
       else if (view === 'admin') await Admin.view(v, 'backups', nav => (state._adminNav = nav));
       else if (view.startsWith('admin-')) await Admin.view(v, view.slice(6));
@@ -1412,6 +1414,73 @@ const App = (() => {
 
     mount(v, h('h2.page-title', 'Doublons et photos similaires'), tabs, hashCard, opts, body);
     drawOpts(); await load();
+  }
+
+  // ---------- vue Rapports (lib/reports.mjs) : inventaires et rapports en PDF ou CSV ----------
+  async function viewReports(v) {
+    clear(v);
+    const meta = await api('/reports');
+    mount(v, h('h2.page-title', 'Rapports et inventaires'),
+      h('p.dim', 'Documents de contrôle du fonds, en PDF ou en CSV (tableur). Aucun rapport ne modifie le catalogue ni les fichiers.'),
+      ...Object.entries(meta.reports).map(([kind, r]) => reportCard(kind, r, meta)));
+  }
+
+  /** Une ligne de compte rendu lisible pour chaque rapport (indicateurs renvoyés dans X-Report). */
+  function reportSummary(kind, s) {
+    if (!s) return null;
+    const n = fmtNum;
+    if (kind === 'inventory') return h('div.album-alert' + (s.missing ? '.warn' : '.ok'), `${n(s.supports.length)} support(s) · ${n(s.files)} fichier(s) · ${fmtBytes(s.bytes)} · ${n(s.missing)} indisponible(s)${s.orphans ? ` · ${n(s.orphans)} sans support` : ''}`);
+    if (kind === 'missing') return h('div.album-alert' + (s.lost ? '.bad' : s.missing ? '.warn' : '.ok'), s.missing ? `${n(s.missing)} fichier(s) manquant(s) sur ${n(s.files)} · ${n(s.photos)} photo(s) concernée(s), dont ${n(s.lost)} sans aucune copie disponible${s.found ? ` · ${n(s.found)} retrouvé(s)` : ''}` : `Aucun fichier manquant (${n(s.files)} vérifié(s))${s.found ? ` · ${n(s.found)} retrouvé(s), index à rafraîchir` : ''}`);
+    if (kind === 'integrity') {
+      const bad = s.hash + s.size + s.unreadable;
+      return h('div.album-alert' + (bad || !s.db || s.foreignKeys ? '.bad' : s.absent || s.offline ? '.warn' : '.ok'),
+        `Base ${s.db && !s.foreignKeys ? 'intègre' : 'EN ANOMALIE'} · ${n(s.ok)} fichier(s) conforme(s) · ${n(bad)} altéré(s), modifié(s) ou illisible(s) · ${n(s.absent)} introuvable(s) · ${n(s.offline)} non vérifié(s) (support non connecté)${s.mode === 'full' ? ` · ${n(s.hashed)} empreinte(s) recalculée(s)` : ''}`);
+    }
+    if (kind === 'backups') return h('div.album-alert' + (s.bad || s.ageDays === null ? '.bad' : '.ok'),
+      `${n(s.count)} sauvegarde(s) · dernière sauvegarde des données : ${s.ageDays === null ? 'aucune' : s.ageDays === 0 ? 'aujourd’hui' : `il y a ${s.ageDays} jour(s)`}${s.bad != null ? ` · ${n(s.bad)} archive(s) altérée(s)` : ''} · sauvegarde automatique ${s.auto ? 'activée' : 'désactivée'}`);
+    return null;
+  }
+
+  function reportCard(kind, r, meta) {
+    const controls = []; let options = () => ({});
+    if (kind === 'inventory') {
+      const sel = h('select', {}, h('option', { value: '' }, 'Tous les supports'), ...meta.supports.map(s => h('option', { value: s.id }, s.name + (s.status === 'absent' ? ' (non connecté)' : ''))));
+      controls.push(field('Support', sel)); options = () => ({ supportId: sel.value });
+    }
+    if (kind === 'integrity') {
+      const sel = h('select', {}, h('option', { value: 'quick' }, 'Rapide : présence et taille des fichiers'), h('option', { value: 'full' }, 'Complet : empreintes SHA-256 recalculées (relit tous les fichiers)'));
+      controls.push(field('Contrôle', sel)); options = () => ({ mode: sel.value });
+    }
+    if (kind === 'backups') {
+      const cb = h('input', { type: 'checkbox', checked: true });
+      controls.push(h('label.check', cb, ' Relire et vérifier chaque archive')); options = () => ({ verify: cb.checked });
+    }
+    const status = h('div'), btns = [];
+    const busy = on => btns.forEach(b => { b.disabled = on; });
+    async function run(format, inline = false) {
+      const res = await fetch(`/api/reports/${kind}/${format}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options: options(), inline }) });
+      if (!res.ok) { let msg = 'Échec du rapport'; try { msg = (await res.json()).error || msg; } catch { /* corps non JSON */ } throw new Error(msg); }
+      let rep = null; try { rep = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(res.headers.get('X-Report') || ''), c => c.charCodeAt(0)))); } catch { /* compte rendu absent */ }
+      const cd = res.headers.get('Content-Disposition') || '', name = decodeURIComponent((/filename\*=UTF-8''([^;]+)/.exec(cd) ?? [])[1] ?? `rapport.${format}`);
+      return { blob: await res.blob(), rep, name };
+    }
+    const act = (label, fn, primary = false) => { const b = h(primary ? 'button' : 'button.ghost', { onclick: async () => {
+      busy(true); mount(status, h('p.dim', kind === 'integrity' ? 'Contrôle en cours… (le contrôle complet relit chaque fichier)' : 'Préparation…'));
+      try { await fn(); } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+      busy(false);
+    } }, label); b.dataset.report = kind; btns.push(b); return b; };
+    const save = ({ blob, name }) => { const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+    const preview = act('Aperçu', async () => {
+      const out = await run('pdf', true), src = URL.createObjectURL(out.blob);
+      mount(status, reportSummary(kind, out.rep?.summary));
+      const pv = modal({ title: `Aperçu — ${r.label}`, wide: true, body: h('div', reportSummary(kind, out.rep?.summary), h('p.dim', `${out.rep?.pages ?? '?'} page(s) · ${fmtBytes(out.rep?.bytes)}`), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })),
+        actions: [h('button.ghost', { onclick: () => pv.close() }, 'Fermer'), h('button', { onclick: () => { save({ blob: out.blob, name: out.name }); toast('PDF enregistré'); } }, 'Télécharger le PDF')] });
+      new MutationObserver((_, ob) => { if (!pv.box.isConnected) { URL.revokeObjectURL(src); ob.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
+    });
+    const pdfBtn = act('PDF', async () => { const out = await run('pdf'); save(out); mount(status, reportSummary(kind, out.rep?.summary), h('p.dim', `✓ ${out.name} enregistré dans le dossier de téléchargement (${out.rep?.pages} page(s)).`)); toast('Rapport PDF produit'); }, true);
+    const csvBtn = act('CSV', async () => { const out = await run('csv'); save(out); mount(status, reportSummary(kind, out.rep?.summary), h('p.dim', `✓ ${out.name} enregistré : ${fmtNum(out.rep?.rows ?? 0)} ligne(s) (séparateur « ; », UTF-8).`)); toast('Rapport CSV produit'); });
+    return card(h('div.sect', r.label), h('p.dim', r.desc), controls.length ? h('div.row.wrap', { style: { gap: '12px' } }, ...controls) : null,
+      h('div.row', { style: { gap: '8px', marginTop: '8px' } }, preview, pdfBtn, csvBtn), status);
   }
 
   // ---------- vue Statistiques ----------

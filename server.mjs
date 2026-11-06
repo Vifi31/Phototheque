@@ -25,6 +25,8 @@ import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } fr
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
 import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
 import { createCatalog, CSV_COLUMNS, GROUP_BY } from './lib/catalog.mjs';
+import { createReports, REPORTS } from './lib/reports.mjs';
+import { createBackupService } from './lib/backup.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -46,6 +48,8 @@ const catalog = createCatalog(db);
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
+// rapports : instance de lecture du service de sauvegarde (liste, vérification), programmation lue dans le store
+const reports = createReports(db, { backups: createBackupService({ root: ROOT, getStats }), backupSettings: () => store.backup });
 const extra = setupExtra({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store), reloadStore, getStats, getDb: () => db, reimport: async () => {} });
 const admin = setupAdmin({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store) });
 const dbAdmin = setupDbAdmin({ getDb: () => db, getError: () => null, getStore: () => store, mirrorFile: STORE_FILE, dbFile: DB_FILE });
@@ -214,6 +218,32 @@ async function api(req, res, url) {
     res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': report.bytes,
       'Content-Disposition': `${b?.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file)}`,
       'X-Pdf-Report': Buffer.from(JSON.stringify(report)).toString('base64') });
+    const rs = fs.createReadStream(tmp); rs.on('close', () => fs.rmSync(tmp, { force: true }));
+    return rs.pipe(res);
+  }
+  // ---- Inventaires et rapports (lib/reports.mjs) : PDF ou CSV, compte rendu dans X-Report ----
+  if (p === '/api/reports' && m === 'GET') return json(res, 200, { reports: REPORTS, supports: db.prepare('SELECT id, name, status FROM supports ORDER BY name COLLATE NOCASE').all() });
+  if (p.startsWith('/api/reports/') && m === 'POST') {
+    const [, , , kind, format] = p.split('/');
+    if (!REPORTS[kind] || !['pdf', 'csv'].includes(format)) return json(res, 404, { error: 'Rapport inconnu' });
+    const b = await readBody(req), opts = sanitize(b?.options) ?? {};
+    const name = REPORTS[kind].label.replace(/’/g, "'").replace(/[^\p{L}\p{N}' _-]+/gu, ' ').replace(/\s+/g, ' ').trim() + ' ' + new Date().toISOString().slice(0, 10);
+    const report = r => Buffer.from(JSON.stringify(r)).toString('base64');
+    if (format === 'csv') {
+      let out; try { out = await reports.csv(kind, opts); } catch (e) { return json(res, 400, { error: e.message }); }
+      const buf = Buffer.from(out.text, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Length': buf.length, 'X-Report': report({ title: out.title, rows: out.rows, summary: out.summary }),
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name + '.csv').replace(/'/g, '%27')}` });
+      return res.end(buf);
+    }
+    const tmp = path.join(os.tmpdir(), `phototheque-rapport-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`);
+    const fd = fs.openSync(tmp, 'w');
+    let out;
+    try { out = await reports.pdf(kind, opts, buf => fs.writeSync(fd, buf)); }
+    catch (e) { fs.closeSync(fd); fs.rmSync(tmp, { force: true }); return json(res, 400, { error: e.message }); }
+    fs.closeSync(fd);
+    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': out.bytes, 'X-Report': report(out),
+      'Content-Disposition': `${b?.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name + '.pdf').replace(/'/g, '%27')}` });
     const rs = fs.createReadStream(tmp); rs.on('close', () => fs.rmSync(tmp, { force: true }));
     return rs.pipe(res);
   }

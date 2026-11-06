@@ -156,6 +156,7 @@ bibliothèque).
    mise en page `detail` du moteur des planches, §14).
    Catalogues thématiques en v0.18.0 (mise en page `catalog`, `groupBy`,
    sommaire ; `groupsOf` / `placeOf` dans `lib/catalog.mjs`, §15).
-   Restent : portfolios,
-   inventaires par support, rapports (sauvegarde, intégrité, fichiers
-   manquants).
+   Inventaires par support et rapports (fichiers manquants, intégrité,
+   sauvegardes) en v0.19.0 : vue Rapports, `lib/reports.mjs` +
+   `lib/reportdoc.mjs` (documents tabulaires PDF), §16.
+   Reste : portfolios.

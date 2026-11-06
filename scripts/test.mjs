@@ -1143,6 +1143,63 @@ group('Catalogues thématiques : groupes, sommaire, pages');
 }
 
 // ===================================================================
+group('Inventaires et rapports (PDF / CSV)');
+// ===================================================================
+{
+  const R = await import('../lib/reports.mjs');
+  const { renderTableDoc } = await import('../lib/reportdoc.mjs');
+  const pdfOf = async fn => { const ch = []; const out = await fn(b => ch.push(Buffer.from(b))); return { out, txt: Buffer.concat(ch).toString('latin1') }; };
+  // document tabulaire : pagination et en-tête répété
+  const big = await pdfOf(w => renderTableDoc({ title: 'Essai', sections: [{ heading: 'Liste', columns: [{ label: 'Colonne A' }, { label: 'Nombre', align: 'right' }], rows: Array.from({ length: 160 }, (_, i) => [`ligne ${i}`, String(i)]) }] }, w));
+  check('tableau long : plusieurs pages, en-tête répété', `${big.out.pages > 1}|${(big.txt.match(/\(Colonne A\) Tj/g) || []).length === big.out.pages}|${big.txt.includes('(Liste \\(suite\\)) Tj')}`, 'true|true|true');
+  const statusBefore = DB.prepare('SELECT id, status FROM files ORDER BY id').all().map(f => f.status).join(',');
+  const fakeBackups = { DIR: 'X:/Sauvegardes', list: () => [
+    { name: 'a.zip', size: 2048, mtime: new Date().toISOString(), manifest: { type: 'data', createdAt: new Date(Date.now() - 3 * 864e5).toISOString(), version: '0.18.0', counts: { photos: 5 } } },
+    { name: 'b.zip', size: 10, mtime: '2020-01-01T00:00:00Z', error: 'manifest absent' }],
+  verify: n => ({ ok: n !== 'a.zip' ? false : true, entries: 3, bad: [] }) };
+  const REP = R.createReports(DB, { backups: fakeBackups, backupSettings: () => ({ auto: true, every: 7, time: '20:00', type: 'data', keep: 10 }) });
+  // inventaire
+  const nFiles = DB.prepare('SELECT COUNT(*) n FROM files').get().n;
+  const inv = await REP.build('inventory');
+  check('inventaire : tous les fichiers, une ligne CSV par fichier', `${inv.summary.files}|${inv.csv.rows.length}`, `${nFiles}|${nFiles}`);
+  let e1 = null; try { await REP.build('inventory', { supportId: 'inconnu' }); } catch (x) { e1 = x.message; }
+  check('inventaire : support inconnu refusé', e1, 'Support inconnu');
+  const ip = await pdfOf(w => REP.pdf('inventory', {}, w));
+  check('inventaire en PDF', `${ip.txt.startsWith('%PDF-1.4')}|${ip.txt.includes('(Inventaire par support) Tj')}|${ip.out.pages >= 1}`, 'true|true|true');
+  // fichiers manquants : une copie fictive d'une photo existante, absente du disque
+  const f0 = DB.prepare("SELECT * FROM files WHERE status = 'available' AND photo_id IS NOT NULL LIMIT 1").get();
+  const ghost = path.join(os.tmpdir(), `phototheque-absent-${Date.now()}.jpg`);
+  DB.prepare("INSERT INTO files(id, photo_id, path, file_name, size_bytes, sha256, kind, status, indexed_at) VALUES(?,?,?,?,?,?,?,?,?)").run('ghost-file', f0.photo_id, ghost, 'absent.jpg', 1234, f0.sha256, 'copy', 'available', new Date().toISOString());
+  // copie altérée : même taille que l'original, empreinte de référence différente
+  const altered = path.join(os.tmpdir(), `phototheque-altere-${Date.now()}.jpg`); fs.copyFileSync(f0.path, altered);
+  DB.prepare("INSERT INTO files(id, photo_id, path, file_name, size_bytes, sha256, kind, status, indexed_at) VALUES(?,?,?,?,?,?,?,?,?)").run('altered-file', f0.photo_id, altered, 'altere.jpg', fs.statSync(altered).size, 'f'.repeat(64), 'copy', 'available', new Date().toISOString());
+  const mi = await REP.build('missing');
+  const row = mi.csv.rows.find(r => r[3] === ghost);
+  check('manquants : fichier absent du disque signalé', `${!!row}|${row?.[6]}`, 'true|Fichier introuvable');
+  check('manquants : autre copie disponible indiquée, photo non perdue', `${!!row?.[7]}|${mi.summary.lost}`, 'true|0');
+  // intégrité
+  const iq = await REP.build('integrity', { mode: 'quick' });
+  check('intégrité rapide : base intègre, absent compté, altération non vue', `${iq.summary.db}|${iq.summary.absent >= 1}|${iq.summary.hash}`, 'true|true|0');
+  const ifu = await REP.build('integrity', { mode: 'full' });
+  check('intégrité complète : empreinte différente détectée', `${ifu.summary.hash}|${ifu.csv.rows.some(r => r[1] === altered && /Empreinte/.test(r[0]))}`, '1|true');
+  DB.prepare("UPDATE files SET size_bytes = 1 WHERE id = 'altered-file'").run();
+  check('intégrité : taille différente détectée', (await REP.build('integrity')).summary.size, 1);
+  DB.prepare("DELETE FROM files WHERE id IN ('ghost-file', 'altered-file')").run(); fs.rmSync(altered, { force: true });
+  check('rapports : statuts du catalogue inchangés', DB.prepare('SELECT id, status FROM files ORDER BY id').all().map(f => f.status).join(','), statusBefore);
+  // sauvegardes
+  const bk = await REP.build('backups');
+  check('sauvegardes : ancienneté, archive illisible signalée', `${bk.summary.count}|${bk.summary.ageDays}|${bk.summary.bad}|${bk.summary.auto}`, '2|3|1|true');
+  const none = await R.createReports(DB).build('backups');
+  check('sans sauvegarde : « aucune »', `${none.summary.count}|${none.summary.ageDays}`, '0|null');
+  // CSV
+  const cv = await REP.csv('missing');
+  check('CSV : BOM, en-tête', `${cv.text.charCodeAt(0) === 0xfeff}|${cv.text.slice(1).split('\r\n')[0].split(';')[0]}`, 'true|support');
+  let e2 = null; try { await REP.build('pirate'); } catch (x) { e2 = x.message; }
+  check('rapport inconnu refusé', e2, 'Rapport inconnu');
+  check('rapports consignés dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind LIKE 'report-%'").get().n >= 2, true, 0);
+}
+
+// ===================================================================
 group('Sauvegardes : création, vérification, restauration');
 // ===================================================================
 {
