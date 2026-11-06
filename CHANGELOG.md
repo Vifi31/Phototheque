@@ -4,6 +4,18 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.20.0] — 2026-11-06
+
+### Ajouté
+
+- **Portfolios** (Photothèque → « Planches, catalogues, portfolio… »,
+  Document : « Portfolio ») : une page de couverture (première photo, titre,
+  sous-titre, auteur, date), puis une photo par page, aussi grande que les
+  marges le permettent, avec une légende sobre centrée et un numéro de page
+  discret. Fond blanc, gris clair ou noir ; marges réglables (5 à 30 mm) ;
+  couverture facultative ; légende au choix (numéro, titre, date, etc.).
+- Réglage des **marges** pour tous les documents de la fenêtre.
+
 ## [0.19.0] — 2026-11-06
 
 ### Ajouté

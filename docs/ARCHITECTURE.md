@@ -480,3 +480,23 @@ supports). Routes : `GET /api/reports` (rapports, supports) et
 `POST /api/reports/<kind>/pdf|csv` (`{ options, inline }`), compte rendu
 dans l'en-tête `X-Report` (JSON en base64) ; chaque rapport est consigné
 dans `exports` (`kind = 'report-<kind>'`) et l'historique.
+
+## 17. Portfolios (v0.20.0)
+
+Quatrième mise en page du moteur des planches-contact
+(`layout: 'portfolio'`, `renderPortfolio` dans `lib/contactsheet.mjs`) :
+
+* couverture facultative (`cover`) : la première photo (58 % de la hauteur
+  utile), le titre (24 pt, deux lignes au plus), le sous-titre (`subtitle`),
+  un filet, l'auteur (`author`), le nombre de photographies et la date ;
+* puis une photo par page, la plus grande possible dans les marges
+  (`margin`, 5 à 30 mm), centrée, jamais recadrée ; légende centrée sous
+  l'image : numéro et titre (à défaut nom du fichier) en gras, puis les
+  autres champs cochés sur une ligne (« sans date » omis) ; folio discret
+  en bas de page (la couverture compte pour la page 1) ;
+* fonds `SHEET_BACKGROUNDS` : blanc, gris clair, noir (couleurs de page, de
+  texte principal et secondaire, du filet).
+
+Colonnes et lignes ne s'appliquent pas. Consigné dans `exports`
+(`kind = 'portfolio'`). La police reste Helvetica (polices standard de
+`lib/pdf.mjs`).

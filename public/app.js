@@ -155,11 +155,11 @@ const App = (() => {
     const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
     const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !Object.keys(currentCriteria()).length; };
     // planche-contact : la sélection si elle existe, sinon toutes les photos de la recherche affichée
-    const sheetBtn = h('button.ghost.small', { title: 'Planche-contact, fiches détaillées ou catalogue thématique en PDF, export CSV : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
+    const sheetBtn = h('button.ghost.small', { title: 'Planche-contact, fiches détaillées, catalogue thématique ou portfolio en PDF, export CSV : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
       const label = coll ? coll.name : state.facet.variantsOf ? 'Référence et variantes' : 'Photothèque';
       if (state.selection.size) contactSheetDialog({ ids: [...state.selection], label, count: state.selection.size });
       else contactSheetDialog({ query: searchParams().toString(), label, count: state.total });
-    } }, 'Planches, fiches, catalogues…');
+    } }, 'Planches, catalogues, portfolio…');
     mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, h('div.spacer'), selInfo, batchBar);
 
     function renderGrid() {
@@ -883,7 +883,12 @@ const App = (() => {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') ?? {}; } catch { /* préférence absente */ }
     const o = { ...M.defaults, ...saved };
     const layout = h('select', {}, ...Object.entries(M.layouts).map(([k, l]) => h('option', { value: k, selected: (o.layout ?? 'grid') === k }, l)));
-    const isDetail = () => layout.value === 'detail', isCat = () => layout.value === 'catalog';
+    const isDetail = () => layout.value === 'detail', isCat = () => layout.value === 'catalog', isPort = () => layout.value === 'portfolio';
+    const subtitle = h('input', { type: 'text', placeholder: 'Sous-titre (facultatif)' });
+    const author = h('input', { type: 'text', value: o.author ?? '', placeholder: 'Photographe, auteur (facultatif)' });
+    const background = h('select', {}, ...Object.entries(M.backgrounds).map(([k, b]) => h('option', { value: k, selected: (o.background ?? 'white') === k }, b.label)));
+    const coverCb = h('input', { type: 'checkbox', checked: o.cover !== false });
+    const margin = h('input', { type: 'number', min: 5, max: 30, value: o.margin ?? 12, style: { width: '70px' } });
     const groupBy = h('select', {}, ...Object.entries(M.groupBy).map(([k, l]) => h('option', { value: k, selected: (o.groupBy ?? 'year') === k }, l)));
     const title = h('input', { type: 'text', value: presetTitle ?? (label && label !== 'Photothèque' ? label : ''), placeholder: 'Titre en tête de page (facultatif)' });
     const page = h('select', {}, ...Object.entries(M.pages).map(([k, p]) => h('option', { value: k, selected: o.page === k }, p.label)));
@@ -893,20 +898,22 @@ const App = (() => {
     const edited = h('input', { type: 'checkbox', checked: o.edited !== false });
     const boxes = Object.entries(M.fields).map(([k, l]) => { const cb = h('input', { type: 'checkbox', checked: (o.fields ?? []).includes(k) }); cb.dataset.key = k; return h('label.check', cb, ' ' + l); });
     const info = h('p.dim'), status = h('div');
-    const options = () => ({ layout: layout.value, groupBy: groupBy.value, title: title.value, page: page.value, columns: +cols.value, rows: +rows.value, quality: quality.value, edited: edited.checked,
+    const options = () => ({ layout: layout.value, groupBy: groupBy.value, title: title.value, subtitle: subtitle.value, author: author.value, background: background.value, cover: coverCb.checked, margin: +margin.value, page: page.value, columns: +cols.value, rows: +rows.value, quality: quality.value, edited: edited.checked,
       fields: boxes.map(b => b.querySelector('input')).filter(cb => cb.checked).map(cb => cb.dataset.key) });
     const n = Math.min(count ?? 0, M.maxPhotos);
-    const gridOnly = [], catOnly = [];
+    const gridOnly = [], catOnly = [], portOnly = [], legendFor = [];
     const sync = () => {
-      for (const el of gridOnly) el.style.display = isDetail() ? 'none' : ''; // `hidden` serait écrasé par le CSS de .field
+      for (const el of gridOnly) el.style.display = isDetail() || isPort() ? 'none' : ''; // `hidden` serait écrasé par le CSS de .field
+      for (const el of legendFor) el.style.display = isDetail() ? 'none' : '';
       for (const el of catOnly) el.style.display = isCat() ? '' : 'none';
-      const per = isDetail() ? 1 : Math.max(1, (+cols.value || 1) * (+rows.value || 1)); info.textContent = `${n} photo(s)${ids ? ' sélectionnée(s)' : ' de la recherche affichée'} · ${per} par page → ${isCat() ? 'pages selon les groupes, plus le sommaire' : `${Math.ceil(n / per) || 0} page(s)`}` + ((count ?? 0) > M.maxPhotos ? ` (limitée aux ${M.maxPhotos} premières en PDF)` : '');
+      for (const el of portOnly) el.style.display = isPort() ? '' : 'none';
+      const per = isDetail() || isPort() ? 1 : Math.max(1, (+cols.value || 1) * (+rows.value || 1)); info.textContent = `${n} photo(s)${ids ? ' sélectionnée(s)' : ' de la recherche affichée'} · ${per} par page → ${isCat() ? 'pages selon les groupes, plus le sommaire' : `${(Math.ceil(n / per) || 0) + (isPort() && coverCb.checked && n ? 1 : 0)} page(s)${isPort() && coverCb.checked ? ', couverture comprise' : ''}`}` + ((count ?? 0) > M.maxPhotos ? ` (limitée aux ${M.maxPhotos} premières en PDF)` : '');
     };
     for (const el of [cols, rows]) el.addEventListener('input', sync);
-    layout.addEventListener('change', sync);
-    const fileBase = () => (title.value || (label || 'Photothèque') + (isDetail() ? ' fiches' : isCat() ? ` catalogue par ${M.groupBy[groupBy.value].toLowerCase()}` : '')).replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim();
+    layout.addEventListener('change', sync); coverCb.addEventListener('change', sync);
+    const fileBase = () => (title.value || (label || 'Photothèque') + (isDetail() ? ' fiches' : isPort() ? ' portfolio' : isCat() ? ` catalogue par ${M.groupBy[groupBy.value].toLowerCase()}` : '')).replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim();
     async function produce(inline) {
-      const opts = options(); try { localStorage.setItem(KEY, JSON.stringify({ ...opts, title: undefined })); } catch { /* préférence non mémorisée */ }
+      const opts = options(); try { localStorage.setItem(KEY, JSON.stringify({ ...opts, title: undefined, subtitle: undefined })); } catch { /* préférence non mémorisée */ }
       const res = await fetch('/api/contactsheet', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...(ids ? { ids } : { query }), label, inline, options: inline ? { ...opts, quality: 'screen' } : opts }) });
       if (!res.ok) { let msg = 'Échec de la production de la planche-contact'; try { msg = (await res.json()).error || msg; } catch { /* corps non JSON */ } throw new Error(msg); }
@@ -926,7 +933,7 @@ const App = (() => {
         clear(status);
         // la fenêtre d'aperçu remplace celle des réglages : on peut y revenir ou télécharger directement
         const back = () => contactSheetDialog({ ids, query, label, count, presetTitle: title.value });
-        const pv = modal({ title: isDetail() ? 'Aperçu des fiches détaillées' : isCat() ? 'Aperçu du catalogue' : 'Aperçu de la planche-contact', wide: true, body: h('div', ...summary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })), actions: [
+        const pv = modal({ title: isDetail() ? 'Aperçu des fiches détaillées' : isCat() ? 'Aperçu du catalogue' : isPort() ? 'Aperçu du portfolio' : 'Aperçu de la planche-contact', wide: true, body: h('div', ...summary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })), actions: [
           h('button.ghost', { onclick: () => pv.close() }, 'Fermer'), h('button.ghost', { onclick: back }, 'Modifier les réglages'),
           h('button', { onclick: async () => { await back(); document.querySelector('button[data-sheet="go"]')?.click(); } }, 'Télécharger le PDF')] });
         new MutationObserver((_, ob) => { if (!pv.box.isConnected) { URL.revokeObjectURL(src); ob.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
@@ -940,7 +947,7 @@ const App = (() => {
         const name = (fileBase() || 'planche-contact') + '.pdf';
         const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
         mount(status, h('p', '✓ PDF enregistré dans le dossier de téléchargement du navigateur.'), ...summary(report));
-        toast(isDetail() ? 'Fiches détaillées produites' : isCat() ? 'Catalogue produit' : 'Planche-contact produite');
+        toast(isDetail() ? 'Fiches détaillées produites' : isCat() ? 'Catalogue produit' : isPort() ? 'Portfolio produit' : 'Planche-contact produite');
       } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
       busy(false);
     } }, 'Télécharger le PDF');
@@ -961,12 +968,15 @@ const App = (() => {
     const detailNote = h('p.dim', 'Une photo par page, puis titre, description, date, auteur, mots-clés, appareil, exposition, dimensions, GPS, emplacements et empreinte.');
     const groupF = field('Regrouper par', groupBy);
     const catNote = h('p.dim', 'Un sommaire en tête (groupes, nombre de photos, page), puis chaque groupe sur ses propres pages. Par mot-clé, une photo figure dans chacun de ses mots-clés ; par lieu, ville et pays des métadonnées, sinon position GPS.');
-    gridOnly.push(colsF, rowsF, legend); catOnly.push(groupF, catNote);
-    const m = modal({ title: 'Planche-contact, fiches, catalogue, CSV', body: h('div.import-report',
+    const portF = h('div', h('div.row.wrap', { style: { gap: '12px' } }, field('Sous-titre', subtitle), field('Auteur', author)),
+      h('div.row.wrap', { style: { gap: '12px', alignItems: 'end' } }, field('Fond', background), h('label.check', coverCb, ' Page de couverture (première photo, titre, auteur)')),
+      h('p.dim', 'Une photo par page, aussi grande que les marges le permettent, légende sobre centrée sous l’image (titre, sinon nom du fichier, puis les autres champs cochés).'));
+    gridOnly.push(colsF, rowsF); legendFor.push(legend); catOnly.push(groupF, catNote); portOnly.push(portF);
+    const m = modal({ title: 'Planche-contact, fiches, catalogue, portfolio', body: h('div.import-report',
       info,
       field('Document', layout), groupF,
-      field('Titre', title),
-      h('div.row.wrap', { style: { gap: '12px' } }, field('Format', page), colsF, rowsF, field('Qualité', quality)),
+      field('Titre', title), portF,
+      h('div.row.wrap', { style: { gap: '12px' } }, field('Format', page), colsF, rowsF, field('Marges (mm)', margin), field('Qualité', quality)),
       legend, detailNote, catNote,
       h('label.check', edited, ' Montrer les photos dans leur version retouchée par défaut'),
       h('p.dim', 'Chaque photo est montrée entière, sans recadrage. Les originaux sont lus sans être modifiés.'),

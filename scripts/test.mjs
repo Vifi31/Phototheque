@@ -1032,7 +1032,7 @@ group('Planches-contact : grille légendée en PDF');
   const { createEdits } = await import('../lib/edits.mjs');
   const ED = createEdits(DB, LIB), SHEET = CS.createContactSheets(DB, LIB, ED);
   check('options : bornes et valeurs inconnues', JSON.stringify(CS.cleanSheetOptions({ page: 'x', columns: 99, rows: 0, fields: ['name', 'pirate', 'name'], quality: '?' })),
-    JSON.stringify({ layout: 'grid', groupBy: 'year', page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
+    JSON.stringify({ layout: 'grid', groupBy: 'year', page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12, background: 'white', subtitle: '', author: '', cover: true }));
   check('texte trop long coupé avec points de suspension', `${CS.fitText('IMG_0001_tres_long_nom_de_fichier.jpg', 8, 60).endsWith('…')}|${CS.fitText('court', 8, 60)}`, 'true|court');
   const rows = LIB.search({}, { limit: 5, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
   const ids = rows.map(r => r.id);
@@ -1140,6 +1140,29 @@ group('Catalogues thématiques : groupes, sommaire, pages');
   const occ = ids.reduce((a, id) => a + Math.max(1, DB.prepare('SELECT COUNT(*) n FROM photo_keywords WHERE photo_id = ?').get(id).n), 0);
   check('par mot-clé : une case par mot-clé de chaque photo', kw.cells, occ);
   check('catalogue consigné dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'catalog'").get().n >= 2, true, 0);
+}
+
+// ===================================================================
+group('Portfolio : couverture, une photo par page, fonds');
+// ===================================================================
+{
+  const CS = await import('../lib/contactsheet.mjs');
+  const { createEdits } = await import('../lib/edits.mjs');
+  const SHEET = CS.createContactSheets(DB, LIB, createEdits(DB, LIB));
+  check('options : fond inconnu, textes nettoyés, couverture', JSON.stringify((({ background, subtitle, author, cover }) => ({ background, subtitle, author, cover }))(CS.cleanSheetOptions({ background: 'rose', subtitle: '  Été   2024 ', author: ' Moi ', cover: 'false' }))),
+    JSON.stringify({ background: 'white', subtitle: 'Été 2024', author: 'Moi', cover: false }));
+  const rows = LIB.search({}, { limit: 4, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
+  const ids = rows.map(r => r.id);
+  const make = async o => { const ch = []; const rep = await SHEET.render(ids, { layout: 'portfolio', ...o }, { write: b => ch.push(Buffer.from(b)), label: 'Essai' }); return { rep, txt: Buffer.concat(ch).toString('latin1') }; };
+  const { rep, txt } = await make({ title: 'Mes photos', subtitle: 'Sélection', author: 'A. Auteur', background: 'black', fields: ['number', 'name', 'date'], columns: 12, rows: 16 });
+  check('couverture + une page par photo (grille ignorée)', `${rep.layout}|${rep.pages}|${(txt.match(/\/Type \/Page /g) || []).length}|${rep.images + rep.unreadable.length}`, `portfolio|${ids.length + 1}|${ids.length + 1}|${ids.length}`);
+  check('couverture : titre, sous-titre, auteur', `${txt.includes('(Mes photos) Tj')}|${txt.includes('(S\\351lection) Tj')}|${txt.includes('(A. Auteur) Tj')}`, 'true|true|true');
+  check('fond noir sur chaque page', (txt.match(/0\.067 0\.067 0\.067 rg 0 0 /g) || []).length >= ids.length + 1, true, 0);
+  check('légende : numéro et nom du fichier en tête', txt.includes(`(1  \\267  ${path.basename(rows[0].path).slice(0, 4)}`), true, 0);
+  check('folio : numéro de page discret', txt.includes(`(${ids.length + 1}) Tj`), true, 0);
+  const nc = (await make({ cover: false })).rep;
+  check('sans couverture : une page par photo', nc.pages, ids.length);
+  check('portfolio consigné dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'portfolio'").get().n >= 2, true, 0);
 }
 
 // ===================================================================

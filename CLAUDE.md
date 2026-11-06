@@ -159,4 +159,5 @@ bibliothèque).
    Inventaires par support et rapports (fichiers manquants, intégrité,
    sauvegardes) en v0.19.0 : vue Rapports, `lib/reports.mjs` +
    `lib/reportdoc.mjs` (documents tabulaires PDF), §16.
-   Reste : portfolios.
+   Portfolios en v0.20.0 (mise en page `portfolio`, couverture, fonds,
+   §17) : toutes les familles de documents du §14 ont une première version.
