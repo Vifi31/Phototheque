@@ -260,11 +260,11 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   check('renommage : nouveau nom trouvé', ftsIds('arriere').includes(tagged), true, 0);
   const proches = KW.ensure('Proches'); KW.attach(tagged, proches.id); LIB.syncKeywordsText(tagged);
   KW.merge([KW.byName('Famille').id], proches.id);
-  check('fusion : nom source plus trouvé', ftsIds('famille').includes(tagged), false, 0);
+  check('fusion : nom source gardé en synonyme, toujours trouvé', ftsIds('famille').includes(tagged), true, 0);
   check('fusion : cible toujours trouvée', ftsIds('proches').includes(tagged), true, 0);
   KW.remove(KW.byName('Arrière-saison').id);
   check('suppression : nom plus trouvé', ftsIds('arriere').includes(tagged), false, 0);
-  check('suppression : les autres mots-clés restent', LIB.detail(tagged).keywords_text, 'Proches');
+  check('suppression : les autres mots-clés restent (synonyme en texte d’appui)', LIB.detail(tagged).keywords_text, 'Proches ¦ Famille');
   DB.prepare('DELETE FROM photo_keywords WHERE photo_id = ?').run(tagged); LIB.syncKeywordsText(tagged);
 
   // --- repli LIKE : même résultat si FTS5 n'existait pas ---
@@ -1273,6 +1273,102 @@ group('Reconnaissance des extensions image');
   check('txt rejeté', isImage('e.txt'), false, 0);
   check('vidéo rejetée', isImage('f.mp4'), false, 0);
   check('ensemble non vide', IMAGE_EXTS.size > 10, true, 0);
+}
+
+// ===================================================================
+group('Mots-clés : arborescence, synonymes, catégories, vocabulaire');
+// ===================================================================
+{
+  const ids = LIB.search({}, { limit: 4 }).rows.map(p => p.id);
+  const [a, b, c] = ids;
+  const n = (f) => LIB.search(f, { limit: 500 }).total;
+  const animaux = KW.ensure('Animaux');
+  const chat = KW.ensure('Chat'); KW.update(chat.id, { parentId: animaux.id, category: 'Faune', synonyms: 'matou, minou, Chat' });
+  const chien = KW.ensure('Chien', animaux.id);
+  check('synonymes nettoyés (doublon du libellé retiré)', KW.get(chat.id).data.synonyms.join('|'), 'matou|minou');
+  check('catégorie enregistrée', KW.get(chat.id).data.category, 'Faune');
+  KW.attachNames(a, ['chat']); KW.attachNames(b, ['Chien']); KW.recount();
+  check('affectation par nom : mot-clé existant sous un parent réutilisé', KW.list().filter(k => k.normalized === 'chat').length, 1, 0);
+  LIB.syncKeywordsText(a); LIB.syncKeywordsText(b);
+  check('parent : inclut les mots-clés rangés dessous', n({ keywords: ['animaux'] }), 2, 0);
+  check('parent par identifiant : idem', n({ keywordId: animaux.id }), 2, 0);
+  check('synonyme : trouve le mot-clé', n({ keywords: ['Minou'] }), 1, 0);
+  check('OU avec synonyme', n({ anyKeywords: ['matou', 'chien'] }), 2, 0);
+  check('NON sur le parent exclut les enfants', n({ excludeKeywords: ['animaux'] }), LIB.stats().photos - 2, 0);
+  check('catégorie de mot-clé comme critère', n({ keywordCategory: 'faune' }), 1, 0);
+  check('texte libre : parent trouvé par le texte d’appui', LIB.search({ q: 'animaux' }, { limit: 20 }).rows.some(p => p.id === a), true, 0);
+  check('texte libre : synonyme trouvé', LIB.search({ q: 'matou' }, { limit: 20 }).rows.some(p => p.id === a), true, 0);
+  check('noms affichés sans le texte d’appui', (await import('../lib/keywords.mjs')).keywordNamesOf(LIB.detail(a).keywords_text).join('|'), 'Chat');
+  let err = ''; try { KW.update(animaux.id, { parentId: chat.id }); } catch (e) { err = e.message; }
+  check('boucle interdite (parent sous son enfant)', /descendants/.test(err), true, 0);
+  err = ''; try { KW.update(chien.id, { name: 'chat' }); } catch (e) { err = e.message; }
+  check('deux libellés identiques au même endroit refusés', /fusion/.test(err), true, 0);
+  const felins = KW.ensure('Félins');
+  KW.update(chat.id, { parentId: felins.id });
+  check('déplacement : le texte d’appui suit', /Félins/.test(LIB.detail(a).keywords_text) && !/Animaux/.test(LIB.detail(a).keywords_text), true, 0);
+  KW.update(chat.id, { parentId: animaux.id });
+
+  // doublons de vocabulaire
+  const dupA = KW.ensure('Chien', felins.id); // même libellé ailleurs
+  const pl = KW.ensure('Montagnes'); const sg = KW.ensure('montagne');
+  const typo = KW.ensure('Cathédrale'); const typo2 = KW.ensure('Cathedrales');
+  const tir = KW.ensure('Saint-Étienne'); const tir2 = KW.ensure('saint etienne');
+  const syn = KW.ensure('Minou'); // libellé égal au synonyme de « Chat »
+  const groups = KW.vocabularyDuplicates();
+  const has = (...xs) => groups.some(g => xs.every(x => g.keywords.some(k => k.id === x)));
+  check('vocabulaire : même libellé à deux endroits', has(chien.id, dupA.id), true, 0);
+  check('vocabulaire : pluriel', has(pl.id, sg.id), true, 0);
+  check('vocabulaire : accent et pluriel', has(typo.id, typo2.id), true, 0);
+  check('vocabulaire : tiret', has(tir.id, tir2.id), true, 0);
+  check('vocabulaire : synonyme d’un autre', has(chat.id, syn.id), true, 0);
+  check('vocabulaire : chemin affiché', groups.find(g => g.keywords.some(k => k.id === dupA.id)).keywords.some(k => k.path === 'Félins › Chien'), true, 0);
+  check('vocabulaire : rien de faux (Animaux seul)', groups.some(g => g.keywords.some(k => k.id === animaux.id)), false, 0);
+  check('vocabulaire : ne modifie rien', KW.get(pl.id)?.name, 'Montagnes');
+
+  // fusion : synonymes conservés, refus si la cible est sous la source
+  err = ''; try { KW.merge([animaux.id], chat.id); } catch (e) { err = e.message; }
+  check('fusion d’un parent dans son enfant refusée', /autre sens/.test(err), true, 0);
+  KW.merge([sg.id], pl.id);
+  check('fusion : libellé source devenu synonyme', KW.get(pl.id).data.synonyms.includes('montagne'), true, 0);
+
+  const u = KW.usage();
+  check('statistiques : non utilisés comptés', u.unused >= 6, true, 0);
+  check('statistiques : catégories', u.categories.some(x => x.category === 'Faune' && x.keywords === 1), true, 0);
+  check('statistiques : affectations', u.assignments >= 2, true, 0);
+  check('catégories pour les listes', KW.categories().join('|'), 'Faune');
+  const csv = KW.exportCsv();
+  check('export CSV : synonymes et catégorie', /"Chat","Animaux","1","Faune","matou, minou"/.test(csv), true, 0);
+  KW.importList([{ name: 'Oiseau', parent: 'Animaux', category: 'Faune', synonyms: 'piaf' }]);
+  check('import : parent, catégorie et synonymes', (() => { const k = KW.list().find(x => x.name === 'Oiseau'); return k.parent_id === animaux.id && k.data.category === 'Faune' && k.data.synonyms[0] === 'piaf'; })(), true, 0);
+
+  // suppression d'un parent : enfants remontés, texte d'appui recalculé
+  KW.remove(animaux.id);
+  check('suppression du parent : enfant remonté à la racine', KW.get(chat.id).parent_id, null);
+  check('suppression du parent : texte d’appui recalculé', /Animaux/.test(LIB.detail(a).keywords_text), false, 0);
+
+  // lieu
+  DB.prepare('UPDATE photos SET data = ? WHERE id = ?').run(JSON.stringify({ City: 'Toulouse', Country: ['France'] }), c);
+  check('lieu : ville', n({ place: 'toulouse' }), 1, 0);
+  check('lieu : pays (tableau XMP)', n({ place: 'France' }), 1, 0);
+  check('lieu : jokers SQL échappés', n({ place: '%' }), 0, 0);
+  check('lieu renseigné', n({ hasPlace: '1' }), 1, 0);
+  check('lieu non renseigné', n({ hasPlace: '0' }), LIB.stats().photos - 1, 0);
+
+  // état de sauvegarde
+  const total = LIB.stats().photos;
+  check('sauvegarde : aucune copie de sauvegarde au départ', n({ backup: 'uncovered' }), total, 0);
+  const bk = SUP.upsert({ name: 'Disque de sauvegarde', kind: 'disk', role: 'backup' });
+  const f0 = DB.prepare('SELECT * FROM files WHERE photo_id = ? LIMIT 1').get(a);
+  DB.prepare('INSERT INTO files(id, photo_id, support_id, path, file_name, status) VALUES(?,?,?,?,?,?)').run('test-bk-file', a, bk.id, 'X:\\copie.jpg', 'copie.jpg', 'available');
+  check('sauvegarde : photo couverte', n({ backup: 'covered' }), 1, 0);
+  check('sauvegarde : les autres non couvertes', n({ backup: 'uncovered' }), total - 1, 0);
+  check('un seul exemplaire : la photo couverte n’en fait pas partie', LIB.search({ backup: 'single' }, { limit: 500 }).rows.some(p => p.id === a), false, 0);
+  check('critères enregistrés : lieu et sauvegarde gardés', JSON.stringify(Search.cleanFilters({ place: ' Toulouse ', backup: 'covered', hasPlace: '0', keywordCategory: 'Faune' })), '{"place":"Toulouse","backup":"covered","keywordCategory":"Faune","hasPlace":false}');
+  check('critères enregistrés : état de sauvegarde inconnu écarté', Search.cleanFilters({ backup: 'x' }).backup, undefined);
+  DB.prepare('DELETE FROM files WHERE id = ?').run('test-bk-file'); SUP.remove(bk.id);
+  DB.prepare('UPDATE photos SET data = ? WHERE id = ?').run('{}', c);
+  for (const k of KW.list()) KW.remove(k.id);
+  void f0;
 }
 
 // ---------- bilan ----------

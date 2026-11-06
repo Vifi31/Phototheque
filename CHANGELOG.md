@@ -4,6 +4,32 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.22.0] — 2026-11-07
+
+### Ajouté
+
+- **Mots-clés hiérarchiques** dans l'interface : arborescence dépliable,
+  « + Dessous », déplacement (« Rangé sous »), boucles refusées. Chercher un
+  mot-clé trouve aussi les photos des mots-clés rangés dessous.
+- **Synonymes**, **catégorie** et **description** de chaque mot-clé. Un
+  synonyme trouve les photos du mot-clé (critères et recherche libre) ; la
+  recherche libre trouve aussi les parents (« Saisons » sur une photo « Été »).
+- **Doublons de vocabulaire** : même libellé à deux endroits, synonyme d'un
+  autre mot-clé, pluriel / tiret / apostrophe, une lettre d'écart. Fusion au
+  choix ; les libellés fusionnés deviennent des synonymes.
+- **Statistiques d'utilisation** du vocabulaire (inutilisés, plus employés,
+  par catégorie, part des photos sans mot-clé).
+- Import / export CSV du vocabulaire avec parent, catégorie, synonymes.
+- Critères de recherche : **lieu** (IPTC / XMP), lieu renseigné ou non,
+  **état de sauvegarde** des originaux (copie sur un support « Sauvegarde » ou
+  « Archive », aucune copie, un seul exemplaire), catégorie de mot-clé.
+
+### Modifié
+
+- Affecter un mot-clé par son nom réutilise le mot-clé existant où qu'il soit
+  rangé (ou par synonyme) au lieu d'en créer un second à la racine.
+- Guide de l'utilisateur mis à jour (mots-clés, recherche avancée).
+
 ## [0.21.1] — 2026-11-07
 
 ### Modifié

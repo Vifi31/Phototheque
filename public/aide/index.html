@@ -387,7 +387,8 @@
   <ul>
     <li><b>Recherche rapide</b> (en haut) : tapez un mot — titre, mot-clé, appareil, lieu… Les accents et majuscules n’ont pas d’importance : « ete » trouve « Été ».</li>
     <li><b>Filtres</b> : année, appareil, format, note minimale, disponibilité, variantes. <span class="ui">Réinitialiser</span> efface tout.</li>
-    <li><b>Recherche avancée</b> : combinez mots-clés (tous / au moins un / aucun), période de prise de vue, objectif, auteur, orientation, dimensions, présence de légende ou de GPS, doublons…</li>
+    <li><b>Recherche avancée</b> : combinez mots-clés (tous / au moins un / aucun, catégorie), période de prise de vue, objectif, auteur, lieu (ville, région, pays lus dans les fichiers), état de sauvegarde, orientation, dimensions, présence de légende ou de GPS, doublons…</li>
+    <li><b>État de sauvegarde</b> : une photo est « couverte » si l’un de ses fichiers se trouve sur un support dont le rôle est <i>Sauvegarde</i> ou <i>Archive</i> (écran Supports). « Un seul exemplaire disponible » repère les photos qui n’existent qu’à un seul endroit.</li>
   </ul>
   <figure><img src="img/recherche.jpg" alt="La recherche avancée"><figcaption>La recherche avancée déployée : chaque critère restreint le résultat.</figcaption></figure>
   <div class="note tip"><b>Enregistrer une recherche.</b> Une fois vos critères posés, <span class="ui">Enregistrer la recherche…</span> en fait une <b>collection dynamique</b> qui se met à jour seule.</div>
@@ -410,8 +411,15 @@
   </div>
 
   <h3>Les mots-clés</h3>
-  <figure><img src="img/mots-cles.jpg" alt="L'écran Mots-clés"><figcaption>La liste des mots-clés avec le nombre de photos de chacun.</figcaption></figure>
-  <p>Créez, renommez, fusionnez ou supprimez des mots-clés. <span class="ui">Voir</span> affiche toutes les photos qui le portent.</p>
+  <figure><img src="img/mots-cles.jpg" alt="L'écran Mots-clés"><figcaption>L’arborescence des mots-clés, avec catégories et synonymes ; le nombre « 0 · 12 » compte les photos du mot-clé puis de toute sa branche.</figcaption></figure>
+  <p>Rangez les mots-clés les uns sous les autres (<span class="ui">+ Dessous</span>, ou <span class="ui">Modifier…</span> → « Rangé sous ») : « Lieux › Montagne », « Saisons › Été ». <span class="ui">Voir</span> affiche les photos du mot-clé <b>et</b> de ceux qui sont rangés dessous : « Saisons » trouve les photos d’été comme d’hiver.</p>
+  <ul>
+    <li><b>Synonymes</b> : « océan » pour « Mer ». Chercher un synonyme trouve les photos du mot-clé.</li>
+    <li><b>Catégorie</b> et <b>description</b> : pour s’y retrouver dans un grand vocabulaire ; la liste se filtre par catégorie.</li>
+    <li><b>Doublons de vocabulaire</b> : « Montagne » et « Montagnes », « Saint-Étienne » et « saint etienne »… sont signalés. <span class="ui">Fusionner…</span> regroupe leurs photos sous le mot-clé choisi ; les autres libellés deviennent ses synonymes. Rien n’est fusionné sans votre accord.</li>
+    <li><b>Statistiques</b> : mots-clés inutilisés, les plus employés, part des photos sans mot-clé.</li>
+    <li><span class="ui">Importer…</span> / <span class="ui">Exporter (CSV)</span> : le vocabulaire complet (parent, catégorie, synonymes) passe d’une photothèque à l’autre.</li>
+  </ul>
 
   <h3>Les collections</h3>
   <figure><img src="img/collections.jpg" alt="L'écran Collections"><figcaption>Une sélection fixe (« Vacances d’été ») et une recherche enregistrée (« Mes meilleures photos »).</figcaption></figure>

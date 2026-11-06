@@ -163,6 +163,15 @@ bibliothèque).
    Portfolios en v0.20.0 (mise en page `portfolio`, couverture, fonds,
    §17) : toutes les familles de documents du §14 ont une première version.
 
+7. Reste du cahier des charges, dans l'ordre du point d'étape (0.21.1) :
+   mots-clés hiérarchiques, synonymes, catégories, doublons de vocabulaire,
+   critères lieu / état de sauvegarde — **livrés en v0.22.0**
+   (`docs/ARCHITECTURE.md` §19). Suivent : métadonnées XMP en écriture avec
+   aperçu, navigation (tailles de vignettes, comparaison, historique),
+   retouche avancée, albums et exports, sauvegardes, tableau de bord.
+   Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
+   lire les noms avec `keywordNamesOf`.
+
 Guide de l'utilisateur : `public/aide/` (menu Aide), captures et PDF
 régénérés par `node scripts/guide.mjs` (Edge sans fenêtre, photothèque
 d'exemple) — à relancer quand l'interface change (`docs/ARCHITECTURE.md` §18).

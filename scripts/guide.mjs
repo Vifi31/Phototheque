@@ -112,8 +112,18 @@ async function fillLibrary() {
     const r = byName(s.file); if (!r) continue;
     await api('/photos', 'PUT', { id: r.id, title: s.title, rating: s.rating, keywords: s.kw, description: s.file === 'Lavande.jpg' ? 'Fin de journée sur le plateau, juste avant la récolte.' : undefined });
   }
+  // arborescence des mots-clés : catégories, synonymes, un doublon de vocabulaire à montrer
+  const { list: kws } = await api('/keywords');
+  const kwId = n => kws.find(k => k.name === n)?.id;
+  const branch = async (name, category, children, syn = {}) => {
+    const { keyword } = await api('/keywords', 'POST', { name, category });
+    for (const c of children) if (kwId(c)) await api('/keywords/' + kwId(c), 'PUT', { parentId: keyword.id, category, ...(syn[c] ? { synonyms: syn[c] } : {}) });
+  };
+  await branch('Saisons', 'Thèmes', ['Printemps', 'Été', 'Automne', 'Hiver'], { 'Été': 'estival' });
+  await branch('Lieux', 'Lieux', ['Montagne', 'Mer', 'Forêt', 'Lac', 'Ville', 'Provence', 'Désert'], { Mer: 'océan, littoral', Montagne: 'alpes' });
+  await api('/keywords', 'POST', { name: 'Montagnes' });
   // collections
-  const ete = rows.filter(r => SCENES.find(s => byName(s.file)?.id === r.id)?.kw.includes('Été')).map(r => r.id);
+  const ete =rows.filter(r => SCENES.find(s => byName(s.file)?.id === r.id)?.kw.includes('Été')).map(r => r.id);
   await api('/collections', 'POST', { name: 'Vacances d’été', kind: 'static', photoIds: ete });
   await api('/collections', 'POST', { name: 'Mes meilleures photos', kind: 'dynamic', query: { rating: 5 } });
   // une version retouchée
@@ -286,7 +296,7 @@ export const SHOTS = ctx => [
   { name: 'selection', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 2, 3]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click();` },
   { name: 'importation', js: `await App.go('import');` },
   { name: 'supports', js: `await App.go('supports');` },
-  { name: 'mots-cles', js: `await App.go('keywords');` },
+  { name: 'mots-cles', h: 1180, js: `await App.go('keywords'); await new Promise(r => setTimeout(r, 500)); [...document.querySelectorAll('button')].find(b => b.textContent === 'Tout déplier')?.click();` },
   { name: 'collections', js: `await App.go('collections');` },
   { name: 'albums', js: `await App.go('albums');` },
   { name: 'album-editeur', js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album');` },

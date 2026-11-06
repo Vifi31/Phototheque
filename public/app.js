@@ -96,7 +96,7 @@ const App = (() => {
   // ---------- vue Photothèque (grille + recherche + filtres) ----------
   async function viewPhotos(v) {
     clear(v);
-    const facets = await api('/facets'); state.facets = facets;
+    const [facets, kwr] = await Promise.all([api('/facets'), api('/keywords')]); state.facets = facets; state.keywords = kwr.list;
     // consultation d'une collection : la grille est filtrée par collectionId (voir viewCollections)
     const coll = state.facet.collectionId ? (await api('/collections/' + encodeURIComponent(state.facet.collectionId)).catch(() => ({}))).collection : null;
     if (state.facet.collectionId && !coll) delete state.facet.collectionId;
@@ -317,7 +317,7 @@ const App = (() => {
   // Chaque contrôle écrit une clé de state.facet ; refresh() la transmet telle quelle à /api/photos,
   // et « Enregistrer la recherche… » l'emporte dans les critères de la collection.
   const ADV_KEYS = ['anyText', 'excludeText', 'keywords', 'anyKeywords', 'excludeKeywords', 'hasKeyword', 'noKeyword', 'hasCaption', 'noCaption',
-    'orientation', 'hasGps', 'from', 'to', 'minWidth', 'minHeight', 'lens', 'author', 'duplicate'];
+    'orientation', 'hasGps', 'from', 'to', 'minWidth', 'minHeight', 'lens', 'author', 'duplicate', 'place', 'hasPlace', 'backup', 'keywordCategory'];
   function advancedPanel(onApply) {
     const f = state.facet;
     const text = (key, placeholder) => h('input', { type: 'text', value: f[key] ?? '', placeholder, dataset: { key } });
@@ -329,7 +329,7 @@ const App = (() => {
     const inputs = [
       text('anyText', LIST), text('excludeText', LIST),
       text('keywords', LIST), text('anyKeywords', LIST), text('excludeKeywords', LIST),
-      text('lens', 'ex. : 50mm'), text('author', 'nom du photographe'),
+      text('lens', 'ex. : 50mm'), text('author', 'nom du photographe'), text('place', 'ville, région, pays…'),
       date('from'), date('to'), num('minWidth'), num('minHeight'),
     ];
     const byKey = Object.fromEntries(inputs.map(i => [i.dataset.key, i]));
@@ -338,6 +338,9 @@ const App = (() => {
     const oriSel = choice([['', 'Toutes'], ['landscape', 'Paysage'], ['portrait', 'Portrait'], ['square', 'Carré']], f.orientation ?? '');
     const gpsSel = choice([['', 'Indifférent'], ['1', 'Avec position GPS'], ['0', 'Sans position GPS']], f.hasGps ?? '');
     const dupSel = choice([['', 'Indifférent'], ['true', 'Seulement les doublons']], f.duplicate ? 'true' : '');
+    const placeSel = choice([['', 'Indifférent'], ['1', 'Lieu renseigné'], ['0', 'Lieu non renseigné']], f.hasPlace ?? '');
+    const backupSel = choice([['', 'Indifférent'], ['covered', 'Copie sur un support de sauvegarde ou d’archive'], ['uncovered', 'Aucune copie sur un support de sauvegarde'], ['single', 'Un seul exemplaire disponible']], f.backup ?? '');
+    const catSel = choice([['', 'Toutes'], ...[...new Set(state.keywords.map(k => k.data?.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')).map(c => [c, c])], f.keywordCategory ?? '');
 
     const active = () => ADV_KEYS.filter(k => f[k] != null && f[k] !== '').length;
     const count = h('span.badge');
@@ -356,11 +359,14 @@ const App = (() => {
       if (oriSel.value) f.orientation = oriSel.value;
       if (gpsSel.value) f.hasGps = gpsSel.value;
       if (dupSel.value) f.duplicate = 'true';
+      if (placeSel.value) f.hasPlace = placeSel.value;
+      if (backupSel.value) f.backup = backupSel.value;
+      if (catSel.value) f.keywordCategory = catSel.value;
       showCount(); onApply();
     }
     function reset() {
       for (const el of inputs) el.value = '';
-      for (const s of [kwSel, capSel, oriSel, gpsSel, dupSel]) s.value = '';
+      for (const s of [kwSel, capSel, oriSel, gpsSel, dupSel, placeSel, backupSel, catSel]) s.value = '';
       apply();
     }
     for (const el of inputs) el.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
@@ -373,14 +379,17 @@ const App = (() => {
         field('Au moins un de ces mots', byKey.anyText), field('Aucun de ces mots', byKey.excludeText)),
       group('Mots-clés',
         field('Tous ces mots-clés', byKey.keywords), field('Au moins un de ces mots-clés', byKey.anyKeywords),
-        field('Aucun de ces mots-clés', byKey.excludeKeywords), field('Présence', kwSel)),
+        field('Aucun de ces mots-clés', byKey.excludeKeywords), field('Présence', kwSel), field('Catégorie de mot-clé', catSel)),
+      group('Lieu et sauvegarde',
+        field('Lieu', byKey.place, 'IPTC / XMP : lieu, ville, région, pays'), field('Lieu renseigné', placeSel),
+        field('Sauvegarde des originaux', backupSel, 'selon le rôle des supports (Supports → rôle « Sauvegarde » ou « Archive »)')),
       group('Prise de vue',
         field('Du', byKey.from), field('Au', byKey.to), field('Objectif', byKey.lens), field('Auteur', byKey.author)),
       group('Image',
         field('Orientation', oriSel), field('Largeur minimale', byKey.minWidth), field('Hauteur minimale', byKey.minHeight),
         field('Légende', capSel), field('GPS', gpsSel), field('Fichiers en double', dupSel, 'même contenu à plusieurs endroits')),
       h('div.row', h('div.spacer'), h('button.ghost.small', { onclick: reset }, 'Effacer ces critères'), h('button.small', { onclick: apply }, 'Rechercher')),
-      h('p.dim.adv-hint', 'Le texte de la barre du haut exige tous ses mots ; il se combine avec ces critères. Les listes se séparent par des virgules.'));
+      h('p.dim.adv-hint', 'Le texte de la barre du haut exige tous ses mots ; il se combine avec ces critères. Les listes se séparent par des virgules. Un mot-clé inclut ses synonymes et les mots-clés rangés dessous.'));
   }
 
   // ---------- vue Importation ----------
@@ -502,37 +511,147 @@ const App = (() => {
   let supKinds = {}, supRoles = {};
 
   // ---------- vue Mots-clés ----------
+  // Arborescence, synonymes, catégories (lib/keywords.mjs) ; une recherche sur un mot-clé inclut ceux
+  // qui sont rangés dessous et ses synonymes.
   async function viewKeywords(v) {
     clear(v);
-    const wrap = h('div');
-    async function refresh() {
-      const { list } = await api('/keywords');
-      state.keywords = list;
-      clear(wrap);
-      if (!list.length) wrap.appendChild(h('p.dim', 'Aucun mot-clé. Créez-en depuis une photo ou ajoutez-en ci-dessous.'));
-      const t = table({ columns: [
-        { label: 'Mot-clé', format: r => h('b', r.name) },
-        { label: 'Photos', key: 'photo_count', align: 'right' },
-        { label: 'Créé', format: r => fmtDate(r.created_at) },
-        { label: '', align: 'right', format: r => h('div.row-actions',
-          h('button.ghost.small', { onclick: () => App.searchKeyword(r) }, 'Voir'),
-          h('button.ghost.small', { onclick: () => renameKw(r) }, 'Renommer'),
-          h('button.danger.small', { onclick: async () => { if (await confirmDialog('Supprimer le mot-clé', `Supprimer « ${r.name} » et ses affectations ?`)) { await api('/keywords/' + r.id, 'DELETE'); refresh(); } } }, 'Supprimer')) },
-      ], rows: list });
-      wrap.appendChild(t);
+    const kw = state.kwView ??= { filter: '', category: '', open: {}, tab: 'tree' };
+    let all = [], byId = new Map(), cats = [];
+    const treeWrap = h('div.kw-tree'), statsWrap = h('div'), dupWrap = h('div');
+    const pathOf = k => { const out = []; let p = k; for (let i = 0; p && i < 32; i++) { out.unshift(p.name); p = p.parent_id ? byId.get(p.parent_id) : null; } return out.join(' › '); };
+    const childrenOf = id => all.filter(k => (k.parent_id ?? null) === id).sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    const descendants = id => { const out = new Set([id]); let grew = true; while (grew) { grew = false; for (const k of all) if (k.parent_id && out.has(k.parent_id) && !out.has(k.id)) { out.add(k.id); grew = true; } } return out; };
+    const total = id => { const ids = descendants(id); return all.filter(k => ids.has(k.id)).reduce((a, k) => a + k.photo_count, 0); };
+    const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+
+    async function load() {
+      const r = await api('/keywords');
+      all = r.list; cats = r.categories ?? []; byId = new Map(all.map(k => [k.id, k])); state.keywords = all;
+      renderTree(); renderCats();
     }
-    const newName = h('input', { type: 'text', placeholder: 'Nouveau mot-clé' });
-    function renameKw(r) {
-      const input = h('input', { type: 'text', value: r.name });
-      modal({ title: 'Renommer', body: field('Nom', input), actions: [
-        h('button.ghost', { onclick: () => document.getElementById('modalRoot').replaceChildren() }, 'Annuler'),
-        h('button', { onclick: async () => { await api('/keywords/' + r.id, 'PUT', { name: input.value }); document.getElementById('modalRoot').replaceChildren(); refresh(); } }, 'Enregistrer'),
-      ] });
+    function matches(k) {
+      if (kw.category && (k.data?.category ?? '') !== kw.category) return false;
+      if (!kw.filter) return true;
+      const f = norm(kw.filter);
+      return norm(k.name).includes(f) || (k.data?.synonyms ?? []).some(s => norm(s).includes(f));
     }
+    function renderTree() {
+      clear(treeWrap);
+      if (!all.length) { treeWrap.appendChild(h('p.dim', 'Aucun mot-clé. Créez-en ci-dessus, depuis une photo, ou importez une liste.')); return; }
+      const filtering = !!(kw.filter || kw.category);
+      // en filtrant : les mots-clés trouvés et leurs parents (pour garder le chemin)
+      const keep = new Set();
+      if (filtering) for (const k of all) if (matches(k)) { let p = k; for (let i = 0; p && i < 32; i++) { keep.add(p.id); p = p.parent_id ? byId.get(p.parent_id) : null; } }
+      const row = (k, depth) => {
+        const kids = childrenOf(k.id).filter(c => !filtering || keep.has(c.id));
+        const open = filtering || kw.open[k.id];
+        const toggle = kids.length ? h('button.kw-toggle', { title: open ? 'Replier' : 'Déplier', onclick: () => { kw.open[k.id] = !kw.open[k.id]; renderTree(); } }, open ? '▾' : '▸') : h('span.kw-toggle');
+        const syn = k.data?.synonyms?.length ? h('small.dim', ' = ' + k.data.synonyms.join(', ')) : null;
+        const sum = kids.length ? total(k.id) : k.photo_count;
+        const el = h('div.kw-row', { style: { paddingLeft: (depth * 22 + 4) + 'px' }, class: filtering && !matches(k) ? 'kw-ctx' : '' },
+          toggle,
+          h('div.grow', h('b', k.name), syn, k.data?.category ? h('span.pill', { style: { marginLeft: '8px' } }, k.data.category) : null,
+            k.data?.description ? h('div', h('small.dim', k.data.description)) : null),
+          h('span.badge', { title: kids.length ? `${k.photo_count} photo(s) directement, ${sum} avec les mots-clés rangés dessous` : 'photos' }, kids.length && sum !== k.photo_count ? `${fmtNum(k.photo_count)} · ${fmtNum(sum)}` : fmtNum(k.photo_count)),
+          h('div.row-actions',
+            h('button.ghost.small', { onclick: () => App.searchKeyword(k) }, 'Voir'),
+            h('button.ghost.small', { onclick: () => editKw(k) }, 'Modifier…'),
+            h('button.ghost.small', { title: 'Créer un mot-clé rangé sous celui-ci', onclick: () => editKw(null, k.id) }, '+ Dessous'),
+            h('button.danger.small', { onclick: () => removeKw(k) }, 'Supprimer')));
+        treeWrap.appendChild(el);
+        if (open) for (const c of kids) row(c, depth + 1);
+      };
+      const roots = childrenOf(null).filter(k => !filtering || keep.has(k.id));
+      for (const k of roots) row(k, 0);
+      if (filtering && !roots.length) treeWrap.appendChild(h('p.dim', 'Aucun mot-clé ne correspond.'));
+    }
+    const catSel = h('select', { onchange: () => { kw.category = catSel.value; renderTree(); } });
+    function renderCats() {
+      mount(catSel, h('option', { value: '' }, 'Toutes les catégories'), ...cats.map(c => h('option', { value: c, selected: c === kw.category }, c)));
+      if (kw.category && !cats.includes(kw.category)) kw.category = '';
+    }
+    async function removeKw(k) {
+      const kids = childrenOf(k.id).length;
+      const msg = `Supprimer « ${k.name} » et ses ${k.photo_count} affectation(s) ?` + (kids ? `\nLes ${kids} mot(s)-clé(s) rangé(s) dessous remontent d’un niveau.` : '') + '\nLes photos ne sont pas touchées.';
+      if (!(await confirmDialog('Supprimer le mot-clé', msg))) return;
+      await api('/keywords/' + k.id, 'DELETE'); toast('Mot-clé supprimé'); await load(); loadSide();
+    }
+    function editKw(k, parentId = null) {
+      const name = h('input', { type: 'text', value: k?.name ?? '' });
+      const forbidden = k ? descendants(k.id) : new Set();
+      const par = h('select', {}, h('option', { value: '' }, '— Racine —'),
+        ...all.filter(x => !forbidden.has(x.id)).map(x => ({ x, p: pathOf(x) })).sort((a, b) => a.p.localeCompare(b.p, 'fr', { sensitivity: 'base' }))
+          .map(({ x, p }) => h('option', { value: x.id, selected: (k ? k.parent_id : parentId) === x.id }, p)));
+      const listId = 'kwCats' + Date.now();
+      const cat = h('input', { type: 'text', value: k?.data?.category ?? '', placeholder: 'ex. : Lieux, Personnes, Thèmes', list: listId });
+      const syn = h('input', { type: 'text', value: (k?.data?.synonyms ?? []).join(', '), placeholder: 'séparés par des virgules' });
+      const desc = h('textarea', { rows: 2 }, k?.data?.description ?? '');
+      const m = modal({ title: k ? `Modifier « ${k.name} »` : 'Nouveau mot-clé',
+        body: h('div.form', field('Libellé', name), field('Rangé sous', par), field('Catégorie', cat), h('datalist', { id: listId }, ...cats.map(c => h('option', { value: c }))),
+          field('Synonymes', syn, 'Une recherche sur un synonyme trouve les photos de ce mot-clé.'), field('Description', desc)),
+        actions: [h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+          h('button', { onclick: async () => {
+            const body = { name: name.value.trim(), parentId: par.value || null, category: cat.value, synonyms: syn.value, description: desc.value };
+            if (!body.name) return toast('Libellé obligatoire', 'bad');
+            try {
+              if (k) await api('/keywords/' + k.id, 'PUT', body);
+              else await api('/keywords', 'POST', body);
+              if (body.parentId) kw.open[body.parentId] = true;
+              m.close(); toast(k ? 'Mot-clé modifié' : 'Mot-clé créé'); await load(); loadSide();
+            } catch (e) { toast(e.message, 'bad'); }
+          } }, 'Enregistrer')] });
+      setTimeout(() => name.focus(), 0);
+    }
+    function mergeDialog(group) {
+      let target = group.keywords[0].id;
+      const radios = group.keywords.map(k => h('label.kw-merge', h('input', { type: 'radio', name: 'kwTarget', value: k.id, checked: k.id === target, onchange: () => { target = k.id; } }),
+        h('span', h('b', k.path), h('small.dim', ` — ${k.photo_count} photo(s)${k.category ? ' · ' + k.category : ''}`))));
+      const m = modal({ title: 'Fusionner des mots-clés', body: h('div', h('p', 'Mot-clé à conserver :'), ...radios,
+        h('p.dim', 'Les photos des autres mots-clés reçoivent celui-ci ; leurs libellés deviennent ses synonymes, et les mots-clés rangés dessous sont déplacés sous lui. Les photos ne sont pas modifiées.')),
+        actions: [h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
+          h('button', { onclick: async () => {
+            try { await api('/keywords/merge', 'POST', { targetId: target, sourceIds: group.keywords.map(k => k.id).filter(id => id !== target) }); m.close(); toast('Mots-clés fusionnés'); await load(); loadSide(); }
+            catch (e) { toast(e.message, 'bad'); }
+          } }, 'Fusionner')] });
+    }
+    async function loadSide() {
+      const [u, d] = await Promise.all([api('/keywords/usage'), api('/keywords/duplicates')]);
+      mount(statsWrap,
+        h('div.kpis', kpi('Mots-clés', fmtNum(u.keywords), { sub: `${fmtNum(u.roots)} à la racine` }), kpi('Utilisés', fmtNum(u.used), { sub: `${fmtNum(u.unused)} sans photo` }),
+          kpi('Affectations', fmtNum(u.assignments)), kpi('Photos indexées', u.photos ? Math.round(100 * u.photosWith / u.photos) + ' %' : '—', { sub: `${fmtNum(u.photos - u.photosWith)} sans mot-clé` })),
+        u.top.length ? h('div', h('h4', 'Les plus utilisés'), h('div', ...u.top.map(k => h('span.kw-chip', { onclick: () => App.searchKeyword(k) }, k.name, h('small.dim', String(k.photo_count)))))) : null,
+        u.categories.length > 1 || u.categories[0]?.category ? h('div', h('h4', 'Par catégorie'), table({ columns: [
+          { label: 'Catégorie', format: r => r.category || h('span.dim', 'Sans catégorie') }, { label: 'Mots-clés', key: 'keywords', align: 'right' }, { label: 'Affectations', key: 'assignments', align: 'right' }], rows: u.categories })) : null);
+      clear(dupWrap);
+      if (!d.groups.length) { dupWrap.appendChild(h('p.dim', 'Aucun doublon de vocabulaire repéré.')); return; }
+      dupWrap.appendChild(h('p.dim', `${d.groups.length} groupe(s) de mots-clés qui désignent peut-être la même chose. Rien n’est fusionné sans votre accord.`));
+      for (const g of d.groups) dupWrap.appendChild(h('div.kw-dup',
+        h('div.grow', ...g.keywords.map((k, i) => h('span', i ? ' · ' : '', h('b', k.path), h('small.dim', ` (${k.photo_count})`))), h('div', h('small.dim', g.reasons.join(', ')))),
+        h('button.small', { onclick: () => mergeDialog(g) }, 'Fusionner…')));
+    }
+
+    const filter = h('input', { type: 'search', placeholder: 'Filtrer (libellé ou synonyme)', value: kw.filter, oninput: () => { kw.filter = filter.value.trim(); renderTree(); } });
+    const expand = open => { for (const k of all) if (childrenOf(k.id).length) kw.open[k.id] = open; renderTree(); };
+    const imp = h('input', { type: 'file', accept: '.txt,.csv', style: { display: 'none' }, onchange: async () => {
+      const file = imp.files[0]; if (!file) return;
+      const text = await file.text();
+      const lines = text.replace(/^﻿/, '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const cells = l => { const out = []; let cur = '', q = false; for (let i = 0; i < l.length; i++) { const c = l[i]; if (q) { if (c === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; } else if (c === '"') q = true; else if (c === ',' || c === ';') { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out.map(s => s.trim()); };
+      let names;
+      if (/^"?nom"?[,;]/i.test(lines[0] ?? '')) names = lines.slice(1).map(cells).filter(c => c[0]).map(c => ({ name: c[0], parent: c[1] || null, category: c[3] ?? null, synonyms: c[4] ?? null, description: c[5] ?? null }));
+      else names = lines;
+      const r = await api('/keywords/import', 'POST', { names }); imp.value = ''; toast(`${r.created} mot(s)-clé(s) importé(s) ou complété(s)`); await load(); loadSide();
+    } });
     mount(v, h('h2.page-title', 'Mots-clés'),
-      card(h('div.sect', 'Ajouter un mot-clé'), h('div.form', field('Nom', newName), h('div.field', h('label', ' '), h('button', { onclick: async () => { if (!newName.value.trim()) return; await api('/keywords', 'POST', { name: newName.value.trim() }); newName.value = ''; refresh(); } }, 'Créer')))),
-      card(h('div.sect', 'Tous les mots-clés'), wrap));
-    await refresh();
+      card(h('div.row.kw-bar', filter, catSel, h('div.spacer'),
+        h('button.ghost.small', { onclick: () => expand(true) }, 'Tout déplier'), h('button.ghost.small', { onclick: () => expand(false) }, 'Tout replier'),
+        h('button.ghost.small', { onclick: () => imp.click(), title: 'Fichier texte (un mot-clé par ligne) ou CSV exporté par Photothèque' }, 'Importer…'), imp,
+        h('button.ghost.small', { onclick: () => { location.href = '/api/keywords/export'; } }, 'Exporter (CSV)'),
+        h('button.small', { onclick: () => editKw(null) }, '+ Nouveau mot-clé')),
+        h('p.dim', 'Rangez les mots-clés les uns sous les autres : chercher un mot-clé trouve aussi les photos des mots-clés rangés dessous et de ses synonymes. Le nombre affiché après « · » compte les photos de toute la branche.'),
+        treeWrap),
+      h('div.grid2', card(h('div.sect', 'Statistiques d’utilisation'), statsWrap), card(h('div.sect', 'Doublons de vocabulaire'), dupWrap)));
+    await load(); await loadSide();
   }
 
   // ---------- vues simples (Collections, Albums, Doublons) ----------
@@ -581,6 +700,7 @@ const App = (() => {
     supportId: 'support', folderId: 'dossier', albumId: 'album', integrity: 'intégrité', hasGps: 'GPS',
     noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', duplicate: 'doublons',
     hideVariants: 'sans les variantes', variants: 'seulement les variantes', variantsOf: 'référence et variantes de',
+    place: 'lieu', hasPlace: 'lieu', backup: 'sauvegarde', keywordCategory: 'catégorie de mot-clé',
   };
   function describeQuery(q) {
     const kwName = id => state.keywords.find(k => k.id === id)?.name ?? id;
@@ -588,6 +708,8 @@ const App = (() => {
       if (val === true) return CRITERIA[k];
       if (k === 'missing') return +val ? 'indisponibles' : 'présentes';
       if (k === 'hasGps') return [false, 0, '0', 'false'].includes(val) ? 'sans GPS' : 'avec GPS';
+      if (k === 'hasPlace') return [false, 0, '0', 'false'].includes(val) ? 'lieu non renseigné' : 'lieu renseigné';
+      if (k === 'backup') return { covered: 'copie de sauvegarde', uncovered: 'sans copie de sauvegarde', single: 'un seul exemplaire' }[val] ?? val;
       if (k === 'keywordId') return `${CRITERIA[k]} « ${kwName(val)} »`;
       if (k === 'from' || k === 'to') return `${CRITERIA[k]} ${fmtDate(String(val).slice(0, 10))}`;
       if (k === 'orientation') return { landscape: 'paysage', portrait: 'portrait', square: 'carré' }[val] ?? val;

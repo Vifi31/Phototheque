@@ -72,9 +72,9 @@ const readBody = req => new Promise((resolve, reject) => {
 function filtersFrom(sp) {
   const f = {};
   // chaînes
-  for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf']) if (sp.get(k)) f[k] = sp.get(k);
+  for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf', 'place', 'backup', 'keywordCategory']) if (sp.get(k)) f[k] = sp.get(k);
   // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
-  for (const k of ['rating', 'color', 'missing', 'hasGps', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
+  for (const k of ['rating', 'color', 'missing', 'hasGps', 'hasPlace', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
   // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère
   for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
   f.prefix = sp.get('prefix') !== 'false';
@@ -337,8 +337,10 @@ async function api(req, res, url) {
   if (p === '/api/stats' && m === 'GET') return json(res, 200, library.stats());
 
   // ---- Mots-clés ----
-  if (p === '/api/keywords' && m === 'GET') return json(res, 200, { list: keywords.list(), tree: keywords.tree(), suggest: keywords.suggest(url.searchParams.get('q') || '') });
-  if (p === '/api/keywords' && m === 'POST') { const b = await readBody(req); return json(res, 200, { keyword: keywords.ensure(b.name, b.parentId || null) }); }
+  if (p === '/api/keywords' && m === 'GET') return json(res, 200, { list: keywords.list(), tree: keywords.tree(), categories: keywords.categories(), suggest: keywords.suggest(url.searchParams.get('q') || '') });
+  if (p === '/api/keywords/duplicates' && m === 'GET') return json(res, 200, { groups: keywords.vocabularyDuplicates() });
+  if (p === '/api/keywords/usage' && m === 'GET') return json(res, 200, keywords.usage());
+  if (p === '/api/keywords' && m === 'POST') { const b = await readBody(req); return json(res, 200, { keyword: (() => { const k = keywords.ensure(b.name, b.parentId || null); return ['category', 'synonyms', 'description'].some(x => b[x] != null) ? keywords.update(k.id, { category: b.category, synonyms: b.synonyms, description: b.description }) : k; })() }); }
   if (p === '/api/keywords/suggest' && m === 'GET') return json(res, 200, { suggest: keywords.suggest(url.searchParams.get('q') || '') });
   if (p === '/api/keywords/export' && m === 'GET') { res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="mots-cles.csv"' }); return res.end('﻿' + keywords.exportCsv()); }
   if (p === '/api/keywords/import' && m === 'POST') { const b = await readBody(req); return json(res, 200, keywords.importList(b.names)); }

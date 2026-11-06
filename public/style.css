@@ -377,3 +377,16 @@ button.on { outline: 2px solid var(--accent); }
 .dup-file { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; border-top: 1px dashed var(--border); min-width: 0; }
 .dup-file > span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .dup-file.off > span { opacity: .55; text-decoration: line-through; }
+
+/* ---------- Mots-clés : arborescence ---------- */
+.kw-tree { margin-top: 10px; border-top: 1px solid var(--border); }
+.kw-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.kw-row:hover { background: var(--surface-2); }
+.kw-row.kw-ctx { opacity: .55; }
+.kw-row .row-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.kw-toggle { width: 22px; min-width: 22px; padding: 0; background: none; color: var(--muted); border: 0; font-size: 13px; text-align: center; }
+.kw-dup { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.kw-merge { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; }
+.kw-row .grow, .kw-dup .grow { flex: 1; min-width: 0; }
+.kw-bar input[type='search'] { flex: 1 1 220px; width: auto; }
+.kw-bar select { flex: 0 1 220px; width: auto; }

@@ -49,7 +49,7 @@ lib/
   library.mjs      Moteur : scan, indexation, métadonnées, vignettes, recherche
   imports.mjs      Importation physique (copie) + détection de doublons
   supports.mjs     Inventaire des supports, détection/reconnexion
-  keywords.mjs     Gestionnaire de mots-clés (hiérarchie, fusion, suggestions)
+  keywords.mjs     Mots-clés (hiérarchie, synonymes, catégories, fusion, doublons de vocabulaire)
   collections.mjs  Sélections statiques et recherches enregistrées (dynamiques)
   albums.mjs       Albums : formats, pages à gabarits, contrôles, export du projet (§9)
   albumpdf.mjs     Albums : export PDF d'impression / d'aperçu (§9)
@@ -539,3 +539,39 @@ en-tête répété (`thead`, créé au chargement depuis la ligne de `th`).
 Options : `--pdf` (PDF seul), `--serve` (photothèque d'exemple laissée
 ouverte), `--apercu` (capture du rendu impression dans `%TEMP%`),
 `--controle` (chaque page du PDF photographiée, planches dans `%TEMP%`).
+
+## 19. Vocabulaire hiérarchique et critères lieu / sauvegarde (v0.22.0)
+
+`lib/keywords.mjs` :
+
+* **Hiérarchie** : `keywords.parent_id`. `update` refuse un parent inconnu, un
+  déplacement sous un descendant (boucle) et deux libellés identiques au même
+  niveau. `KEYWORD_TREE_SQL` / `KEYWORD_ID_TREE_SQL` (CTE récursives) donnent un
+  mot-clé et tous ses descendants : `lib/search.mjs` s'en sert pour `keywords`,
+  `anyKeywords`, `excludeKeywords` et `keywordId`.
+* **Champs documentaires** dans `keywords.data` (pas de migration) :
+  `description`, `category`, `synonyms` et `synonymsNorm` (formes normalisées,
+  lues par `json_each` dans la recherche). `cleanKeywordData` les nettoie.
+* **Texte d'appui** : `photos.keywords_text` = « mot1 | mot2 ¦ parent | synonyme ».
+  La partie après `KW_EXTRA` (« ¦ ») rend parents et synonymes trouvables par
+  FTS5 ; `keywordNamesOf` n'en garde que les noms (planches, catalogue). Tout
+  renommage, déplacement, changement de synonymes, fusion ou suppression recalcule
+  le texte des photos de la branche (`photosOfTree`).
+* **Affectation par nom** (`attachNames` → `resolve`) : libellé à la racine,
+  sinon ailleurs dans l'arbre, sinon synonyme ; création à la racine en dernier.
+* **Fusion** : refusée si la cible est sous une source ; les libellés des
+  sources deviennent synonymes de la cible.
+* **Doublons de vocabulaire** (`vocabularyDuplicates`, lecture seule) : même forme
+  normalisée, libellé = synonyme d'un autre, forme « lâche » (pluriel s/x/aux,
+  tirets, apostrophes), distance d'édition 1 (≥ 5 lettres, ≤ 5 000 mots-clés) ;
+  paires regroupées par union-find. `usage()` : statistiques.
+
+Routes : `GET /api/keywords` (+ `categories`), `GET /api/keywords/duplicates`,
+`GET /api/keywords/usage` ; `POST`/`PUT` acceptent `category`, `synonyms`,
+`description`.
+
+Critères ajoutés à `buildQuery` (et aux recherches enregistrées) : `place`
+(LIKE échappé sur `Sublocation`, `City`, `State`, `Country` de `photos.data`),
+`hasPlace`, `backup` (`covered` : un fichier sur un support de rôle `backup` ou
+`archive` ; `uncovered` ; `single` : au plus un support disponible),
+`keywordCategory`.
