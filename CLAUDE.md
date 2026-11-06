@@ -154,6 +154,8 @@ bibliothèque).
    livrées en v0.16.0 (`lib/contactsheet.mjs`, `docs/ARCHITECTURE.md` §13).
    Fiches détaillées et catalogue CSV en v0.17.0 (`lib/catalog.mjs`,
    mise en page `detail` du moteur des planches, §14).
-   Restent : catalogues thématiques (par année, lieu, mot-clé), portfolios,
+   Catalogues thématiques en v0.18.0 (mise en page `catalog`, `groupBy`,
+   sommaire ; `groupsOf` / `placeOf` dans `lib/catalog.mjs`, §15).
+   Restent : portfolios,
    inventaires par support, rapports (sauvegarde, intégrité, fichiers
    manquants).

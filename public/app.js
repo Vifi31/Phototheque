@@ -153,11 +153,11 @@ const App = (() => {
     const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
     const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !Object.keys(currentCriteria()).length; };
     // planche-contact : la sélection si elle existe, sinon toutes les photos de la recherche affichée
-    const sheetBtn = h('button.ghost.small', { title: 'Planche-contact ou fiches détaillées en PDF, catalogue CSV : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
+    const sheetBtn = h('button.ghost.small', { title: 'Planche-contact, fiches détaillées ou catalogue thématique en PDF, export CSV : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
       const label = coll ? coll.name : state.facet.variantsOf ? 'Référence et variantes' : 'Photothèque';
       if (state.selection.size) contactSheetDialog({ ids: [...state.selection], label, count: state.selection.size });
       else contactSheetDialog({ query: searchParams().toString(), label, count: state.total });
-    } }, 'Planche-contact, fiches, CSV…');
+    } }, 'Planches, fiches, catalogues…');
     mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, h('div.spacer'), selInfo, batchBar);
 
     function renderGrid() {
@@ -881,7 +881,8 @@ const App = (() => {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') ?? {}; } catch { /* préférence absente */ }
     const o = { ...M.defaults, ...saved };
     const layout = h('select', {}, ...Object.entries(M.layouts).map(([k, l]) => h('option', { value: k, selected: (o.layout ?? 'grid') === k }, l)));
-    const isDetail = () => layout.value === 'detail';
+    const isDetail = () => layout.value === 'detail', isCat = () => layout.value === 'catalog';
+    const groupBy = h('select', {}, ...Object.entries(M.groupBy).map(([k, l]) => h('option', { value: k, selected: (o.groupBy ?? 'year') === k }, l)));
     const title = h('input', { type: 'text', value: presetTitle ?? (label && label !== 'Photothèque' ? label : ''), placeholder: 'Titre en tête de page (facultatif)' });
     const page = h('select', {}, ...Object.entries(M.pages).map(([k, p]) => h('option', { value: k, selected: o.page === k }, p.label)));
     const cols = h('input', { type: 'number', min: 1, max: 12, value: o.columns, style: { width: '70px' } });
@@ -890,17 +891,18 @@ const App = (() => {
     const edited = h('input', { type: 'checkbox', checked: o.edited !== false });
     const boxes = Object.entries(M.fields).map(([k, l]) => { const cb = h('input', { type: 'checkbox', checked: (o.fields ?? []).includes(k) }); cb.dataset.key = k; return h('label.check', cb, ' ' + l); });
     const info = h('p.dim'), status = h('div');
-    const options = () => ({ layout: layout.value, title: title.value, page: page.value, columns: +cols.value, rows: +rows.value, quality: quality.value, edited: edited.checked,
+    const options = () => ({ layout: layout.value, groupBy: groupBy.value, title: title.value, page: page.value, columns: +cols.value, rows: +rows.value, quality: quality.value, edited: edited.checked,
       fields: boxes.map(b => b.querySelector('input')).filter(cb => cb.checked).map(cb => cb.dataset.key) });
     const n = Math.min(count ?? 0, M.maxPhotos);
-    const gridOnly = [];
+    const gridOnly = [], catOnly = [];
     const sync = () => {
       for (const el of gridOnly) el.style.display = isDetail() ? 'none' : ''; // `hidden` serait écrasé par le CSS de .field
-      const per = isDetail() ? 1 : Math.max(1, (+cols.value || 1) * (+rows.value || 1)); info.textContent = `${n} photo(s)${ids ? ' sélectionnée(s)' : ' de la recherche affichée'} · ${per} par page → ${Math.ceil(n / per) || 0} page(s)` + ((count ?? 0) > M.maxPhotos ? ` (limitée aux ${M.maxPhotos} premières en PDF)` : '');
+      for (const el of catOnly) el.style.display = isCat() ? '' : 'none';
+      const per = isDetail() ? 1 : Math.max(1, (+cols.value || 1) * (+rows.value || 1)); info.textContent = `${n} photo(s)${ids ? ' sélectionnée(s)' : ' de la recherche affichée'} · ${per} par page → ${isCat() ? 'pages selon les groupes, plus le sommaire' : `${Math.ceil(n / per) || 0} page(s)`}` + ((count ?? 0) > M.maxPhotos ? ` (limitée aux ${M.maxPhotos} premières en PDF)` : '');
     };
     for (const el of [cols, rows]) el.addEventListener('input', sync);
     layout.addEventListener('change', sync);
-    const fileBase = () => (title.value || (label || 'Photothèque') + (isDetail() ? ' fiches' : '')).replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim();
+    const fileBase = () => (title.value || (label || 'Photothèque') + (isDetail() ? ' fiches' : isCat() ? ` catalogue par ${M.groupBy[groupBy.value].toLowerCase()}` : '')).replace(/[^\p{L}\p{N} _-]+/gu, '').replace(/\s+/g, ' ').trim();
     async function produce(inline) {
       const opts = options(); try { localStorage.setItem(KEY, JSON.stringify({ ...opts, title: undefined })); } catch { /* préférence non mémorisée */ }
       const res = await fetch('/api/contactsheet', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -909,7 +911,8 @@ const App = (() => {
       let report = null; try { report = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(res.headers.get('X-Pdf-Report') || ''), c => c.charCodeAt(0)))); } catch { /* compte rendu absent */ }
       return { blob: await res.blob(), report };
     }
-    const summary = r => r ? [h('p', `${r.photos} ${r.layout === 'detail' ? 'fiche(s)' : 'photo(s)'} sur ${r.pages} page(s) · ${fmtBytes(r.bytes)}${r.edited ? ` · ${r.edited} en version retouchée` : ''}`),
+    const summary = r => r ? [h('p', `${r.photos} ${r.layout === 'detail' ? 'fiche(s)' : 'photo(s)'}${r.groups ? ` en ${r.groups.length} groupe(s)` : ''} sur ${r.pages} page(s) · ${fmtBytes(r.bytes)}${r.edited ? ` · ${r.edited} en version retouchée` : ''}`),
+      r.capped ? h('div.album-alert.warn', `Photos présentes dans plusieurs groupes : catalogue limité à ${M.maxPhotos} cases`) : null,
       r.unreadable.length ? h('div.album-alert.bad', `${r.unreadable.length} photo(s) illisible(s) (n° ${r.unreadable.slice(0, 8).map(u => u.n).join(', ')}${r.unreadable.length > 8 ? '…' : ''}) : case marquée « illisible »`) : null,
       r.fromPreview.length ? h('div.album-alert.warn', `${r.fromPreview.length} photo(s) prise(s) sur l’aperçu en cache, original indisponible`) : null,
       r.truncated?.length ? h('div.album-alert.warn', `${r.truncated.length} fiche(s) trop longue(s) pour la page (n° ${r.truncated.slice(0, 8).join(', ')}${r.truncated.length > 8 ? '…' : ''}) : la fin des informations n’est pas imprimée`) : null] : [];
@@ -921,7 +924,7 @@ const App = (() => {
         clear(status);
         // la fenêtre d'aperçu remplace celle des réglages : on peut y revenir ou télécharger directement
         const back = () => contactSheetDialog({ ids, query, label, count, presetTitle: title.value });
-        const pv = modal({ title: isDetail() ? 'Aperçu des fiches détaillées' : 'Aperçu de la planche-contact', wide: true, body: h('div', ...summary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })), actions: [
+        const pv = modal({ title: isDetail() ? 'Aperçu des fiches détaillées' : isCat() ? 'Aperçu du catalogue' : 'Aperçu de la planche-contact', wide: true, body: h('div', ...summary(report), h('iframe.pdf-frame', { src, title: 'Aperçu PDF' })), actions: [
           h('button.ghost', { onclick: () => pv.close() }, 'Fermer'), h('button.ghost', { onclick: back }, 'Modifier les réglages'),
           h('button', { onclick: async () => { await back(); document.querySelector('button[data-sheet="go"]')?.click(); } }, 'Télécharger le PDF')] });
         new MutationObserver((_, ob) => { if (!pv.box.isConnected) { URL.revokeObjectURL(src); ob.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
@@ -935,7 +938,7 @@ const App = (() => {
         const name = (fileBase() || 'planche-contact') + '.pdf';
         const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
         mount(status, h('p', '✓ PDF enregistré dans le dossier de téléchargement du navigateur.'), ...summary(report));
-        toast(isDetail() ? 'Fiches détaillées produites' : 'Planche-contact produite');
+        toast(isDetail() ? 'Fiches détaillées produites' : isCat() ? 'Catalogue produit' : 'Planche-contact produite');
       } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
       busy(false);
     } }, 'Télécharger le PDF');
@@ -954,17 +957,19 @@ const App = (() => {
     } }, 'Exporter en CSV');
     const colsF = field('Colonnes', cols), rowsF = field('Lignes', rows), legend = h('div', h('b', 'Légende'), h('div.sheet-fields', ...boxes));
     const detailNote = h('p.dim', 'Une photo par page, puis titre, description, date, auteur, mots-clés, appareil, exposition, dimensions, GPS, emplacements et empreinte.');
-    gridOnly.push(colsF, rowsF, legend);
-    const m = modal({ title: 'Planche-contact, fiches détaillées, CSV', body: h('div.import-report',
+    const groupF = field('Regrouper par', groupBy);
+    const catNote = h('p.dim', 'Un sommaire en tête (groupes, nombre de photos, page), puis chaque groupe sur ses propres pages. Par mot-clé, une photo figure dans chacun de ses mots-clés ; par lieu, ville et pays des métadonnées, sinon position GPS.');
+    gridOnly.push(colsF, rowsF, legend); catOnly.push(groupF, catNote);
+    const m = modal({ title: 'Planche-contact, fiches, catalogue, CSV', body: h('div.import-report',
       info,
-      field('Document', layout),
+      field('Document', layout), groupF,
       field('Titre', title),
       h('div.row.wrap', { style: { gap: '12px' } }, field('Format', page), colsF, rowsF, field('Qualité', quality)),
-      legend, detailNote,
+      legend, detailNote, catNote,
       h('label.check', edited, ' Montrer les photos dans leur version retouchée par défaut'),
       h('p.dim', 'Chaque photo est montrée entière, sans recadrage. Les originaux sont lus sans être modifiés.'),
       status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), csvBtn, previewBtn, goBtn] });
-    const syncNote = () => { detailNote.hidden = !isDetail(); }; layout.addEventListener('change', syncNote); syncNote(); sync();
+    const syncNote = () => { detailNote.style.display = isDetail() ? '' : 'none'; }; layout.addEventListener('change', syncNote); syncNote(); sync();
   }
 
   // ---------- Réimport d'un projet d'album (lib/albums.mjs importProject) : analyse, puis confirmation ----------

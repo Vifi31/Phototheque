@@ -1032,7 +1032,7 @@ group('Planches-contact : grille légendée en PDF');
   const { createEdits } = await import('../lib/edits.mjs');
   const ED = createEdits(DB, LIB), SHEET = CS.createContactSheets(DB, LIB, ED);
   check('options : bornes et valeurs inconnues', JSON.stringify(CS.cleanSheetOptions({ page: 'x', columns: 99, rows: 0, fields: ['name', 'pirate', 'name'], quality: '?' })),
-    JSON.stringify({ layout: 'grid', page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
+    JSON.stringify({ layout: 'grid', groupBy: 'year', page: 'a4-portrait', columns: 12, rows: 1, fields: ['name'], title: '', quality: 'screen', edited: true, margin: 12 }));
   check('texte trop long coupé avec points de suspension', `${CS.fitText('IMG_0001_tres_long_nom_de_fichier.jpg', 8, 60).endsWith('…')}|${CS.fitText('court', 8, 60)}`, 'true|court');
   const rows = LIB.search({}, { limit: 5, sort: 'captured_asc' }).rows.filter(r => r.path && fs.existsSync(r.path));
   const ids = rows.map(r => r.id);
@@ -1104,6 +1104,42 @@ group('Fiches détaillées (PDF) et catalogue CSV');
   check('CSV vide : refusé', e1, 'Aucune photo à exporter');
   check('originaux jamais modifiés', rows.every((r, k) => shaOf(r.path) === before[k]), true, 0);
   LIB.update(ids[0], { title: null, description: null, rating: 0 });
+}
+
+// ===================================================================
+group('Catalogues thématiques : groupes, sommaire, pages');
+// ===================================================================
+{
+  const CS = await import('../lib/contactsheet.mjs');
+  const CAT = await import('../lib/catalog.mjs');
+  const { createEdits } = await import('../lib/edits.mjs');
+  const SHEET = CS.createContactSheets(DB, LIB, createEdits(DB, LIB));
+  // groupes d'une fiche, sans base : critères et cas « sans … »
+  const rec = (o = {}) => ({ captured_at: null, keywords: [], file: null, camera: '', data: '{}', gps_lat: null, gps_lon: null, ...o });
+  const G = (r, by) => CAT.groupsOf(r, by).map(g => g.label).join('|');
+  check('année / mois', `${G(rec({ captured_at: '2022-06-02T10:00:00' }), 'year')}|${G(rec({ captured_at: '2022-06-02' }), 'month')}|${G(rec(), 'year')}`, '2022|juin 2022|Sans date');
+  check('mot-clé : un groupe par mot-clé', `${G(rec({ keywords: ['Été', 'Famille'] }), 'keyword')}#${G(rec(), 'keyword')}`, 'Été|Famille#Sans mot-clé');
+  check('lieu : métadonnées IPTC / XMP, sans répétition', G(rec({ data: JSON.stringify({ Sublocation: 'Capitole', City: 'Toulouse', State: 'toulouse', Country: ['France'] }) }), 'place'), 'Capitole, Toulouse, France');
+  check('lieu : position GPS arrondie à défaut, sinon « non renseigné »', `${G(rec({ gps_lat: 43.6045, gps_lon: 1.4442 }), 'place')}|${G(rec(), 'place')}`, 'Position GPS 43,6 ; 1,4|Lieu non renseigné');
+  const sorted = [{ key: '￿Sans date', tier: 9 }, { key: '2023', tier: 0 }, { key: '2021', tier: 0 }].sort(CAT.compareGroups).map(g => g.key.replace('￿', '')).join(',');
+  check('ordre des groupes : chronologique, « sans » à la fin', sorted, '2021,2023,Sans date');
+  check('option de regroupement inconnue : année', `${CS.cleanSheetOptions({ groupBy: 'x' }).groupBy}|${CS.cleanSheetOptions({ layout: 'catalog', groupBy: 'keyword' }).groupBy}`, 'year|keyword');
+  // PDF
+  const rows = LIB.search({}, { limit: 6, sort: 'captured_asc' }).rows;
+  const ids = rows.map(r => r.id);
+  const years = new Set(rows.map(r => (r.captured_at ?? '').slice(0, 4) || 'Sans date'));
+  const make = async o => { const ch = []; const rep = await SHEET.render(ids, { layout: 'catalog', columns: 2, rows: 2, ...o }, { write: b => ch.push(Buffer.from(b)), label: 'Essai' }); return { rep, txt: Buffer.concat(ch).toString('latin1') }; };
+  const { rep, txt } = await make({ groupBy: 'year' });
+  const expPages = 1 + rep.groups.reduce((a, g) => a + Math.ceil(g.photos / 4), 0);
+  check('un groupe par année', rep.groups.length, years.size);
+  check('pages : sommaire + pages de chaque groupe', `${rep.pages}|${(txt.match(/\/Type \/Page /g) || []).length}`, `${expPages}|${expPages}`);
+  check('sommaire : page de début de chaque groupe', rep.groups.every((g, k) => g.page === 2 + rep.groups.slice(0, k).reduce((a, x) => a + Math.ceil(x.photos / 4), 0)), true, 0);
+  check('sommaire et bandeau de groupe dans le PDF', `${txt.includes('(Sommaire)')}|${txt.includes(`(${rep.groups[0].name})`)}`, 'true|true');
+  check('chaque photo une fois par année', rep.cells, ids.length);
+  const kw = (await make({ groupBy: 'keyword' })).rep;
+  const occ = ids.reduce((a, id) => a + Math.max(1, DB.prepare('SELECT COUNT(*) n FROM photo_keywords WHERE photo_id = ?').get(id).n), 0);
+  check('par mot-clé : une case par mot-clé de chaque photo', kw.cells, occ);
+  check('catalogue consigné dans les exports', DB.prepare("SELECT COUNT(*) n FROM exports WHERE kind = 'catalog'").get().n >= 2, true, 0);
 }
 
 // ===================================================================

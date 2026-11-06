@@ -24,7 +24,7 @@ import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION 
 import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
 import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
-import { createCatalog, CSV_COLUMNS } from './lib/catalog.mjs';
+import { createCatalog, CSV_COLUMNS, GROUP_BY } from './lib/catalog.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -199,7 +199,7 @@ async function api(req, res, url) {
     return json(res, 200, r);
   }
   // ---- Planche-contact (lib/contactsheet.mjs) : photos choisies, ou toutes celles d'une recherche ----
-  if (p === '/api/contactsheet' && m === 'GET') return json(res, 200, { layouts: SHEET_LAYOUTS, pages: SHEET_PAGES, fields: SHEET_FIELDS, qualities: SHEET_QUALITIES, defaults: SHEET_DEFAULTS, maxPhotos: MAX_SHEET_PHOTOS, csvColumns: CSV_COLUMNS.map(c => c[1]) });
+  if (p === '/api/contactsheet' && m === 'GET') return json(res, 200, { layouts: SHEET_LAYOUTS, groupBy: GROUP_BY, pages: SHEET_PAGES, fields: SHEET_FIELDS, qualities: SHEET_QUALITIES, defaults: SHEET_DEFAULTS, maxPhotos: MAX_SHEET_PHOTOS, csvColumns: CSV_COLUMNS.map(c => c[1]) });
   if (p === '/api/contactsheet' && m === 'POST') {
     const b = await readBody(req);
     const ids = photoIdsFrom(b, MAX_SHEET_PHOTOS); if (!ids) return json(res, 404, { error: 'Collection inconnue' });

@@ -4,6 +4,23 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.18.0] — 2026-11-06
+
+### Ajouté
+
+- **Catalogues thématiques** (Photothèque → « Planches, fiches,
+  catalogues… », Document : « Catalogue thématique ») : les photos regroupées
+  par année, mois, mot-clé, lieu, dossier, support ou appareil.
+  - Un sommaire en tête : chaque groupe, son nombre de photos et sa page.
+  - Chaque groupe commence sur une nouvelle page avec un bandeau, puis une
+    grille légendée comme la planche-contact (colonnes, lignes, légende,
+    format, qualité, version retouchée).
+  - Par mot-clé, une photo figure dans chacun de ses mots-clés ; par lieu,
+    ville et pays des métadonnées, sinon position GPS ; les photos sans
+    date, sans mot-clé ou sans lieu sont réunies dans un dernier groupe.
+- **Lieu** (ville, région, pays des métadonnées) dans les fiches détaillées
+  et en colonne du CSV.
+
 ## [0.17.0] — 2026-11-05
 
 ### Ajouté

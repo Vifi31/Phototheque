@@ -425,3 +425,33 @@ Routes : `POST /api/contactsheet` avec `options.layout = 'detail'`, et
 `POST /api/catalog/csv` (`{ ids | query, label }`, sans la limite de 3000
 photos du PDF). Les deux résolvent les photos par `photoIdsFrom()` dans
 `server.mjs` (sélection explicite ou recherche de la grille, tri compris).
+
+## 15. Catalogues thématiques (v0.18.0)
+
+Troisième mise en page du moteur des planches-contact
+(`layout: 'catalog'`, option `groupBy`) : les photos sont réparties en
+groupes, chacun commençant sur une nouvelle page avec un bandeau (nom,
+nombre de photos, « suite » sur les pages suivantes), en grille légendée
+comme la planche-contact (mêmes colonnes, lignes, champs). Une ou plusieurs
+pages de **sommaire** ouvrent le document : chaque groupe, son nombre de
+photos et sa page de début (calculée avant le rendu). La numérotation des
+cases est continue sur tout le catalogue.
+
+Regroupements (`GROUP_BY` et `groupsOf()` dans `lib/catalog.mjs`) :
+
+| Clé | Groupe | Sans valeur |
+| --- | --- | --- |
+| `year` / `month` | année / « juin 2022 » de la prise de vue | Sans date |
+| `keyword` | chaque mot-clé (une photo figure dans chacun) | Sans mot-clé |
+| `place` | `placeOf()` : Sublocation, City, State, Country (IPTC / XMP, dans `photos.data`), sinon « Position GPS 43,6 ; 1,4 » (dixième de degré) | Lieu non renseigné |
+| `folder` / `support` / `camera` | dossier du fichier principal / support / appareil | Aucun fichier / Support inconnu / Appareil inconnu |
+
+Ordre des groupes (`compareGroups`) : chronologique ou alphabétique
+(français, nombres naturels), positions GPS après les lieux nommés, groupes
+« sans … » à la fin. Dans un groupe, l'ordre est celui de la recherche (tri
+de la grille). Le total des cases reste borné à `MAX_SHEET_PHOTOS`
+(compte rendu `capped`). Le compte rendu donne `groups` (nom, photos, page)
+et `cells` ; consigné dans `exports` (`kind = 'catalog'`).
+
+Le lieu est aussi ajouté aux fiches détaillées et au CSV (colonne `lieu`,
+34 colonnes).
