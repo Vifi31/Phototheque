@@ -1574,6 +1574,145 @@ group('Retouche avancée : tonalité, courbe, vibrance, bruit, profils, logiciel
   check('original intact', Buffer.compare(before, fs.readFileSync(src)), 0, 0);
 }
 
+// ===================================================================
+group('Albums et exports : styles, modèles, JPEG par page, prestataires, tirages');
+// ===================================================================
+{
+  const A = await import('../lib/albums.mjs');
+  const AP = await import('../lib/albumpdf.mjs');
+  const { createExports, cleanPrint } = await import('../lib/exports.mjs');
+  const E = await import('../lib/edits.mjs');
+  const exifr = (await import('exifr')).default;
+  const st = A.cleanStyle({ border: { width: 50, color: 'rouge' }, textColor: '#ABCDEF', align: 'x' });
+  check('style : bordure bornée à 10 mm', st.border.width, 10);
+  check('style : couleur invalide → blanc', st.border.color, '#ffffff');
+  check('style : alignement inconnu → centré', st.align, 'center');
+  check('style : couleur de texte en minuscules', st.textColor, '#abcdef');
+  check('style : défaut sans bordure, texte automatique', JSON.stringify(A.cleanStyle(null)), JSON.stringify({ border: { width: 0, color: '#ffffff' }, textColor: null, align: 'center' }));
+
+  // photos de l'album
+  const dir = path.join(TMP, 'album-styles'), ids = [];
+  for (const [k, [w, hh]] of [[1600, 1200], [1200, 1600], [1600, 1200], [1600, 1200]].entries()) {
+    const f = path.join(dir, 'p' + k + '.jpg'); await makeImage(f, { w, h: hh, color: { r: 20 + k * 3, g: 40, b: 220 } });
+    await LIB.indexFile(f, {}); ids.push(DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(f).photo_id);
+  }
+  const before = fs.readFileSync(path.join(dir, 'p0.jpg'));
+  const ALB = A.createAlbums(DB, LIB), APDF = AP.createAlbumPdf(DB, LIB, ALB);
+  const al = ALB.create({ name: 'Styles', format: 'carre-20' });
+  ALB.fill(al.id, ids, 'deux-cote');
+  let g = ALB.applyStyle(al.id, 'passe');
+  check('modèle appliqué à toutes les pages', g.pages.every(p => p.background === '#f4efe6' && p.style.border.width === 4), true, 0);
+  check('modèle : étape annulable', g.history.undo.startsWith('Modèle « Passe-partout'), true, 0);
+  g = ALB.addPage(al.id, { layout: 'une' });
+  check('nouvelle page : reprend le style de la précédente', g.pages.at(-1).background + g.pages.at(-1).style.border.width, '#f4efe64');
+  g = ALB.updatePage(al.id, 4, { style: { border: { width: 3 } } });
+  check('style partiel : la couleur de bordure est gardée', g.pages[3].style.border.width + g.pages[3].style.border.color, '3#ffffff');
+  check('modification de style annulable', g.history.undo, 'Page 4 : style');
+  g = ALB.applyStyle(al.id, { background: '#000000', border: { width: 1.5, color: '#ff0000' }, textColor: '#ffff00', align: 'left' }, { page: 2 });
+  check('style composé appliqué à une seule page', g.pages[1].background + g.pages[1].style.align + g.pages[0].background, '#000000left#f4efe6');
+  g = ALB.undo(al.id).album;
+  check('annuler : style rétabli', g.pages[1].background, '#f4efe6');
+  let err = ''; try { ALB.applyStyle(al.id, 'inconnu'); } catch (e) { err = e.message; }
+  check('modèle inconnu refusé', err, 'Modèle inconnu');
+  const sv = ALB.saveStyle({ name: 'Mon style', background: '#102030', border: { width: 2, color: '#eeeeee' }, align: 'right' });
+  check('modèle enregistré', ALB.styles().saved[sv.key].name + ALB.styles().saved[sv.key].align, 'Mon styleright');
+  check('modèle de même nom remplacé', ALB.saveStyle({ name: 'Mon style', background: '#203040' }).key, sv.key);
+  ALB.applyStyle(al.id, sv.key, { page: 1 });
+  check('modèle enregistré applicable', ALB.get(al.id).pages[0].background, '#203040');
+  ALB.removeStyle(sv.key);
+  check('modèle supprimé', !!ALB.styles().saved[sv.key], false, 0);
+  err = ''; try { ALB.saveStyle({ name: '  ' }); } catch (e) { err = e.message; }
+  check('modèle sans nom refusé', err, 'Nom de modèle vide');
+  const proj = ALB.exportProject(al.id);
+  check('projet : style des pages exporté', proj.pages[1].style.border.width, 4);
+  const imp = ALB.importProject(proj);
+  check('réimport : style conservé', imp.album.pages[1].style.border.width + imp.album.pages[1].background, '4#f4efe6');
+  check('format de projet inchangé (champ ajouté)', proj.formatVersion, 1);
+
+  // rendu JPEG par page : bordure rouge de 3 mm autour d'une photo bleue
+  const b2 = ALB.create({ name: 'Bordure', format: 'carre-20' });
+  ALB.fill(b2.id, [ids[0]], 'une');
+  ALB.applyStyle(b2.id, { background: '#ffffff', border: { width: 3, color: '#ff0000' }, align: 'center' });
+  const out = path.join(TMP, 'pages-jpeg'); fs.mkdirSync(out);
+  const rj = await APDF.render(b2.id, { output: 'jpeg', dir: out, dpi: 100, bleed: true, bleedMm: 3 });
+  check('JPEG : un fichier par page', rj.files.map(f => f.name).join(','), 'page-001.jpg,page-002.jpg');
+  const px = Math.round((200 + 6) / 25.4 * 100);
+  check('JPEG : taille = format + fonds perdus à la résolution', rj.files[1].width + 'x' + rj.files[1].height, px + 'x' + px);
+  const m2 = await sharp(path.join(out, 'page-002.jpg')).metadata();
+  check('JPEG : résolution inscrite', m2.density, 100);
+  const rgbAt = async (x, y) => [...(await sharp(path.join(out, 'page-002.jpg')).extract({ left: x, top: y, width: 1, height: 1 }).raw().toBuffer())].slice(0, 3);
+  // cadre « une » : marge 6 % → bord du cadre à 3 mm + 12 mm du bord du fichier ; bordure de 3 mm à l'intérieur
+  const edge = Math.round((3 + 0.06 * 200 + 1.5) / 25.4 * 100), mid = Math.round(px / 2);
+  const [r1, g1, bb1] = await rgbAt(edge, mid), [r2, g2, bb2] = await rgbAt(mid, mid);
+  check('JPEG : bordure rouge dans le cadre', r1 > 200 && g1 < 60 && bb1 < 60, true, 0);
+  check('JPEG : photo au centre du cadre', bb2 > 180 && r2 < 80, true, 0);
+  const [r0] = await rgbAt(3, 3);
+  check('JPEG : fond blanc jusqu’au fond perdu', r0 > 240, true, 0);
+  const sp = path.join(TMP, 'planches'); fs.mkdirSync(sp);
+  const rs = await APDF.render(al.id, { output: 'jpeg', dir: sp, dpi: 60, layout: 'spreads' });
+  check('JPEG par planche : page 1 seule puis paires', rs.files.map(f => f.pages.join('-')).join(' '), '-1 2-3 4-');
+  // PDF : texte aligné à gauche / à droite
+  const t3 = ALB.create({ name: 'Textes', format: 'carre-20' });
+  ALB.addPage(t3.id, { layout: 'une' }); ALB.updatePage(t3.id, 2, { caption: 'Légende' });
+  const pdfX = async align => { ALB.updatePage(t3.id, 2, { style: { align } }); const ch = []; await APDF.render(t3.id, { quality: 'screen', write: b => ch.push(b) }); const txt = Buffer.concat(ch).toString('latin1'); return +/ ([\d.]+) [\d.]+ Td \(L\\351gende\) Tj/.exec(txt)?.[1]; };
+  const xl = await pdfX('left'), xc = await pdfX('center'), xr = await pdfX('right');
+  check('PDF : légende alignée à gauche, au centre, à droite', xl < xc && xc < xr, true, 0);
+  check('PDF : à gauche, sur la marge de 6 %', xl, 0.06 * 200 * Pdf.MM, 0.5);
+
+  // profils de prestataire
+  const sc = AP.cleanService({ name: ' X ', output: 'jpeg', dpi: 5000, bleed_mm: 30, width_mm: 300, height_mm: null, colorProfile: 'file:../x.icc', minPages: 0 });
+  check('prestataire : bornes', `${sc.dpi}|${sc.bleed_mm}|${sc.width_mm}|${sc.colorProfile}|${sc.minPages}`, '600|10|null|srgb|null');
+  check('prestataire : profils intégrés génériques', Object.values(AP.BUILTIN_SERVICES).every(v => v.name.startsWith('Générique')), true, 0);
+  const a2 = ALB.get(al.id);
+  const iss = AP.checkService(a2, AP.cleanService({ name: 'p', width_mm: 300, height_mm: 300, minPages: 20, pageMultiple: 3, safety_mm: 15, colorProfile: 'file:absent.icc', output: 'jpeg' }));
+  const has = re => iss.some(i => re.test(i.message));
+  check('contrôle : format différent', has(/attend 300 × 300 mm/), true, 0);
+  check('contrôle : pages insuffisantes', has(/au moins 20/), true, 0);
+  check('contrôle : multiple de pages', has(/multiple de 3/), true, 0);
+  check('contrôle : zone de sécurité', has(/zone de sécurité du profil \(15 mm\)/), true, 0);
+  check('contrôle : profil ICC absent', has(/absent\.icc/), true, 0);
+  check('contrôle : profil conforme sans alerte', AP.checkService(a2, AP.cleanService({ name: 'ok', width_mm: 200, height_mm: 200 })).length, 0);
+  const svc = APDF.saveService({ name: 'Labo test', output: 'pdf', bleed_mm: 3, notes: 'site du labo' });
+  check('profil de prestataire enregistré', APDF.services().saved[svc.key].name, 'Labo test');
+  const send = await APDF.sendFolder(al.id, svc.key, { version: '9.9' });
+  check('dossier d’envoi dans Exports', send.dir.startsWith(path.join(TMP, 'Exports')), true, 0);
+  check('dossier d’envoi : PDF, projet, fiche', ['album.pdf', 'album.json', 'LISEZ-MOI.txt'].every(n => fs.existsSync(path.join(send.dir, n))), true, 0);
+  const readme = fs.readFileSync(path.join(send.dir, 'LISEZ-MOI.txt'), 'utf8');
+  check('fiche : rien n’est envoyé, notes du profil', /n’envoie rien/.test(readme) && /site du labo/.test(readme) && /206 × 206 mm/.test(readme), true, 0);
+  check('fiche : projet relisible', JSON.parse(fs.readFileSync(path.join(send.dir, 'album.json'), 'utf8')).format, 'phototheque-album');
+  const send2 = await APDF.sendFolder(al.id, 'generique-jpeg');
+  check('deux envois : deux dossiers distincts', send2.dir !== send.dir && fs.readdirSync(path.join(send2.dir, 'pages')).length, ALB.get(al.id).printedPages);
+  APDF.removeService(svc.key);
+  check('profil de prestataire supprimé', !!APDF.services().saved[svc.key], false, 0);
+  check('originaux intacts', Buffer.compare(before, fs.readFileSync(path.join(dir, 'p0.jpg'))), 0, 0);
+
+  // tirages : dimensions physiques
+  check('tirage : sans dimensions → aucun', cleanPrint({ width_mm: 0, height_mm: 100 }), null);
+  check('tirage : bornes', JSON.stringify(cleanPrint({ width_mm: 100, height_mm: 150, dpi: 5000, fit: 'x' })), JSON.stringify({ width_mm: 100, height_mm: 150, dpi: 1200, fit: 'fill', rotate: true }));
+  const gps = path.join(TMP, 'tirage', 'gps.jpg'); fs.mkdirSync(path.dirname(gps), { recursive: true });
+  fs.writeFileSync(gps, await sharp({ create: { width: 1200, height: 800, channels: 3, background: { r: 30, g: 120, b: 60 } } })
+    .withExif({ IFD0: { Make: 'Canon' }, IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '43/1 36/1 0/1', GPSLongitudeRef: 'E', GPSLongitude: '1/1 26/1 0/1' } }).jpeg().toBuffer());
+  await LIB.indexFile(gps, {});
+  const gid = DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(gps).photo_id;
+  const EXP = createExports(DB, E.createEdits(DB, LIB));
+  const pr = { width_mm: 100, height_mm: 150, dpi: 300, fit: 'fill', rotate: true };
+  const t1 = await EXP.run([gid], { format: 'jpeg', metadata: 'nogps', print: pr, folder: 'tirages' });
+  const f1 = t1.files[0], mt = await sharp(f1.file).metadata();
+  check('tirage : photo paysage → format tourné, pixels exacts', `${f1.width}x${f1.height}`, '1772x1181');
+  check('tirage : 300 ppp inscrits', mt.density, 300);
+  check('tirage : résolution effective calculée', f1.print.effectiveDpi, Math.round(300 / Math.max(1772 / 1200, 1181 / 800)));
+  check('tirage : résolution limite signalée (203 ppp)', f1.print.level, 'warn');
+  check('tirage sans GPS : GPS absent', await exifr.gps(f1.file).catch(() => null) ?? null, null);
+  check('tirage : fiche de commande', fs.existsSync(path.join(t1.dir, 'LISEZ-MOI.txt')) && /résolution effective/.test(fs.readFileSync(path.join(t1.dir, 'LISEZ-MOI.txt'), 'utf8')), true, 0);
+  const t2 = await EXP.run([gid], { format: 'jpeg', metadata: 'keep', print: { ...pr, fit: 'fit', rotate: false }, folder: 'tirages' });
+  const f2 = t2.files[0];
+  check('tirage sans rotation : format portrait gardé', `${f2.width}x${f2.height}`, '1181x1772');
+  check('tirage « photo entière » : bandes blanches', (await sharp(f2.file).extract({ left: 590, top: 5, width: 1, height: 1 }).raw().toBuffer())[0] > 240, true, 0);
+  check('tirage avec GPS demandé : GPS présent', Math.round((await exifr.gps(f2.file))?.latitude ?? 0), 44);
+  check('fiche existante jamais écrasée', t2.readme, 'LISEZ-MOI (2).txt');
+  check('profil intégré « Tirage 10 × 15 »', EXP.profiles().builtin['tirage-10x15'].print.width_mm, 100);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

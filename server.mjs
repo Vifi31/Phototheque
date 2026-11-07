@@ -18,10 +18,10 @@ import { createKeywords } from './lib/keywords.mjs';
 import { createLibrary } from './lib/library.mjs';
 import { createImports } from './lib/imports.mjs';
 import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
-import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN } from './lib/albums.mjs';
-import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
+import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN, ALIGNS, BORDER_MAX } from './lib/albums.mjs';
+import { createAlbumPdf, PDF_PROFILES, BLEED_MM, SERVICE_OUTPUTS, SERVICE_LAYOUTS } from './lib/albumpdf.mjs';
 import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION, CURVES, TONE_KEYS } from './lib/edits.mjs';
-import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS, COLOR_PROFILES, PROFILES_DIR, iccFiles } from './lib/exports.mjs';
+import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS, COLOR_PROFILES, PROFILES_DIR, iccFiles, PRINT_FITS, PRINT_DPI_LOW } from './lib/exports.mjs';
 import { createExternal, cleanExternalSettings, checkEditor, EXTERNAL_DIR, EXTERNAL_SOURCES } from './lib/external.mjs';
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
 import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, SHEET_BACKGROUNDS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
@@ -336,7 +336,7 @@ async function api(req, res, url) {
   }
 
   // ---- Exports de photos (travail en arrière-plan, suivi par /api/jobs/<id>) ----
-  if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR, colorProfiles: { ...COLOR_PROFILES, ...Object.fromEntries(iccFiles().map(n => ['file:' + n, `${n} (dossier Profils)`])) }, profilesDir: PROFILES_DIR });
+  if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR, colorProfiles: { ...COLOR_PROFILES, ...Object.fromEntries(iccFiles().map(n => ['file:' + n, `${n} (dossier Profils)`])) }, profilesDir: PROFILES_DIR, printFits: PRINT_FITS, printDpiLow: PRINT_DPI_LOW });
   if (p === '/api/exports/profiles' && m === 'POST') return json(res, 200, exportsSvc.saveProfile(sanitize(await readBody(req)) ?? {}));
   if (p.startsWith('/api/exports/profiles/') && m === 'DELETE') return json(res, 200, exportsSvc.removeProfile(decodeURIComponent(p.split('/')[4] ?? '')));
   if (p === '/api/exports' && m === 'GET') return json(res, 200, { list: db.prepare("SELECT id, kind, target, profile, count, status, created_at FROM exports ORDER BY created_at DESC LIMIT 30").all() });
@@ -406,7 +406,14 @@ async function api(req, res, url) {
   }
 
   // ---- Albums (références aux photos, pages à gabarits) ----
-  if (p === '/api/albums' && m === 'GET') return json(res, 200, { list: albums.list(), formats: FORMATS, layouts: LAYOUTS, formatVersion: ALBUM_FORMAT_VERSION, dpiAdvised: DPI_WARN, pdfProfiles: PDF_PROFILES, bleedMm: BLEED_MM });
+  if (p === '/api/albums' && m === 'GET') return json(res, 200, { list: albums.list(), formats: FORMATS, layouts: LAYOUTS, formatVersion: ALBUM_FORMAT_VERSION, dpiAdvised: DPI_WARN, pdfProfiles: PDF_PROFILES, bleedMm: BLEED_MM,
+    aligns: ALIGNS, borderMax: BORDER_MAX, styles: albums.styles(), services: albumPdf.services(), serviceOutputs: SERVICE_OUTPUTS, serviceLayouts: SERVICE_LAYOUTS,
+    colorProfiles: { srgb: 'sRGB', ...Object.fromEntries(iccFiles().map(n => ['file:' + n, `${n} (dossier Profils)`])) }, exportDir: EXPORT_DIR });
+  // modèles graphiques et profils de prestataire (avant les routes /api/albums/<id>)
+  if (p === '/api/albums/styles' && m === 'POST') { try { return json(res, 200, albums.saveStyle(sanitize(await readBody(req)) ?? {})); } catch (e) { return json(res, 400, { error: e.message }); } }
+  if (p.startsWith('/api/albums/styles/') && m === 'DELETE') { try { return json(res, 200, albums.removeStyle(decodeURIComponent(p.split('/')[4] ?? ''))); } catch (e) { return json(res, 404, { error: e.message }); } }
+  if (p === '/api/albums/services' && m === 'POST') { try { return json(res, 200, albumPdf.saveService(sanitize(await readBody(req)) ?? {})); } catch (e) { return json(res, 400, { error: e.message }); } }
+  if (p.startsWith('/api/albums/services/') && m === 'DELETE') { try { return json(res, 200, albumPdf.removeService(decodeURIComponent(p.split('/')[4] ?? ''))); } catch (e) { return json(res, 404, { error: e.message }); } }
   if (p === '/api/albums' && m === 'POST') { const b = sanitize(await readBody(req)) ?? {}; return json(res, 200, { album: albums.create(b) }); }
   // Réimport d'un projet exporté : analyse (sans écriture) puis import en nouvel album. Le projet n'est pas
   // passé par sanitize() (qui tronquerait un album de plus de 200 photos) : albums.importProject le
@@ -453,6 +460,19 @@ async function api(req, res, url) {
       const rs = fs.createReadStream(tmp);
       rs.on('close', () => fs.rmSync(tmp, { force: true }));
       return rs.pipe(res);
+    }
+    if (sub === 'style' && m === 'POST') { const b = await body(); try { return json(res, 200, { album: albums.applyStyle(id, b.model && typeof b.model === 'object' ? b.model : String(b.key ?? ''), { page: b.page ?? null }) }); } catch (e) { return json(res, 400, { error: e.message }); } }
+    // dossier prêt à envoyer : contrôles (sans écriture), puis préparation en arrière-plan (/api/jobs/<id>)
+    if (sub === 'send' && n === 'check' && m === 'POST') { const b = await body(); try { return json(res, 200, albumPdf.check(id, b.service)); } catch (e) { return json(res, 400, { error: e.message }); } }
+    if (sub === 'send' && !n && m === 'POST') {
+      const b = await body();
+      try { albumPdf.check(id, b.service); } catch (e) { return json(res, 400, { error: e.message }); }
+      const jobId = 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const job = { id: jobId, kind: 'album-send', done: 0, total: 0, status: 'running', result: null, error: null };
+      JOBS.set(jobId, job);
+      albumPdf.sendFolder(id, b.service, { onProgress: pr => Object.assign(job, pr), version: currentVersion() })
+        .then(r => { job.status = 'done'; job.result = r; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
+      return json(res, 200, { jobId, job });
     }
     if (sub === 'undo' && m === 'POST') return json(res, 200, albums.undo(id));
     if (sub === 'redo' && m === 'POST') return json(res, 200, albums.redo(id));

@@ -172,7 +172,9 @@ bibliothèque).
    classement au clavier, comparaison, historique, récemment vues) — **livré en
    v0.24.0** (§21). Retouche avancée (hautes lumières, ombres, vibrance, bruit,
    courbe, profils de sortie, logiciel externe) — **livré en v0.25.0** (§22) ;
-   RAW toujours sur l'aperçu. Suivent : albums et exports, sauvegardes, tableau de bord.
+   RAW toujours sur l'aperçu. Albums et exports (bordures, modèles graphiques,
+   alignement, envoi au prestataire, tirages aux dimensions physiques) — **livré en
+   v0.26.0** (§23). Suivent : sauvegardes et sécurité, tableau de bord.
    Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
    lire les noms avec `keywordNamesOf`.
 

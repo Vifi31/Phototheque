@@ -454,3 +454,21 @@ p.bad { color: var(--bad); }
 /* ---------- Retouche : courbe de tonalité ---------- */
 .rt-curve-wrap { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
 .rt-curve { width: 220px; height: 220px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; }
+
+/* v0.26 : style des pages d'album (bordures, alignement des textes), guides, alignement dans le cadre */
+.album-page { container-type: inline-size; }
+.album-frame .frame-border { position: absolute; inset: 0; border-style: solid; pointer-events: none; z-index: 1; }
+.album-title.al-left { align-items: flex-start; text-align: left; }
+.album-title.al-right { align-items: flex-end; text-align: right; }
+.album-caption.al-left { justify-content: flex-start; text-align: left; }
+.album-caption.al-right { justify-content: flex-end; text-align: right; }
+.album-centre { position: absolute; inset: 0; pointer-events: none; z-index: 3;
+  background: linear-gradient(rgba(37, 99, 235, .55), rgba(37, 99, 235, .55)) center / 1px 100% no-repeat,
+              linear-gradient(rgba(37, 99, 235, .55), rgba(37, 99, 235, .55)) center / 100% 1px no-repeat; }
+.album-page.spread .album-centre { background: linear-gradient(rgba(37, 99, 235, .55), rgba(37, 99, 235, .55)) 25% 0 / 1px 100% no-repeat,
+  linear-gradient(rgba(37, 99, 235, .55), rgba(37, 99, 235, .55)) 75% 0 / 1px 100% no-repeat,
+  linear-gradient(rgba(37, 99, 235, .55), rgba(37, 99, 235, .55)) center / 100% 1px no-repeat; }
+.album-page.guides::after { z-index: 3; }
+.align9 { display: grid; grid-template-columns: repeat(3, 30px); gap: 3px; }
+.align9 button { padding: 0; height: 26px; line-height: 24px; }
+.album-alert.info { color: var(--dim, #64748b); }

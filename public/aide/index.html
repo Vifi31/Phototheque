@@ -169,7 +169,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version <span id="appVersion">0.25.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.26.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -512,15 +512,33 @@
     <li>Menu <b>Albums</b> : donnez un nom, choisissez le format (carré 30 × 30, A4 paysage…) puis <span class="ui">Créer</span>.</li>
     <li><span class="ui">Remplir depuis une collection…</span> ou, dans la Photothèque, sélectionnez des photos puis <span class="ui">Ajouter à un album…</span>.</li>
     <li>Pour chaque page, choisissez un <b>gabarit</b> : pleine page, 2 côte à côte, 3, 4, 6 photos, page de titre, double page panoramique…</li>
-    <li>Glissez-déposez les photos d’un cadre à l’autre ; le bouton ✂ d’un cadre permet de <b>recadrer</b> la photo ; ajoutez une légende.</li>
-    <li>Consultez les <b>alertes</b> (résolution trop faible, cadre vide…), puis <span class="ui">Aperçu</span> et <span class="ui">Exporter en PDF…</span>.</li>
+    <li>Glissez-déposez les photos d’un cadre à l’autre ; le bouton ✂ d’un cadre permet de <b>recadrer</b> et d’<b>aligner</b> la photo ; ajoutez une légende ; le bouton 🎨 règle le <b>style</b> de la page.</li>
+    <li>Consultez les <b>alertes</b> (résolution trop faible, cadre vide…), puis <span class="ui">Aperçu</span>, <span class="ui">Exporter en PDF…</span> ou <span class="ui">Préparer l’envoi…</span>.</li>
   </ol>
-  <figure><img src="img/album-editeur.jpg" alt="L'éditeur d'album"><figcaption>L’éditeur d’album : pages, gabarits, légendes, annuler / rétablir, vue en planches et marges de sécurité.</figcaption></figure>
+  <figure><img src="img/album-editeur.jpg" alt="L'éditeur d'album"><figcaption>L’éditeur d’album : pages, gabarits, légendes, annuler / rétablir, vue en planches et guides. Ici, le modèle « Passe-partout ».</figcaption></figure>
   <div class="two">
     <div class="note key"><b>Résolution.</b> Pour une impression nette, il faut au moins 240 points par pouce. L’album vous prévient cadre par cadre si une photo est trop petite pour la place qu’elle occupe.</div>
     <div class="note tip"><b>Garder une copie du projet.</b> <span class="ui">Exporter le projet</span> produit un fichier <i>.album.json</i> que vous pourrez réimporter (menu Albums → <span class="ui">Importer un projet…</span>), même sur un autre ordinateur.</div>
   </div>
   <figure><img src="img/albums.jpg" alt="La liste des albums"><figcaption>La liste des albums, avec la couverture de chacun.</figcaption></figure>
+
+  <h3>Bordures, textes et modèles graphiques</h3>
+  <p>Le bouton 🎨 d’une page ouvre son <b>style</b> : couleur de fond, <b>bordure</b> des photos (un filet de 0 à 10 mm tracé à l’intérieur de chaque cadre, sauf sur les pages à fond perdu où il serait rogné), couleur des textes (automatique selon le fond, ou choisie) et <b>alignement</b> du titre et des légendes (à gauche, centré, à droite). Le style s’applique à la page ou à toutes les pages, et s’annule par Ctrl+Z.</p>
+  <p>Un <b>modèle graphique</b> réunit fond, bordure et textes. Cinq sont fournis (Classique, Galerie, Passe-partout, Nuit, Kraft) ; <span class="ui">Enregistrer ce style comme modèle…</span> crée les vôtres (★), réutilisables dans tous les albums. Une nouvelle page reprend le style de celle qui la précède.</p>
+  <figure><img src="img/album-style.jpg" alt="Le style d'une page"><figcaption>Le style d’une page et les modèles graphiques.</figcaption></figure>
+  <div class="two">
+    <div class="note key"><b>Aligner une photo dans son cadre.</b> Dans le recadrage (✂), les neuf flèches calent la partie visible sur un bord, un coin ou le centre de la photo. La case <span class="ui">Guides</span> de l’éditeur montre les marges de sécurité (pointillés rouges) et les axes du centre de chaque page (traits bleus).</div>
+    <div class="note tip"><b>JPEG ou PDF.</b> Certains prestataires demandent un PDF, d’autres une image par page ou par double page : <span class="ui">Préparer l’envoi…</span> sait produire les deux, avec les mêmes bordures, textes et fonds perdus.</div>
+  </div>
+
+  <h3>Préparer l’envoi à un prestataire</h3>
+  <p><span class="ui">Préparer l’envoi…</span> crée dans <i>Exports</i> un dossier « Envoi … » contenant les fichiers d’impression (PDF unique, ou JPEG par page ou par planche, à la résolution et avec les fonds perdus demandés), le projet <i>album.json</i> et une fiche <i>LISEZ-MOI.txt</i> : format fini, fonds perdus, résolution, profil de couleur, liste des fichiers et alertes à corriger. <b>Rien n’est envoyé</b> : vous déposez vous-même ces fichiers sur le site du prestataire.</p>
+  <p>Les trois profils fournis sont <b>génériques</b> (300 ppp, 3 mm de fonds perdus, sRGB) et ne reprennent les spécifications d’aucun prestataire. Pour le vôtre, créez un profil d’après sa documentation : format attendu, fonds perdus, <b>zone de sécurité</b>, nombre de pages minimal, maximal ou multiple, type de fichier, profil ICC (JPEG). Avant de préparer le dossier, la fenêtre liste les écarts : format différent, pages manquantes, photos ou légendes trop près du bord, résolution insuffisante.</p>
+  <figure><img src="img/album-envoi.jpg" alt="Préparer l'envoi"><figcaption>Choix du profil, contrôles, puis préparation du dossier.</figcaption></figure>
+
+  <h3>Tirages photo aux dimensions physiques</h3>
+  <p>Dans <span class="ui">Exporter…</span>, le champ <b>Dimensions d’impression</b> (10 × 15, 13 × 18, 20 × 30, A4, ou personnalisé en millimètres) et la <b>résolution</b> (300 ppp en général) fixent la taille exacte des fichiers en pixels ; la résolution est inscrite dans chaque fichier. <i>Remplir le format</i> recadre au centre, <i>Photo entière</i> ajoute des bandes blanches ; le format suit l’orientation de chaque photo. Pour chaque tirage, la <b>résolution effective</b> est calculée : en dessous de 150 ppp, elle est signalée comme insuffisante. Une fiche <i>LISEZ-MOI.txt</i> récapitule la commande ; le dossier est prêt à être déposé chez le laboratoire.</p>
+  <figure><img src="img/export-tirage.jpg" alt="Export aux dimensions physiques"><figcaption>Export « Tirage 13 × 18 cm » : dimensions, résolution, ajustement.</figcaption></figure>
 </section>
 
 <!-- ============================================================ 9. doublons -->

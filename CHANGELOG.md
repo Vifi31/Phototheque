@@ -4,6 +4,35 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.26.0] — 2026-11-07
+
+### Ajouté
+
+- Albums :
+  - **style de page** : bordure des photos (filet de 0 à 10 mm à l'intérieur des
+    cadres), couleur et **alignement** des textes (gauche, centré, droite) ;
+  - **modèles graphiques réutilisables** (fond + bordure + textes) : cinq
+    fournis, les vôtres enregistrés pour tous les albums, appliqués à une page
+    ou à tout l'album (annulable) ; une nouvelle page reprend le style de la
+    précédente ;
+  - **alignement** d'une photo dans son cadre (bords, coins, centre) dans le
+    recadrage ; les **guides** montrent aussi les axes du centre des pages.
+- **Préparer l'envoi** d'un album : dossier dans `Exports/` avec PDF unique ou
+  JPEG par page / par planche (résolution, fonds perdus, profil ICC), le projet
+  et une fiche LISEZ-MOI (spécifications, contrôles, fichiers). **Profils de
+  prestataire** enregistrables (format, fonds perdus, zone de sécurité, nombre
+  de pages, type de fichier) et contrôles avant préparation. Les profils fournis
+  sont génériques ; rien n'est envoyé.
+- Export de photos aux **dimensions physiques** : format en mm (10 × 15,
+  13 × 18, 20 × 30, A4, personnalisé), résolution inscrite dans le fichier,
+  recadrage ou photo entière, orientation suivie, **résolution effective**
+  calculée et signalée, fiche de commande LISEZ-MOI. Quatre profils « Tirage ».
+
+### Inchangé
+
+- Format de projet d'album : version 1 (champ `style` ajouté aux pages, ignoré
+  par les versions précédentes).
+
 ## [0.25.0] — 2026-11-07
 
 ### Ajouté

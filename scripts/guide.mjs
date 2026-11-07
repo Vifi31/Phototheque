@@ -133,6 +133,8 @@ async function fillLibrary() {
   // album
   const { album } = await api('/albums', 'POST', { name: 'Été 2023 en montagne', format: 'a4-paysage' });
   await api(`/albums/${album.id}/fill`, 'POST', { photoIds: rows.map(r => r.id).slice(0, 8), layout: 'deux-cote' });
+  await api(`/albums/${album.id}/style`, 'POST', { key: 'passe' }); // modèle graphique « Passe-partout »
+  await api(`/albums/${album.id}/pages/2`, 'PUT', { caption: 'Le lac au petit matin' });
   // doublons : empreintes visuelles
   const h = await api('/duplicates/hashes', 'POST', { all: true }); await waitJob(h.jobId);
   // une sauvegarde
@@ -302,6 +304,9 @@ export const SHOTS = ctx => [
   { name: 'metadonnees', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 1, 2]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click(); [...document.querySelectorAll('button')].find(b => b.textContent === 'Métadonnées…')?.click(); await new Promise(r => setTimeout(r, 700)); const g = document.querySelectorAll('#modalRoot .meta-grid > *'); const lab = [...g].findIndex(x => x.textContent === 'Ville'); g[1].value = 'fill'; g[1].onchange(); g[2].value = 'Vacances 2023'; g[lab + 1].value = 'set'; g[lab + 1].onchange(); g[lab + 2].value = 'Chamonix'; [...document.querySelectorAll('#modalRoot button')].find(b => b.textContent === 'Aperçu')?.click(); await new Promise(r => setTimeout(r, 900)); document.querySelector('#modalRoot .meta-out')?.scrollIntoView();` },
   { name: 'albums', js: `await App.go('albums');` },
   { name: 'album-editeur', js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album');` },
+  { name: 'album-style', js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album'); await new Promise(r => setTimeout(r, 600)); document.querySelectorAll('button[title^="Style de la page"]')[1]?.click(); await new Promise(r => setTimeout(r, 400));` },
+  { name: 'album-envoi', h: 1100, js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album'); await new Promise(r => setTimeout(r, 600)); [...document.querySelectorAll('button')].find(b => b.textContent.startsWith('Préparer l’envoi'))?.click(); await new Promise(r => setTimeout(r, 900));` },
+  { name: 'export-tirage', h: 1100, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 2]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click(); [...document.querySelectorAll('button')].find(b => b.textContent === 'Exporter…')?.click(); await new Promise(r => setTimeout(r, 800)); const s = document.querySelector('#modalRoot select'); s.value = [...s.options].find(o => o.textContent.startsWith('Tirage 13')).value; s.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 200));` },
   { name: 'retouche', h: 1500, js: `App.state.editPhotoId = ${JSON.stringify(ctx.lav.id)}; App.state.editBack = 'photos'; await App.go('retouche');` },
   { name: 'doublons', js: `await App.go('duplicates');` },
   { name: 'statistiques', js: `await App.go('stats');` },

@@ -1287,16 +1287,40 @@ const App = (() => {
     const iccSel = h('select', {}, ...Object.entries(meta.colorProfiles).map(([k, l]) => h('option', { value: k }, l)));
     const wmText = h('input', { type: 'text', placeholder: 'aucun' }), wmPos = h('select', {}, ...Object.entries(meta.positions).map(([k, l]) => h('option', { value: k }, l)));
     const naming = h('input', { type: 'text' }), folder = h('input', { type: 'text', placeholder: 'Export <date et heure>' });
+    // dimensions physiques (tirage) : format en mm, résolution, ajustement ; vide = export en pixels
+    const PRINT_SIZES = { '': 'Aucun (dimensions en pixels)', '100x150': '10 × 15 cm', '130x180': '13 × 18 cm', '150x200': '15 × 20 cm', '200x300': '20 × 30 cm', '210x297': 'A4 (21 × 29,7 cm)', '300x400': '30 × 40 cm', '300x450': '30 × 45 cm', custom: 'Personnalisé…' };
+    const pSize = h('select', {}, ...Object.entries(PRINT_SIZES).map(([k, l]) => h('option', { value: k }, l)));
+    const pW = h('input', { type: 'number', min: 10, max: 2000, step: 0.1, placeholder: 'largeur' }), pH = h('input', { type: 'number', min: 10, max: 2000, step: 0.1, placeholder: 'hauteur' });
+    const pDpi = h('input', { type: 'number', min: 72, max: 1200, value: 300 });
+    const pFit = h('select', {}, ...Object.entries(meta.printFits).map(([k, l]) => h('option', { value: k }, l)));
+    const pRot = h('input', { type: 'checkbox', checked: true });
+    const printInfo = h('small.dim');
+    const printFields = h('div.form', field('Largeur (mm)', pW), field('Hauteur (mm)', pH), field('Résolution (ppp)', pDpi), field('Ajustement', pFit));
+    const rotRow = h('div.row', { style: { gap: '14px' } }, h('label.row', { style: { gap: '6px' } }, pRot, 'Suivre l’orientation de chaque photo'), printInfo);
+    function syncPrint() {
+      const on = !!pSize.value; const custom = pSize.value === 'custom';
+      if (on && !custom) { const [w, hh] = pSize.value.split('x'); pW.value = w; pH.value = hh; }
+      pW.disabled = pH.disabled = !custom; maxSide.disabled = on;
+      printFields.style.display = rotRow.style.display = on ? '' : 'none';
+      const w = +pW.value, hh = +pH.value, d = +pDpi.value;
+      printInfo.textContent = on && w && hh && d ? `Fichiers de ${Math.round(w / 25.4 * d)} × ${Math.round(hh / 25.4 * d)} px ; résolution effective calculée pour chaque photo (alerte sous ${meta.printDpiLow} ppp).` : '';
+    }
+    for (const el of [pSize, pW, pH, pDpi]) el.addEventListener('input', syncPrint);
+    pSize.addEventListener('change', syncPrint);
     const status = h('div'), delBtn = h('button.ghost.small.danger', { hidden: true }, 'Supprimer ce profil');
     function fillSel(selected) { mount(sel, ...keyOf().map(k => h('option', { value: k, selected: k === selected }, (k.startsWith('s:') ? '★ ' : '') + profOf(k).name))); }
     function load(k) {
       const p = profOf(k); if (!p) return;
       fmt.value = p.format; quality.value = p.quality; maxSide.value = p.maxSide ?? ''; version.value = p.version; metaSel.value = p.metadata; iccSel.value = meta.colorProfiles[p.colorProfile] ? p.colorProfile : 'srgb';
       wmText.value = p.watermark.text; wmPos.value = p.watermark.position; naming.value = p.naming; folder.value = p.folder;
+      if (p.print) { const k = `${p.print.width_mm}x${p.print.height_mm}`; pSize.value = PRINT_SIZES[k] ? k : 'custom'; pW.value = p.print.width_mm; pH.value = p.print.height_mm; pDpi.value = p.print.dpi; pFit.value = p.print.fit; pRot.checked = p.print.rotate; }
+      else pSize.value = '';
+      syncPrint();
       delBtn.hidden = !k.startsWith('s:'); quality.disabled = !meta.formats[p.format].quality;
     }
     const current = () => ({ format: fmt.value, quality: +quality.value, maxSide: maxSide.value ? +maxSide.value : null, version: version.value, metadata: metaSel.value, colorProfile: iccSel.value,
-      watermark: { text: wmText.value, position: wmPos.value }, naming: naming.value, folder: folder.value });
+      watermark: { text: wmText.value, position: wmPos.value }, naming: naming.value, folder: folder.value,
+      print: pSize.value && +pW.value && +pH.value ? { width_mm: +pW.value, height_mm: +pH.value, dpi: +pDpi.value || 300, fit: pFit.value, rotate: pRot.checked } : null });
     sel.addEventListener('change', () => load(sel.value));
     fmt.addEventListener('change', () => { quality.disabled = !meta.formats[fmt.value].quality; });
     delBtn.addEventListener('click', async () => { await api('/exports/profiles/' + encodeURIComponent(sel.value.slice(2)), 'DELETE'); meta = await api('/exports/profiles'); fillSel('b:web'); load('b:web'); });
@@ -1312,7 +1336,11 @@ const App = (() => {
         do { await new Promise(r => setTimeout(r, 400)); job = (await api('/jobs/' + jobId)).job; mount(status, h('p.dim', `Export en cours… ${job.done ?? 0} / ${job.total || ids.length}`)); } while (job.status === 'running');
         if (job.status === 'error') throw new Error(job.error);
         const r = job.result;
+        const low = r.lowDpi ?? [];
         mount(status, h('p', `✓ ${r.files.length} fichier(s) · ${fmtBytes(r.bytes)}`, r.files[0]?.colorProfile ? ` · profil ${r.files[0].colorProfile}` : ''), h('p.dim', 'Dossier : ' + r.dir),
+          r.readme ? h('p.dim', `Fiche de commande : ${r.readme} (formats, résolution effective de chaque tirage). Dossier prêt à être déposé chez le laboratoire ; rien n’a été envoyé.`) : null,
+          low.filter(x => x.level === 'bad').length ? h('div.album-alert.bad', `${low.filter(x => x.level === 'bad').length} tirage(s) en résolution insuffisante (moins de ${meta.printDpiLow} ppp effectifs) : ${low.filter(x => x.level === 'bad').slice(0, 4).map(x => `${x.name} (${x.effectiveDpi} ppp)`).join(', ')}`) : null,
+          low.filter(x => x.level === 'warn').length ? h('div.album-alert.warn', `${low.filter(x => x.level === 'warn').length} tirage(s) en résolution limite : ${low.filter(x => x.level === 'warn').slice(0, 4).map(x => `${x.name} (${x.effectiveDpi} ppp)`).join(', ')}`) : null,
           r.fromPreview ? h('div.album-alert.warn', `${r.fromPreview} photo(s) exportée(s) depuis l’aperçu en cache (original indisponible ou RAW) : définition réduite.`) : null,
           ...r.errors.slice(0, 8).map(e => h('div.album-alert.bad', `${e.photoId.slice(0, 8)}… : ${e.error}`)));
         toast(`${r.files.length} photo(s) exportée(s)`);
@@ -1323,7 +1351,11 @@ const App = (() => {
     const m = modal({ title: 'Exporter', wide: true, body: h('div',
       h('div.form', field('Profil', sel)),
       h('div.form', field('Format', fmt), field('Qualité (JPEG, WebP)', quality), field('Plus grand côté (pixels)', maxSide)),
-      h('div.form', field('Version', version), field('Métadonnées', metaSel), field('Profil de couleur', iccSel, `Profils ICC d’un laboratoire : déposez les fichiers .icc dans ${meta.profilesDir}`)),
+      h('div.form', field('Dimensions d’impression', pSize)),
+      printFields,
+      rotRow,
+      h('div.form', field('Version', version), field('Métadonnées', metaSel), field('Profil de couleur', iccSel)),
+      h('p.dim', `Profils ICC d’un laboratoire : déposez les fichiers .icc dans ${meta.profilesDir}`),
       h('div.form', field('Filigrane (texte)', wmText), field('Position du filigrane', wmPos)),
       h('div.form', field('Nom des fichiers', naming), field('Sous-dossier', folder)),
       h('p.dim', `Modèles de nom : {nom} (fichier d’origine), {titre}, {date}, {n} (rang). Les fichiers vont dans ${meta.dir} ; un fichier existant n’est jamais écrasé et les originaux ne sont jamais modifiés.`),
@@ -1527,7 +1559,7 @@ const App = (() => {
   function openAlbum(id) { state.albumId = id; go('album'); }
 
   async function viewAlbum(v) {
-    await loadAlbumMeta();
+    albumMeta = await api('/albums'); // toujours à jour : modèles et profils de prestataire enregistrés
     let album = (await api('/albums/' + encodeURIComponent(state.albumId))).album;
     const L = albumMeta.layouts;
     const body = h('div.album-editor');
@@ -1616,9 +1648,14 @@ const App = (() => {
       stage.addEventListener('pointerup', stop); stage.addEventListener('pointercancel', stop);
       stage.addEventListener('wheel', e => { e.preventDefault(); crop.zoom = Math.min(5, Math.max(1, crop.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); draw(); }, { passive: false });
       zoom.addEventListener('input', () => { crop.zoom = +zoom.value; draw(); });
+      // alignement : bord gauche / centre / bord droit, haut / milieu / bas (le centre est ramené dans les limites)
+      const ALIGN9 = [['↖', 0, 0], ['↑', 0.5, 0], ['↗', 1, 0], ['←', 0, 0.5], ['•', 0.5, 0.5], ['→', 1, 0.5], ['↙', 0, 1], ['↓', 0.5, 1], ['↘', 1, 1]];
+      const NAMES = { 0: ['à gauche', 'en haut'], 0.5: ['au centre', 'au milieu'], 1: ['à droite', 'en bas'] };
+      const aligner = h('div.align9', ...ALIGN9.map(([t, x, y]) => h('button.ghost.small', { type: 'button', title: `Aligner la photo ${NAMES[x][0]}, ${NAMES[y][1]}`, onclick: () => { crop.x = x; crop.y = y; draw(); } }, t)));
       const m = modal({ title: `Recadrer — ${labelOf(n).toLowerCase()}, cadre ${s + 1}`, wide: true, body: h('div.crop-dialog',
         stage,
         h('div.row', h('span', 'Zoom'), zoom, info),
+        h('div.row', { style: { gap: '10px' } }, h('span', 'Aligner'), aligner, h('small.dim', 'Cale la partie visible sur un bord ou au centre de la photo (utile après un zoom).')),
         h('p.dim', 'Faites glisser la photo pour choisir la partie visible ; molette ou curseur pour zoomer. L’original n’est pas modifié.')), actions: [
         h('button.ghost', { onclick: () => { crop = { x: 0.5, y: 0.5, zoom: 1 }; draw(); } }, 'Réinitialiser'),
         h('button.ghost', { onclick: () => m.close() }, 'Annuler'),
@@ -1627,12 +1664,64 @@ const App = (() => {
       draw();
     }
 
+    // ---- Style d'une page et modèles graphiques réutilisables (lib/albums.mjs, STYLE_PRESETS) ----
+    function styleDialog(n) {
+      const pg = album.pages[n - 1], st = pg.style ?? { border: { width: 0, color: '#ffffff' }, textColor: null, align: 'center' };
+      const bg = h('input', { type: 'color', value: pg.background });
+      const bw = h('input', { type: 'number', min: 0, max: albumMeta.borderMax, step: 0.1, value: st.border.width });
+      const bc = h('input', { type: 'color', value: st.border.color });
+      const autoInk = h('input', { type: 'checkbox', checked: !st.textColor });
+      const ink = h('input', { type: 'color', value: st.textColor || inkOn(pg.background), disabled: !st.textColor });
+      autoInk.addEventListener('change', () => { ink.disabled = autoInk.checked; });
+      const align = h('select', {}, ...Object.entries(albumMeta.aligns).map(([k, l]) => h('option', { value: k, selected: k === st.align }, l)));
+      const model = () => ({ background: bg.value, border: { width: +bw.value || 0, color: bc.value }, textColor: autoInk.checked ? null : ink.value, align: align.value });
+      const models = h('select');
+      const delBtn = h('button.ghost.small.danger', { type: 'button' }, 'Supprimer le modèle');
+      function fillModels(selected) {
+        const S = albumMeta.styles;
+        mount(models, ...Object.entries(S.builtin).map(([k, v]) => h('option', { value: k, selected: k === selected }, v.name)),
+          ...Object.entries(S.saved).map(([k, v]) => h('option', { value: k, selected: k === selected }, '★ ' + v.name)));
+        delBtn.hidden = !S.saved[models.value];
+      }
+      const refreshMeta = async () => { albumMeta = await api('/albums'); };
+      models.addEventListener('change', () => { delBtn.hidden = !albumMeta.styles.saved[models.value]; });
+      delBtn.addEventListener('click', async () => {
+        const name = albumMeta.styles.saved[models.value]?.name; if (!name) return;
+        try { await api('/albums/styles/' + encodeURIComponent(models.value), 'DELETE'); await refreshMeta(); fillModels('classique'); toast(`Modèle « ${name} » supprimé`); } catch (e) { toast(e.message, 'bad'); }
+      });
+      const apply = async (payload, all) => { const r = await change('/style', 'POST', { ...payload, ...(all ? {} : { page: n }) }); if (r) { m.close(); toast(all ? 'Style appliqué à tout l’album' : `Style appliqué (${labelOf(n).toLowerCase()})`); } };
+      const saveBtn = h('button.ghost.small', { type: 'button', onclick: async () => {
+        const nm = prompt('Nom du modèle graphique'); if (!nm) return;
+        try { const r = await api('/albums/styles', 'POST', { ...model(), name: nm }); await refreshMeta(); fillModels(r.key); toast(`Modèle « ${r.model.name} » enregistré`); } catch (e) { toast(e.message, 'bad'); }
+      } }, 'Enregistrer ce style comme modèle…');
+      fillModels(Object.entries(albumMeta.styles.builtin).find(([, v]) => v.background === pg.background && v.border.width === st.border.width)?.[0] ?? 'classique');
+      const m = modal({ title: `Style — ${labelOf(n).toLowerCase()}`, wide: true, body: h('div',
+        h('div.sect', 'Cette page'),
+        h('div.form', field('Fond', bg), field('Bordure des photos (mm)', bw), field('Couleur de la bordure', bc)),
+        h('p.dim', `Bordure : 0 = aucune, ${albumMeta.borderMax} mm au plus ; filet tracé à l’intérieur de chaque cadre, sauf sur les pages à fond perdu (il serait rogné à la coupe).`),
+        h('div.form', field('Alignement des textes', align), field('Couleur des textes', h('div.row', { style: { gap: '8px' } }, h('label.row', { style: { gap: '4px' } }, autoInk, 'Automatique'), ink))),
+        h('div.row', { style: { gap: '8px' } },
+          h('button.small', { type: 'button', onclick: () => apply({ model: { ...model(), name: 'Style personnalisé' } }, false) }, 'Appliquer à cette page'),
+          h('button.ghost.small', { type: 'button', onclick: () => apply({ model: { ...model(), name: 'Style personnalisé' } }, true) }, 'Appliquer à toutes les pages'),
+          saveBtn),
+        h('div.sect', { style: { marginTop: '14px' } }, 'Modèles graphiques'),
+        h('div.form', field('Modèle', models)),
+        h('div.row', { style: { gap: '8px' } },
+          h('button.ghost.small', { type: 'button', onclick: () => apply({ key: models.value }, false) }, 'Appliquer à cette page'),
+          h('button.ghost.small', { type: 'button', onclick: () => apply({ key: models.value }, true) }, 'Appliquer à tout l’album'),
+          delBtn),
+        h('p.dim', 'Un modèle réunit le fond, la bordure des photos et le style des textes ; les modèles enregistrés (★) servent à tous les albums. Les nouvelles pages reprennent le style de la page qui les précède. Annulable (Ctrl+Z).')),
+        actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer')] });
+    }
+
     // side : 'left' ou 'right' dans la vue en planches (la feuille se colle au pli), sinon rien
     function pageView(pg, n, side = '') {
       const issues = album.issues.filter(i => i.page === n && i.level !== 'info');
       const lay = L[pg.layout], span = pg.span ?? 1, sw = album.width_mm * span;
       // largeur bornée pour qu'une page en hauteur ne dépasse pas 420 px de haut sans être déformée
-      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : '') + (span === 2 ? '.spread' : ''), { style: { aspectRatio: `${sw} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * sw / album.height_mm)}px)`, background: pg.background, color: inkOn(pg.background) } });
+      const st = pg.style ?? { border: { width: 0, color: '#ffffff' }, textColor: null, align: 'center' };
+      const sheet = h('div.album-page' + (state.albumGuides ? '.guides' : '') + (span === 2 ? '.spread' : ''), { style: { aspectRatio: `${sw} / ${album.height_mm}`, width: `min(100%, ${Math.round(420 * sw / album.height_mm)}px)`, background: pg.background, color: st.textColor || inkOn(pg.background) } });
+      if (state.albumGuides) sheet.appendChild(h('div.album-centre'));
       lay.frames.forEach((fr, s) => {
         const id = pg.slots[s], ph = id ? album.photos[id] : null;
         const bad = album.issues.find(i => i.page === n && i.slot === s && i.level !== 'info');
@@ -1649,6 +1738,8 @@ const App = (() => {
           const im = src ? h('img', { src, alt: ph.title || '', draggable: 'true', ondragstart: () => { drag = { page: n, slot: s }; } }) : null;
           if (im && ph.width && ph.height) Object.assign(im.style, imgStyle(cropBox(ph.width / ph.height, frameAspect(fr, pg), crop)));
           cell.appendChild(im ?? h('span', '🖼️'));
+          // bordure : même épaisseur relative que dans le PDF (mm rapportés à la largeur de la feuille)
+          if (st.border.width > 0 && !lay.fullBleed) cell.appendChild(h('div.frame-border', { style: { borderWidth: `calc(${(st.border.width / sw * 100).toFixed(4)}cqw)`, borderColor: st.border.color } }));
           if (crop) cell.appendChild(h('span.frame-cropped', { title: `Recadrée (zoom × ${crop.zoom.toFixed(2)})` }, '✂'));
           if (ph.edit) cell.appendChild(h('span.frame-edited', { title: `Version retouchée « ${ph.edit.name} » (modifiable dans la Retouche)` }, '✎'));
           cell.appendChild(h('div.frame-tools',
@@ -1657,8 +1748,8 @@ const App = (() => {
         } else cell.appendChild(h('span', id ? '⚠' : '+'));
         sheet.appendChild(cell);
       });
-      if (pg.layout === 'titre') sheet.appendChild(h('div.album-title', h('div.t1', pg.title || 'Titre'), pg.caption ? h('div.t2', pg.caption) : null));
-      else if (pg.caption && !lay.fullBleed) sheet.appendChild(h('div.album-caption', pg.caption));
+      if (pg.layout === 'titre') sheet.appendChild(h('div.album-title.al-' + st.align, h('div.t1', pg.title || 'Titre'), pg.caption ? h('div.t2', pg.caption) : null));
+      else if (pg.caption && !lay.fullBleed) sheet.appendChild(h('div.album-caption.al-' + st.align, pg.caption));
       // numéros des pages imprimées au coin extérieur : droite si impaire, gauche si paire
       if (!lay.fullBleed) for (let k = 0; k < span; k++) {
         const f = pg.folio + k, odd = f % 2 === 1, x0 = (k / span) * 100, x1 = ((k + 1) / span) * 100;
@@ -1676,6 +1767,7 @@ const App = (() => {
           h('div.row', h('b', label), h('div.spacer'),
             h('button.ghost.small', { disabled: n === 1, title: 'Avancer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n - 1 }) }, '↑'),
             h('button.ghost.small', { disabled: n === last, title: 'Reculer la page', onclick: () => change(pageUrl(n) + '/move', 'POST', { to: n + 1 }) }, '↓'),
+            h('button.ghost.small', { title: 'Style de la page : fond, bordures, textes, modèles', onclick: () => styleDialog(n) }, '🎨'),
             h('button.ghost.small', { title: 'Dupliquer la page', onclick: () => change(pageUrl(n) + '/duplicate', 'POST') }, '⧉'),
             h('button.ghost.small', { title: 'Supprimer la page', onclick: async () => { if (await confirmDialog('Supprimer la page', `Supprimer ${label.toLowerCase()} ? Les photos restent dans la photothèque.`)) change(pageUrl(n), 'DELETE'); } }, '🗑')),
           h('div.row', laySel, color),
@@ -1712,7 +1804,7 @@ const App = (() => {
           h('button.ghost.small', { disabled: !album.history?.undo, title: album.history?.undo ? `Annuler : ${album.history.undo} (Ctrl+Z)` : 'Rien à annuler', onclick: () => undoRedo('undo') }, '↶ Annuler'),
           h('button.ghost.small', { disabled: !album.history?.redo, title: album.history?.redo ? `Rétablir : ${album.history.redo} (Ctrl+Y)` : 'Rien à rétablir', onclick: () => undoRedo('redo') }, '↷ Rétablir'),
           h('label.row', { style: { gap: '6px' }, title: 'Présenter les pages en vis-à-vis, comme dans le livre (la page 1 est seule, à droite)' }, spreads, 'Vue en planches'),
-          h('label.row', { style: { gap: '6px' } }, guides, 'Marges de sécurité')),
+          h('label.row', { style: { gap: '6px' }, title: 'Marges de sécurité (pointillés rouges) et repères du centre de la page' }, guides, 'Guides')),
         alerts.length || empties ? card(h('div.sect', alerts.length ? `⚠ ${alerts.length} alerte(s)` : 'Contrôles'),
           ...alerts.map(i => h('div.album-alert.' + i.level, i.message)),
           empties ? h('p.dim', `${empties} cadre(s) vide(s).`) : null) : null,
@@ -1825,6 +1917,87 @@ const App = (() => {
         status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), go2] });
     }
 
+    // ---- Dossier prêt à envoyer chez un prestataire (lib/albumpdf.mjs, sendFolder) : rien n'est transmis ----
+    function sendDialog() {
+      const sel = h('select'), specs = h('div'), checks = h('div'), status = h('div');
+      const svcOf = k => albumMeta.services.builtin[k] ?? albumMeta.services.saved[k];
+      function fill(selected) {
+        const S = albumMeta.services;
+        mount(sel, ...Object.entries(S.builtin).map(([k, v]) => h('option', { value: k, selected: k === selected }, v.name)),
+          ...Object.entries(S.saved).map(([k, v]) => h('option', { value: k, selected: k === selected }, '★ ' + v.name)));
+      }
+      const mm = v => String(v).replace('.', ',');
+      async function show() {
+        const v = svcOf(sel.value); if (!v) return;
+        mount(specs, h('p.dim', [albumMeta.serviceOutputs[v.output], albumMeta.serviceLayouts[v.layout].toLowerCase(), `${v.dpi} ppp`, v.bleed_mm ? `fonds perdus ${mm(v.bleed_mm)} mm` : 'sans fonds perdus',
+          v.output === 'jpeg' ? `JPEG qualité ${v.jpegQuality}` : null, v.colorProfile.startsWith('file:') ? 'profil ' + v.colorProfile.slice(5) : 'sRGB',
+          v.width_mm ? `format ${v.width_mm} × ${v.height_mm} mm` : null, v.safety_mm ? `zone de sécurité ${mm(v.safety_mm)} mm` : null,
+          v.minPages || v.maxPages ? `${v.minPages ?? 1} à ${v.maxPages ?? '…'} pages` : null, v.pageMultiple ? `multiple de ${v.pageMultiple}` : null].filter(Boolean).join(' · ')),
+          v.notes ? h('p.dim', 'Notes : ' + v.notes) : null);
+        delBtn.hidden = !albumMeta.services.saved[sel.value]; editBtn.textContent = albumMeta.services.saved[sel.value] ? 'Modifier ce profil…' : 'Nouveau profil d’après celui-ci…';
+        try {
+          const r = await api('/albums/' + encodeURIComponent(album.id) + '/send/check', 'POST', { service: sel.value });
+          mount(checks, r.issues.length ? h('div', ...r.issues.map(i => h('div.album-alert.' + (i.level === 'info' ? 'info' : i.level), i.message))) : h('p', '✓ Aucune alerte pour ce profil.'));
+        } catch (e) { mount(checks, h('div.album-alert.bad', e.message)); }
+      }
+      const delBtn = h('button.ghost.small.danger', { type: 'button', onclick: async () => {
+        const name = albumMeta.services.saved[sel.value]?.name; if (!name) return;
+        await api('/albums/services/' + encodeURIComponent(sel.value), 'DELETE'); albumMeta = await api('/albums'); fill('generique-pdf'); show(); toast(`Profil « ${name} » supprimé`);
+      } }, 'Supprimer ce profil');
+      const editBtn = h('button.ghost.small', { type: 'button', onclick: () => serviceForm(svcOf(sel.value), !!albumMeta.services.saved[sel.value]) });
+      const form = h('div');
+      function serviceForm(v, editing) {
+        const inp = (val, o = {}) => h('input', { type: 'number', value: val ?? '', ...o });
+        const name = h('input', { type: 'text', value: editing ? v.name : '', placeholder: 'ex. : nom du prestataire — livre 30 × 30' });
+        const output = h('select', {}, ...Object.entries(albumMeta.serviceOutputs).map(([k, l]) => h('option', { value: k, selected: k === v.output }, l)));
+        const layout = h('select', {}, ...Object.entries(albumMeta.serviceLayouts).map(([k, l]) => h('option', { value: k, selected: k === v.layout }, l)));
+        const dpi = inp(v.dpi, { min: 100, max: 600 }), bleed = inp(v.bleed_mm, { min: 0, max: 10, step: 0.5 }), q = inp(v.jpegQuality, { min: 60, max: 100 });
+        const icc = h('select', {}, ...Object.entries(albumMeta.colorProfiles).map(([k, l]) => h('option', { value: k, selected: k === v.colorProfile }, l)));
+        const w = inp(v.width_mm, { min: 50, max: 1000, placeholder: 'libre' }), hh = inp(v.height_mm, { min: 50, max: 1000, placeholder: 'libre' }), safe = inp(v.safety_mm, { min: 0, max: 30, step: 0.5 });
+        const minP = inp(v.minPages, { min: 1, max: 1000, placeholder: '—' }), maxP = inp(v.maxPages, { min: 1, max: 1000, placeholder: '—' }), mult = inp(v.pageMultiple, { min: 1, max: 16, placeholder: '—' });
+        const notes = h('textarea', { rows: 2, placeholder: 'adresse du site, références, consignes…' }, v.notes || '');
+        mount(form, card(h('div.sect', editing ? 'Modifier le profil' : 'Nouveau profil de prestataire'),
+          h('p.dim', 'Reportez ici les spécifications publiées par le prestataire (format, fonds perdus, zone de sécurité, nombre de pages, type de fichier).'),
+          h('div.form', field('Nom', name)),
+          h('div.form', field('Fichiers', output), field('Disposition', layout), field('Résolution (ppp)', dpi)),
+          h('div.form', field('Fonds perdus (mm)', bleed), field('Qualité JPEG', q), field('Profil de couleur (JPEG)', icc)),
+          h('div.form', field('Largeur attendue (mm)', w), field('Hauteur attendue (mm)', hh), field('Zone de sécurité (mm)', safe)),
+          h('div.form', field('Pages au minimum', minP), field('Pages au maximum', maxP), field('Multiple de', mult)),
+          field('Notes', notes),
+          h('div.row', { style: { gap: '8px' } }, h('button.small', { type: 'button', onclick: async () => {
+            try {
+              const r = await api('/albums/services', 'POST', { name: name.value, output: output.value, layout: layout.value, dpi: +dpi.value, bleed_mm: +bleed.value, jpegQuality: +q.value, colorProfile: icc.value,
+                width_mm: w.value ? +w.value : null, height_mm: hh.value ? +hh.value : null, safety_mm: +safe.value || 0, minPages: minP.value ? +minP.value : null, maxPages: maxP.value ? +maxP.value : null, pageMultiple: mult.value ? +mult.value : null, notes: notes.value });
+              albumMeta = await api('/albums'); fill(r.key); mount(form); show(); toast(`Profil « ${r.service.name} » enregistré`);
+            } catch (e) { toast(e.message, 'bad'); }
+          } }, 'Enregistrer le profil'), h('button.ghost.small', { type: 'button', onclick: () => mount(form) }, 'Annuler'))));
+      }
+      sel.addEventListener('change', show);
+      const go2 = h('button', { onclick: async () => {
+        go2.disabled = true; mount(status, h('p.dim', 'Préparation du dossier…'));
+        try {
+          const { jobId } = await api('/albums/' + encodeURIComponent(album.id) + '/send', 'POST', { service: sel.value });
+          let job;
+          do { await new Promise(r => setTimeout(r, 500)); job = (await api('/jobs/' + jobId)).job; mount(status, h('p.dim', `Préparation… ${job.done ?? 0} / ${job.total || '?'} fichier(s) de page`)); } while (job.status === 'running');
+          if (job.status === 'error') throw new Error(job.error);
+          const r = job.result, bad = r.issues.filter(i => i.level === 'bad').length;
+          mount(status, h('p', `✓ Dossier prêt : ${r.files.length} fichier(s) d’impression · ${fmtBytes(r.bytes)} · ${r.pages} page(s)`), h('p.dim', 'Dossier : ' + r.dir),
+            h('p.dim', 'Il contient aussi LISEZ-MOI.txt (spécifications, contrôles, liste des fichiers) et album.json (le projet). Rien n’a été envoyé : déposez ces fichiers vous-même sur le site du prestataire.'),
+            bad ? h('div.album-alert.bad', `${bad} alerte(s) à corriger avant l’envoi (voir LISEZ-MOI.txt).`) : null, ...pdfSummary(r).slice(1));
+          toast('Dossier d’envoi préparé');
+        } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+        go2.disabled = false;
+      } }, 'Préparer le dossier');
+      fill('generique-pdf');
+      const m = modal({ title: 'Préparer l’envoi à un prestataire', wide: true, body: h('div',
+        h('div.form', field('Profil du prestataire', sel)), specs,
+        h('div.row', { style: { gap: '8px' } }, editBtn, delBtn), form,
+        h('div.sect', { style: { marginTop: '10px' } }, 'Contrôles'), checks,
+        h('p.dim', `Le dossier est créé dans ${albumMeta.exportDir} : fichiers d’impression (PDF ou JPEG par page), fiche LISEZ-MOI et projet. Les profils intégrés sont génériques (300 ppp, 3 mm de fonds perdus, sRGB) et ne reprennent les spécifications d’aucun prestataire : pour un prestataire donné, créez un profil d’après sa documentation.`),
+        status), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer'), go2] });
+      show();
+    }
+
     const title = h('h2.page-title', album.name);
     mount(v,
       h('div.row', title, h('div.spacer'),
@@ -1834,6 +2007,7 @@ const App = (() => {
         h('button.ghost.small', { onclick: () => { state.q = ''; state.facet = { albumId: album.id }; state.page = 0; go('photos'); } }, 'Voir ses photos'),
         h('button.ghost.small', { onclick: previewPdf }, 'Aperçu'),
         h('button.small', { onclick: exportPdf }, 'Exporter en PDF…'),
+        h('button.ghost.small', { onclick: sendDialog, title: 'Fichiers d’impression + fiche de contrôle dans un dossier, selon le profil du prestataire' }, 'Préparer l’envoi…'),
         h('a.btn.ghost.small', { href: '/api' + base + '/export', download: '' }, 'Exporter le projet'),
         h('button.danger.small', { onclick: async () => { if (await confirmDialog("Supprimer l'album", `Supprimer « ${album.name} » ? Les photos restent dans la photothèque ; seul l'album disparaît.`)) { await api(base, 'DELETE'); toast('Album supprimé (photos conservées)'); go('albums'); } } }, 'Supprimer')),
       body);

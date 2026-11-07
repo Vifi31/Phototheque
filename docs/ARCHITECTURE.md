@@ -679,3 +679,37 @@ les confirmations se font par un second clic sur le bouton, pas par
   l'original : l'indexation la rattache à la même photo comme copie.
   Routes : `POST /api/photos/:id/external`, `GET|PUT /api/external`,
   `POST /api/external/index`.
+
+## 23. Albums : styles, modèles, envoi au prestataire ; tirages aux dimensions physiques (v0.26.0)
+
+* **Style de page** (`lib/albums.mjs`, `cleanStyle`) : `album_pages.data.style =
+  { border: { width (mm, 0–10), color }, textColor (null = selon le fond), align }`.
+  La bordure est un filet intérieur au cadre, à sa position nominale (hors fonds
+  perdus), omis sur les gabarits `fullBleed`. Même calcul dans l'éditeur (largeur
+  en `cqw`, la feuille est un conteneur `inline-size`), le PDF et le JPEG.
+  `updatePage` accepte un style partiel (`mergeStyle`). Le champ voyage dans le
+  projet exporté (format 1 inchangé) et est nettoyé au réimport.
+* **Modèles graphiques** : `STYLE_PRESETS` (5) + modèles enregistrés (table config,
+  clé `album.styles`) ; `applyStyle(id, clé | modèle, { page })` passe par
+  `mutate()` (annulable). `blankPage` reprend fond et style de la page précédente.
+  Routes : `POST /api/albums/styles`, `DELETE /api/albums/styles/<clé>`,
+  `POST /api/albums/<id>/style`.
+* **Rendu raster** (`lib/raster.mjs`, `RasterCanvas`) : même interface que
+  `PageContent` ; aplats et textes regroupés en calques SVG, images en calques
+  rognés au clip, composés par sharp. `albumpdf.render` accepte `output: 'jpeg'`,
+  `dir`, `dpi`, `jpeg`, `bleedMm`, `colorProfile`, `onProgress`, `record`.
+* **Prestataires** (`lib/albumpdf.mjs`) : `BUILTIN_SERVICES` génériques,
+  `cleanService`, `checkService` (format, pages min / max / multiple, zone de
+  sécurité comparée aux distances au bord des cadres — 6 % —, des légendes et des
+  folios, profil ICC présent). `sendFolder` → `Exports/Envoi <album> <date>/` :
+  `album.pdf` ou `pages/`, `album.json`, `LISEZ-MOI.txt` (UTF-8 avec BOM, fins de
+  ligne Windows). Routes : `POST|DELETE /api/albums/services…`,
+  `POST /api/albums/<id>/send/check`, `POST /api/albums/<id>/send` (travail suivi
+  par `/api/jobs`).
+* **Tirages** (`lib/exports.mjs`) : `print = { width_mm, height_mm, dpi, fit:
+  fill|fit, rotate }` (`cleanPrint`). Le rendu est repris d'un tampon brut avant le
+  redimensionnement exact (un second `resize` sur la même chaîne remplacerait le
+  premier ; le tampon ne porte aucune métadonnée, donc `withMetadata({ density })`
+  ne ramène pas le GPS de l'original). Résolution effective = dpi / échelle,
+  `bad` sous 150 ppp, `warn` sous 80 % du dpi visé. Fiche `LISEZ-MOI.txt` (nom
+  unique, jamais écrasée).
