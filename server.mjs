@@ -85,6 +85,7 @@ function filtersFrom(sp) {
   // listes séparées par des virgules (ET / OU / NON)
   const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };
   for (const k of ['keywords', 'anyKeywords', 'excludeKeywords', 'anyText', 'excludeText']) if (list(k)) f[k] = list(k);
+  if (sp.get('ids') != null) f.ids = list('ids') ?? [];
   return f;
 }
 
@@ -277,6 +278,11 @@ async function api(req, res, url) {
       else if (sp.get('params')) { try { params = JSON.parse(sp.get('params')); } catch { return json(res, 400, { error: 'Réglages illisibles' }); } }
       const file = await edits.preview(id, params, { size: sp.get('size'), noCrop: sp.get('nocrop') === '1' });
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600' });
+      return fs.createReadStream(file).pipe(res);
+    }
+    if (sub === 'full' && m === 'GET') {
+      const file = await library.fullImage(id); if (!file) return json(res, 404, { error: 'Aucune image lisible pour cette photo' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=600' });
       return fs.createReadStream(file).pipe(res);
     }
     if (!sub && m === 'GET') { const d = library.detail(id); return d ? json(res, 200, { photo: d }) : json(res, 404, { error: 'Photo inconnue' }); }

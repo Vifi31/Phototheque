@@ -100,20 +100,67 @@ const UI = (() => {
   }
 
   // ---------- visionneuse ----------
-  let lbState = { list: [], index: 0, onNav: null };
-  function lightboxOpen(list, index, onNav, actions) {
-    lbState = { list, index, onNav, actions };
+  // `opts` (facultatif) : { fullUrl(p, showOriginal) → image pleine définition pour le zoom,
+  //   info(p) → élément (ou promesse) du panneau d'informations, onKey(e, p) → true si la touche est traitée,
+  //   onClose() }
+  let lbState = { list: [], index: 0, onNav: null, opts: {} };
+  const LB_INFO_KEY = 'phototheque.lbInfo';
+  function lightboxOpen(list, index, onNav, actions, opts = {}) {
+    let info = false; try { info = localStorage.getItem(LB_INFO_KEY) === '1'; } catch { /* préférence absente */ }
+    lbState = { list, index, onNav, actions, opts, info };
     const box = document.getElementById('lightbox');
     box.hidden = false;
     renderLb();
   }
-  function renderLb() {
+  /** Rafraîchit la photo affichée (après une note, un mot-clé…), sans changer de photo. */
+  function lightboxUpdate(p) { if (lbState.list[lbState.index]?.id === p.id) { lbState.list[lbState.index] = { ...lbState.list[lbState.index], ...p }; renderLb(true); } }
+
+  /** Attend le chargement d'une image (load / error) ; decode() peut ne jamais aboutir dans une page masquée. */
+  const loadImage = im => im.complete && im.naturalWidth ? Promise.resolve(im) : new Promise((ok, ko) => { im.addEventListener('load', () => ok(im), { once: true }); im.addEventListener('error', () => ko(new Error('Image illisible')), { once: true }); });
+  // ---- zoom : « ajusté » (fit) ou échelle de l'image pleine définition, déplacement à la souris ----
+  const zoom = { scale: 0, nat: null, url: '' }; // scale 0 = ajusté
+  const stage = () => document.getElementById('lbStage');
+  function zoomReset() { zoom.scale = 0; zoom.nat = null; zoom.url = ''; const img = document.getElementById('lbImg'); img.style.width = ''; img.style.height = ''; document.getElementById('lightbox').classList.remove('zoomed'); updateZoomLabel(); }
+  function fitScale() { const st = stage(), n = zoom.nat; if (!n) return 1; return Math.min(1, (st.clientWidth || innerWidth) / n.w, (st.clientHeight || innerHeight) / n.h); }
+  /** Zoome à `scale` (1 = 100 % de l'image pleine définition) en gardant le point (cx, cy) de l'écran sous la souris. */
+  async function zoomTo(scale, cx = innerWidth / 2, cy = innerHeight / 2) {
+    const p = lbState.list[lbState.index]; if (!p) return;
+    const img = document.getElementById('lbImg'), st = stage(), box = document.getElementById('lightbox');
+    const url = lbState.opts.fullUrl?.(p, !!lbState.showOriginal) || img.src;
+    if (zoom.url !== url) {
+      // image pleine définition : chargée une fois, puis affichée à la taille voulue
+      const full = new Image(); full.src = url;
+      try { await loadImage(full); } catch { return; }
+      if (lbState.list[lbState.index] !== p) return;
+      zoom.url = url; zoom.nat = { w: full.naturalWidth, h: full.naturalHeight };
+      img.src = url;
+    }
+    const before = box.classList.contains('zoomed') ? img.getBoundingClientRect() : null;
+    // « auto » : 100 % de l'image pleine définition, ou le double de l'affichage ajusté si elle tient déjà à l'écran
+    if (scale === 'auto') scale = fitScale() < 0.9 ? 1 : fitScale() * 2;
+    const s = Math.max(fitScale(), Math.min(4, scale));
+    if (s <= fitScale() + 1e-6) { zoomReset(); renderLb(true); return; }
+    // point visé, en fraction de l'image, avant le changement d'échelle
+    const r0 = before ?? img.getBoundingClientRect();
+    const fx = Math.min(1, Math.max(0, (cx - r0.left) / (r0.width || 1))), fy = Math.min(1, Math.max(0, (cy - r0.top) / (r0.height || 1)));
+    zoom.scale = s; box.classList.add('zoomed');
+    img.style.width = Math.round(zoom.nat.w * s) + 'px'; img.style.height = Math.round(zoom.nat.h * s) + 'px';
+    const sr = st.getBoundingClientRect();
+    st.scrollLeft = fx * img.offsetWidth - (cx - sr.left);
+    st.scrollTop = fy * img.offsetHeight - (cy - sr.top);
+    updateZoomLabel();
+  }
+  function updateZoomLabel() { const b = document.getElementById('lbZoom'); if (b) b.textContent = zoom.scale ? `${Math.round(zoom.scale * 100)} %` : 'Ajusté'; }
+  function zoomToggle(cx, cy) { if (zoom.scale) { zoomReset(); renderLb(true); } else zoomTo('auto', cx, cy); }
+
+  function renderLb(keepZoom = false) {
     const { list, index } = lbState;
     const p = list[index]; if (!p) return;
+    if (!keepZoom) zoomReset();
     const img = document.getElementById('lbImg');
     // version retouchée par défaut (p.edit) montrée d'abord ; « Voir l'original » bascule sans rien modifier
     const shown = p.original && lbState.showOriginal ? { ...p, ...p.original } : p;
-    img.src = shown.preview || shown.thumb || '';
+    if (!zoom.scale) img.src = shown.preview || shown.thumb || '';
     img.alt = p.title || p.path || 'photo';
     document.getElementById('lbMeta').innerHTML = '';
     document.getElementById('lbMeta').append(
@@ -125,28 +172,70 @@ const UI = (() => {
       h('button.ghost.small', { onclick: () => { lbState.showOriginal = !lbState.showOriginal; renderLb(); } }, lbState.showOriginal ? 'Voir la version retouchée' : 'Voir l’original')));
     // boutons propres à l'appelant (ex. « Retoucher », « Exporter… »)
     const acts = lbState.actions?.(p) ?? [];
-    if (acts.length) document.getElementById('lbMeta').append(h('div.lb-actions', ...acts));
+    const tools = h('div.lb-actions',
+      h('button.ghost.small', { id: 'lbZoom', title: 'Zoom : double-clic, molette, touche Z (100 % de l’image pleine définition)', onclick: () => zoomToggle() }, 'Ajusté'),
+      lbState.opts.info ? h('button.ghost.small' + (lbState.info ? '.on' : ''), { title: 'Informations (touche I)', onclick: toggleInfo }, 'ⓘ Informations') : null,
+      ...acts);
+    document.getElementById('lbMeta').append(tools);
+    updateZoomLabel();
     document.getElementById('lbPrev').style.display = index > 0 ? '' : 'none';
     document.getElementById('lbNext').style.display = index < list.length - 1 ? '' : 'none';
+    renderInfo(p);
   }
+  // ---- panneau d'informations (fiche complète fournie par l'appelant) ----
+  let infoSeq = 0;
+  async function renderInfo(p) {
+    const panel = document.getElementById('lbInfo'); if (!panel) return;
+    const on = !!(lbState.info && lbState.opts.info);
+    panel.hidden = !on; document.getElementById('lightbox').classList.toggle('with-info', on);
+    if (!on) return;
+    const seq = ++infoSeq;
+    panel.replaceChildren(h('p.dim', 'Chargement…'));
+    try { const el = await lbState.opts.info(p); if (seq === infoSeq) panel.replaceChildren(el); }
+    catch (e) { if (seq === infoSeq) panel.replaceChildren(h('p.dim', e.message)); }
+  }
+  function toggleInfo() { lbState.info = !lbState.info; try { localStorage.setItem(LB_INFO_KEY, lbState.info ? '1' : '0'); } catch { /* préférence non gardée */ } renderLb(true); }
   function lbStep(d) {
     const n = lbState.index + d;
     if (n < 0 || n >= lbState.list.length) return;
     lbState.index = n; renderLb(); lbState.onNav?.(n);
   }
-  function lightboxClose() { document.getElementById('lightbox').hidden = true; }
+  function lightboxClose() { const box = document.getElementById('lightbox'); if (box.hidden) return; box.hidden = true; zoomReset(); lbState.opts.onClose?.(); }
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lbClose')?.addEventListener('click', lightboxClose);
     document.getElementById('lbPrev')?.addEventListener('click', () => lbStep(-1));
     document.getElementById('lbNext')?.addEventListener('click', () => lbStep(1));
+    const st = stage(), img = document.getElementById('lbImg');
+    img?.addEventListener('dblclick', e => zoomToggle(e.clientX, e.clientY));
+    st?.addEventListener('wheel', e => {
+      e.preventDefault();
+      const cur = zoom.scale || fitScale();
+      zoomTo(e.deltaY < 0 ? cur * 1.25 : cur / 1.25, e.clientX, e.clientY);
+    }, { passive: false });
+    // déplacement à la souris quand l'image est agrandie
+    let drag = null;
+    st?.addEventListener('mousedown', e => { if (!zoom.scale || e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, l: st.scrollLeft, t: st.scrollTop }; st.classList.add('dragging'); e.preventDefault(); });
+    addEventListener('mousemove', e => { if (!drag) return; st.scrollLeft = drag.l - (e.clientX - drag.x); st.scrollTop = drag.t - (e.clientY - drag.y); });
+    addEventListener('mouseup', () => { drag = null; st?.classList.remove('dragging'); });
     document.addEventListener('keydown', e => {
       const box = document.getElementById('lightbox');
       if (!box || box.hidden) return;
-      if (e.key === 'Escape') lightboxClose();
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { if (e.key === 'Escape') e.target.blur(); return; }
+      const p = lbState.list[lbState.index];
+      if (lbState.opts.onKey?.(e, p)) { e.preventDefault(); return; }
+      if (e.key === 'Escape') { if (zoom.scale) { zoomReset(); renderLb(true); } else lightboxClose(); }
       else if (e.key === 'ArrowLeft') lbStep(-1);
       else if (e.key === 'ArrowRight') lbStep(1);
+      else if (e.key === 'Home') { lbState.index = 0; renderLb(); lbState.onNav?.(0); }
+      else if (e.key === 'End') { lbState.index = lbState.list.length - 1; renderLb(); lbState.onNav?.(lbState.index); }
+      else if (e.key === 'z' || e.key === 'Z') zoomToggle();
+      else if (e.key === '+' || e.key === '=') zoomTo((zoom.scale || fitScale()) * 1.25);
+      else if (e.key === '-') zoomTo((zoom.scale || fitScale()) / 1.25);
+      else if ((e.key === 'i' || e.key === 'I') && lbState.opts.info) toggleInfo();
+      else return;
+      e.preventDefault();
     });
   });
 
-  return { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose };
+  return { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate, loadImage };
 })();

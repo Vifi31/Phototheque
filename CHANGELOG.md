@@ -4,6 +4,27 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.24.0] — 2026-11-07
+
+### Ajouté
+
+- **Grille** : quatre tailles de vignettes (S, M, L, XL), vignettes carrées ou
+  images entières, 60 / 120 / 240 photos par page ; choix mémorisés.
+- **Visionneuse** :
+  - zoom (double-clic, molette, Z, + / -) sur l'image **pleine définition**
+    (original redressé, plafonné à 6 000 px, petit cache de 40 images ; version
+    retouchée jusqu'à 3 000 px), déplacement à la souris ;
+  - panneau **Informations** (touche I) : note et étiquette cliquables,
+    mots-clés avec saisie (K), prise de vue, couleur, lieu, fichiers ;
+  - **classement rapide** au clavier : 0–5 note, 6–9 étiquette, Début / Fin.
+- **Comparaison côte à côte** de 2 à 4 photos (sélection, visionneuse, outil
+  Doublons) : zoom et déplacement synchronisés, note sous chaque photo.
+- **Historique de navigation** : boutons ‹ › (et Alt+← / Alt+→) qui rétablissent
+  l'écran, les filtres, la recherche et la page.
+- **Récemment vues** : les 60 dernières photos ouvertes dans la visionneuse.
+- Critère `ids` (liste explicite de photos), jamais enregistré dans une
+  recherche ; route `GET /api/photos/:id/full`.
+
 ## [0.23.0] — 2026-11-07
 
 ### Ajouté

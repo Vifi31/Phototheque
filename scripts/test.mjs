@@ -1468,6 +1468,35 @@ group('Métadonnées : XMP annexes, priorité, aperçu, annulation');
   LIB.removeFromIndex([pa, pb, idOf(fc)]);
 }
 
+// ===================================================================
+group('Navigation : liste explicite, image pleine définition');
+// ===================================================================
+{
+  const all = LIB.search({}, { limit: 3 }).rows.map(p => p.id);
+  check('liste explicite : seulement ces photos', LIB.search({ ids: all.slice(0, 2) }, { limit: 50 }).total, 2, 0);
+  check('liste explicite en texte (paramètre d’URL)', LIB.search({ ids: all.slice(0, 2).join(',') }, { limit: 50 }).total, 2, 0);
+  check('liste explicite vide : aucune photo', LIB.search({ ids: [] }, { limit: 50 }).total, 0, 0);
+  check('liste explicite jamais enregistrée', Search.cleanFilters({ ids: all.join(','), rating: 3 }).ids, undefined);
+  const dir = path.join(TMP, 'zoom'); fs.mkdirSync(dir, { recursive: true });
+  const big = path.join(dir, 'grande.jpg');
+  await makeImage(big, { w: 2400, h: 1600 });
+  await LIB.indexFile(big, {});
+  const id = DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(big).photo_id;
+  const full = await LIB.fullImage(id);
+  const m = await sharp(full).metadata();
+  check('pleine définition : dimensions de l’original', `${m.width}x${m.height}`, '2400x1600');
+  check('pleine définition : en cache, hors du dossier de l’original', full.startsWith(path.join(TMP, 'data')) && !full.startsWith(dir), true, 0);
+  check('pleine définition : cache réutilisé', await LIB.fullImage(id), full);
+  const before = fs.readFileSync(big);
+  fs.renameSync(big, big + '.absent');
+  const fb = await LIB.fullImage(id);
+  check('original absent : repli sur l’aperçu', !!fb && fb !== full, true, 0);
+  fs.renameSync(big + '.absent', big);
+  check('original intact', Buffer.compare(before, fs.readFileSync(big)), 0, 0);
+  check('photo inconnue : rien', await LIB.fullImage('inconnue'), null);
+  LIB.removeFromIndex([id]);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

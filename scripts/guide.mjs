@@ -290,7 +290,8 @@ async function preview(b) {
 // ------------------------------------------------------------------ déroulé
 export const SHOTS = ctx => [
   { name: 'phototheque', h: 1180, js: `await App.go('photos');` },
-  { name: 'visionneuse', js: `await App.go('photos'); await new Promise(r => setTimeout(r, 600)); document.querySelectorAll('.photo-cell')[0]?.click();` },
+  { name: 'visionneuse', js: `localStorage.setItem('phototheque.lbInfo', '1'); await App.go('photos'); await new Promise(r => setTimeout(r, 600)); document.querySelectorAll('.photo-cell')[0]?.click(); await new Promise(r => setTimeout(r, 900));` },
+  { name: 'comparaison', js: `localStorage.setItem('phototheque.lbInfo', '0'); await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 2, 3]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click(); [...document.querySelectorAll('button')].find(b => b.textContent === 'Comparer')?.click(); await new Promise(r => setTimeout(r, 1500));` },
   { name: 'recherche', js: `await App.go('photos'); await new Promise(r => setTimeout(r, 400)); const d = [...document.querySelectorAll('details')].find(x => /Recherche avancée/.test(x.textContent)); if (d) d.open = true; else [...document.querySelectorAll('summary, button')].find(b => /Recherche avancée/.test(b.textContent))?.click(); await new Promise(r => setTimeout(r, 300)); d?.scrollIntoView();` },
   { name: 'planche-dialogue', js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); [...document.querySelectorAll('button')].find(b => b.textContent.startsWith('Planches, catalogues'))?.click();` },
   { name: 'selection', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 2, 3]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click();` },

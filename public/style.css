@@ -401,3 +401,52 @@ button.on { outline: 2px solid var(--accent); }
 .meta-new { color: var(--ok); font-weight: 600; }
 p.bad { color: var(--bad); }
 @media screen and (max-width: 700px) { .meta-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Visionneuse : zoom et panneau d'informations ---------- */
+.lb-stage { width: 92vw; height: calc(92vh - 96px); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.lb-stage img { max-width: 100%; max-height: 100%; user-select: none; }
+.lightbox.with-info .lb-stage, .lightbox.with-info .lb-meta { width: calc(92vw - 340px); margin-right: 340px; }
+.lightbox.zoomed .lb-stage { display: grid; place-items: safe center; overflow: auto; cursor: grab; }
+.lightbox.zoomed .lb-stage.dragging { cursor: grabbing; }
+.lightbox.zoomed .lb-stage img { max-width: none; max-height: none; border-radius: 0; }
+.lb-info { position: absolute; top: 0; right: 0; bottom: 0; width: 330px; background: var(--surface); color: var(--text); border-left: 1px solid var(--border); overflow: auto; padding: 18px 16px 24px; z-index: 2; font-size: 13px; }
+.lb-info[hidden] { display: none; }
+.lb-info h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.lb-info dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; }
+.lb-info dt { color: var(--muted); }
+.lb-info dd { margin: 0; overflow-wrap: anywhere; }
+.lb-info .stars button { background: none; border: 0; color: #fbbf24; font-size: 18px; padding: 0 2px; }
+.lb-info .stars button.off { color: var(--muted); opacity: .5; }
+.lb-info .labels { display: flex; gap: 6px; }
+.lb-info .labels button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+.lb-info .labels button.on { border-color: var(--text); }
+.lightbox.with-info .lb-next { right: 358px; }
+.lightbox.with-info .lb-close { right: 348px; }
+@media screen and (max-width: 900px) { .lb-info { width: 100%; top: auto; height: 45vh; } .lightbox.with-info .lb-stage, .lightbox.with-info .lb-meta { width: 92vw; margin-right: 0; } .lightbox.with-info .lb-next, .lightbox.with-info .lb-close { right: 18px; } }
+
+/* ---------- Grille : tailles, cadrage ---------- */
+.grid-size button { padding: 4px 9px; font-size: 12px; }
+.grid-photos.fit-contain .photo-cell img { object-fit: contain; background: var(--surface-2); }
+.grid-photos.fit-contain .photo-cell:hover img { transform: none; }
+#navBack, #navFwd { font-size: 20px; line-height: 1; }
+#navBack:disabled, #navFwd:disabled { opacity: .35; cursor: default; }
+
+/* ---------- Comparaison côte à côte ---------- */
+.compare { position: fixed; inset: 0; z-index: 120; background: #020617; color: #e2e8f0; display: flex; flex-direction: column; outline: none; }
+.cmp-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.1); flex-wrap: wrap; }
+.cmp-bar .spacer { flex: 1; }
+.cmp-zoom { font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; color: #94a3b8; }
+.cmp-grid { flex: 1; display: grid; gap: 6px; padding: 6px; min-height: 0; }
+.cmp-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #0b1222; border-radius: 8px; overflow: hidden; }
+.cmp-stage { flex: 1; min-height: 0; overflow: hidden; display: grid; place-items: safe center; }
+.compare.zoomed .cmp-stage { overflow: auto; cursor: grab; }
+.cmp-stage img { display: block; user-select: none; max-width: none; }
+.cmp-meta { padding: 8px 10px; font-size: 12.5px; border-top: 1px solid rgba(255,255,255,.08); }
+.cmp-meta .dim { color: #94a3b8; }
+.cmp-meta .stars button { background: none; border: 0; color: #fbbf24; font-size: 17px; padding: 0 2px; }
+.cmp-meta .stars button.off { color: #475569; }
+@media screen and (max-width: 800px) { .cmp-grid { grid-template-columns: 1fr 1fr !important; } }
+/* centrage sans rogner le débord : marges automatiques dans un conteneur flex (place-items: safe center n'est pas fiable) */
+.lightbox.zoomed .lb-stage { display: flex; align-items: flex-start; justify-content: flex-start; }
+.lightbox.zoomed .lb-stage img, .cmp-stage img { margin: auto; flex: none; }
+.cmp-stage { display: flex; align-items: flex-start; justify-content: flex-start; }

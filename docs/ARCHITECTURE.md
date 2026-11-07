@@ -620,3 +620,33 @@ Routes : `GET /api/metadata`, `PUT /api/metadata/settings`,
 Interface : une seule fenêtre modale à la fois (`ui.js`) — dans le dialogue,
 les confirmations se font par un second clic sur le bouton, pas par
 `confirmDialog` (qui fermerait le dialogue).
+
+## 21. Navigation : grille, visionneuse, comparaison, historique (v0.24.0)
+
+* **Grille** : `state.grid` (`size` s/m/l/xl → variable CSS `--thumb`, `fit`
+  cover/contain, `pageSize` 60/120/240), gardé dans `localStorage`
+  (`phototheque.grid`). La pagination reste côté serveur (`limit` / `offset`) :
+  jamais plus de 240 vignettes dans la page.
+* **Visionneuse** (`ui.js`) : `lightboxOpen(list, i, onNav, actions, opts)` ;
+  `opts.fullUrl(p, showOriginal)` (image du zoom), `opts.info(p)` (panneau),
+  `opts.onKey(e, p)` (touches propres à l'appelant), `opts.onClose()`.
+  `app.js` fournit `viewerOpts()` : notes et étiquettes par `PUT /api/photos`,
+  mot-clé par `POST /api/metadata/edit` (lot annulable). Le zoom charge
+  `/api/photos/:id/full` (`library.fullImage` : original non RAW, redressé,
+  ≤ 6 000 px, JPEG dans `data/thumbs/full/`, 40 fichiers au plus ; sinon
+  l'aperçu) ou, pour la version retouchée, `render?edit=…&size=3000`.
+  Piège : `HTMLImageElement.decode()` peut ne jamais aboutir dans une page
+  masquée → `UI.loadImage` (événements load / error).
+  Centrage d'une image agrandie : marges automatiques dans un conteneur flex
+  (`place-items: safe center` rognait le débord).
+* **Comparaison** (`compareView(ids)`, 2 à 4 photos) : facteur de zoom commun
+  relatif à l'affichage ajusté de chaque photo, défilement recopié en
+  proportion (verrou `lock` contre les boucles), image pleine définition
+  chargée au-delà de ×1,5.
+* **Historique** : `pushNav()` après chaque `go()` et chaque recherche de la
+  Photothèque, `history.pushState` d'un instantané (vue, filtres, texte, tri,
+  page, album, photo en retouche) ; `popstate` le rétablit sans réempiler.
+  `_i` numérote les états pour griser ‹ ›.
+* **Récemment vues** : `localStorage` `phototheque.recent` (60 ids), affichées
+  via le critère `ids` (`lib/search.mjs`, 500 au plus, exclu des recherches
+  enregistrées) dans l'ordre de consultation.

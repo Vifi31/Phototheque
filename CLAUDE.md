@@ -168,8 +168,9 @@ bibliothèque).
    critères lieu / état de sauvegarde — **livrés en v0.22.0**
    (`docs/ARCHITECTURE.md` §19). Métadonnées (priorité, XMP annexes, modification
    en masse avec aperçu et annulation, profil ICC) — **livré en v0.23.0** (§20).
-   Suivent : navigation (tailles de vignettes, comparaison, historique),
-   retouche avancée, albums et exports, sauvegardes, tableau de bord.
+   Navigation (tailles de vignettes, zoom pleine définition, informations et
+   classement au clavier, comparaison, historique, récemment vues) — **livré en
+   v0.24.0** (§21). Suivent : retouche avancée, albums et exports, sauvegardes, tableau de bord.
    Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
    lire les noms avec `keywordNamesOf`.
 

@@ -1,13 +1,16 @@
 // Contrôleur principal de l'interface Photothèque. Scripts classiques (globaux), aucune dépendance.
 // La logique métier vit côté serveur (lib/*.mjs) ; ici on appelle l'API /api/* et on affiche.
 'use strict';
-const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose } = UI;
+const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate } = UI;
 
 const App = (() => {
   const state = {
     version: '', stats: {}, scan: {}, import: {},
     view: 'photos', facet: {}, q: '', sort: 'captured_desc',
-    page: 0, pageSize: 60, total: 0, rows: [],
+    page: 0, total: 0, rows: [],
+    // grille : taille des vignettes, cadrage (carré rogné ou image entière), photos par page — préférences locales
+    grid: (() => { try { return { size: 'm', fit: 'cover', pageSize: 60, ...JSON.parse(localStorage.getItem('phototheque.grid') || '{}') }; } catch { return { size: 'm', fit: 'cover', pageSize: 60 }; } })(),
+    get pageSize() { return [60, 120, 240].includes(+this.grid.pageSize) ? +this.grid.pageSize : 60; },
     // variantes désignées dans l'outil Doublons : 'hide' (défaut) | 'show' | 'only' — préférence d'affichage locale
     variants: (() => { try { return localStorage.getItem('phototheque.variants') || 'hide'; } catch { return 'hide'; } })(),
     selection: new Set(),
@@ -78,7 +81,7 @@ const App = (() => {
       else if (view === 'settings') await viewSettings(v);
       else if (view === 'admin') await Admin.view(v, 'backups', nav => (state._adminNav = nav));
       else if (view.startsWith('admin-')) await Admin.view(v, view.slice(6));
-      renderStatus();
+      renderStatus(); pushNav();
     } catch (e) { clear(v); v.appendChild(h('div.empty', h('div.big', '⚠️'), e.message)); }
   }
 
@@ -147,6 +150,7 @@ const App = (() => {
           h('button.small.ghost', { onclick: batchCollection }, 'Ajouter à une collection…'),
           h('button.small.ghost', { onclick: batchAlbum }, 'Ajouter à un album…'),
           h('button.small.ghost', { onclick: () => exportDialog([...state.selection]) }, 'Exporter…'),
+          state.selection.size >= 2 && state.selection.size <= 4 ? h('button.small.ghost', { title: 'Afficher ces photos côte à côte (2 à 4)', onclick: () => compareView([...state.selection]) }, 'Comparer') : null,
           coll?.kind === 'static' ? h('button.small.ghost', { onclick: batchUncollect }, 'Retirer de la collection') : null,
           h('button.small.danger', { onclick: batchRemoveIndex }, "Retirer de l'index"),
           h('button.small.ghost', { onclick: () => { state.selection.clear(); renderGrid(); } }, 'Tout désélectionner'),
@@ -156,7 +160,7 @@ const App = (() => {
     // critères courants (texte + filtres), tels qu'enregistrés dans une recherche sauvegardée
     const currentCriteria = () => { const c = { ...state.facet }; delete c.collectionId; if (state.q) c.q = state.q; return Object.fromEntries(Object.entries(c).filter(([, val]) => val !== '' && val != null)); };
     const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
-    const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !Object.keys(currentCriteria()).length; };
+    const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !!state.facet.ids || !Object.keys(currentCriteria()).length; };
     // planche-contact : la sélection si elle existe, sinon toutes les photos de la recherche affichée
     const sheetBtn = h('button.ghost.small', { title: 'Planche-contact, fiches détaillées, catalogue thématique ou portfolio en PDF, export CSV : la sélection, ou toutes les photos affichées par la recherche', onclick: () => {
       const label = coll ? coll.name : state.facet.variantsOf ? 'Référence et variantes' : 'Photothèque';
@@ -170,7 +174,17 @@ const App = (() => {
       if (state.selection.size) metadataDialog({ ids: [...state.selection], label, count: state.selection.size, onDone });
       else metadataDialog({ query: searchParams().toString(), label, count: state.total, onDone });
     } }, 'Métadonnées…');
-    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, metaBtn, h('div.spacer'), selInfo, batchBar);
+    // affichage de la grille : taille des vignettes, carré rogné / image entière, photos par page
+    const SIZES = { s: ['Petites', 120], m: ['Moyennes', 190], l: ['Grandes', 260], xl: ['Très grandes', 340] };
+    const saveGrid = () => { try { localStorage.setItem('phototheque.grid', JSON.stringify(state.grid)); } catch { /* préférence non gardée */ } };
+    const applyGrid = () => { grid.style.setProperty('--thumb', (SIZES[state.grid.size] ?? SIZES.m)[1] + 'px'); grid.classList.toggle('fit-contain', state.grid.fit === 'contain'); };
+    const sizeBar = h('div.tabs.grid-size', { title: 'Taille des vignettes' }, ...Object.entries(SIZES).map(([k, [l]]) => h('button' + (state.grid.size === k ? '.active' : ''), { title: l, onclick: e => {
+      state.grid.size = k; saveGrid(); applyGrid(); for (const b of sizeBar.children) b.classList.toggle('active', b === e.currentTarget); } }, k.toUpperCase())));
+    const fitBtn = h('button.ghost.small', { title: 'Vignettes carrées (rognées) ou image entière', onclick: () => { state.grid.fit = state.grid.fit === 'contain' ? 'cover' : 'contain'; saveGrid(); applyGrid(); fitBtn.textContent = state.grid.fit === 'contain' ? '▣ Entières' : '■ Carrées'; } }, state.grid.fit === 'contain' ? '▣ Entières' : '■ Carrées');
+    const perPage = h('select', { title: 'Photos par page', onchange: () => { state.grid.pageSize = +perPage.value; saveGrid(); state.page = 0; refresh(); } }, ...[60, 120, 240].map(n => h('option', { value: n, selected: state.pageSize === n }, `${n} par page`)));
+    const recentBtn = h('button.ghost.small', { title: 'Les dernières photos ouvertes dans la visionneuse', onclick: () => { const ids = recentIds(); if (!ids.length) return toast('Aucune photo consultée pour le moment'); state.facet = { ids: ids.join(',') }; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, '🕘 Récemment vues');
+    applyGrid();
+    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, metaBtn, recentBtn, h('div.spacer'), sizeBar, fitBtn, perPage, selInfo, batchBar);
 
     function renderGrid() {
       clear(grid);
@@ -195,9 +209,13 @@ const App = (() => {
     function showVariants(refId) { state.facet = { variantsOf: refId }; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); }
     function toggleSel(id) { if (state.selection.has(id)) state.selection.delete(id); else state.selection.add(id); renderGrid(); refreshSelection(); }
     function openViewer(i) {
-      lightboxOpen(state.rows, i, () => {}, p => [
+      let changed = false;
+      pushRecent(state.rows[i]?.id);
+      lightboxOpen(state.rows, i, n => pushRecent(state.rows[n]?.id), p => [
         h('button.small', { onclick: () => { lightboxClose(); openRetouche(p.id); } }, '✎ Retoucher'),
-        h('button.small.ghost', { onclick: () => { lightboxClose(); exportDialog([p.id]); } }, 'Exporter…')]);
+        h('button.small.ghost', { onclick: () => { lightboxClose(); exportDialog([p.id]); } }, 'Exporter…'),
+        state.selection.size >= 2 && state.selection.size <= 4 ? h('button.small.ghost', { onclick: () => { lightboxClose(); compareView([...state.selection]); } }, 'Comparer la sélection') : null].filter(Boolean),
+        viewerOpts({ onChange: () => { changed = true; }, onClose: () => { if (changed) refresh(); } }));
     }
 
     // critères de la grille (texte, filtres, tri, variantes), sans la pagination : servent aussi à la planche-contact
@@ -213,6 +231,9 @@ const App = (() => {
       params.set('limit', state.pageSize); params.set('offset', state.page * state.pageSize);
       const r = await api('/photos?' + params.toString());
       state.rows = r.rows; state.total = r.total;
+      // « récemment vues » : ordre de consultation plutôt que le tri choisi
+      if (state.facet.ids) { const order = String(state.facet.ids).split(','); state.rows.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)); }
+      pushNav();
       info.textContent = `${fmtNum(r.total)} photo(s)` + (r.hiddenVariants ? ` · ${fmtNum(r.hiddenVariants)} variante(s) masquée(s)` : '');
       renderGrid(); refreshSelection(); renderPager(); refreshSaveBtn();
     }
@@ -316,7 +337,10 @@ const App = (() => {
     const varBar = state.facet.variantsOf ? h('div.row', h('span.dim', 'Photo de référence et ses variantes (outil Doublons) — rien n’est supprimé'),
       h('button.ghost.small', { onclick: () => { delete state.facet.variantsOf; state.page = 0; go('photos'); } }, 'Revenir à la Photothèque'),
       h('button.ghost.small', { onclick: () => go('duplicates') }, 'Ouvrir l’outil Doublons')) : null;
-    mount(v, title, collBar, varBar, filterBar, advanced, toolbar, info, grid, pager);
+    const recentBar = state.facet.ids ? h('div.row', h('span.dim', 'Photos récemment consultées, de la plus récente à la plus ancienne'),
+      h('button.ghost.small', { onclick: () => { delete state.facet.ids; state.page = 0; go('photos'); } }, 'Revenir à la Photothèque'),
+      h('button.ghost.small', { onclick: () => { try { localStorage.removeItem(RECENT_KEY); } catch { /* rien à effacer */ } delete state.facet.ids; go('photos'); } }, 'Effacer cet historique')) : null;
+    mount(v, title, collBar, varBar, recentBar, filterBar, advanced, toolbar, info, grid, pager);
     await refresh();
   }
 
@@ -901,6 +925,164 @@ const App = (() => {
   }
 
   // ---------- Export de photos (lib/exports.mjs) : profil, réglages, travail suivi, compte rendu ----------
+  // ---------- Photos récemment consultées (préférence locale, 60 au plus) ----------
+  const RECENT_KEY = 'phototheque.recent';
+  const recentIds = () => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter(x => typeof x === 'string'); } catch { return []; } };
+  function pushRecent(id) { if (!id) return; try { localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...recentIds().filter(x => x !== id)].slice(0, 60))); } catch { /* historique non gardé */ } }
+
+  // ---------- Visionneuse : zoom pleine définition, informations, classement rapide ----------
+  // Touches : 0 à 5 = note ; 6 à 9 = étiquette rouge, jaune, verte, bleue (même touche : retirée) ; I = informations ;
+  // K = mot-clé ; Z, +, -, double-clic, molette = zoom.
+  const LABEL_COLORS = ['', '#ef4444', '#eab308', '#22c55e', '#3b82f6', '#a855f7'];
+  const LABEL_NAMES = ['aucune', 'rouge', 'jaune', 'verte', 'bleue', 'violette'];
+  function viewerOpts({ onChange = () => {}, onClose = () => {} } = {}) {
+    let kwInput = null;
+    const setField = async (p, fields, msg) => {
+      try { await api('/photos', 'PUT', { id: p.id, ...fields }); lightboxUpdate({ id: p.id, ...fields }); onChange(); toast(msg); }
+      catch (e) { toast(e.message, 'bad'); }
+    };
+    const info = async p => {
+      const { photo: d } = await api('/photos/' + p.id);
+      const data = d.data ?? {};
+      const place = ['Sublocation', 'City', 'State', 'Country'].map(k => Array.isArray(data[k]) ? data[k][0] : data[k]).filter(Boolean).join(', ');
+      const exp = [d.focal_length ? `${d.focal_length} mm` : '', d.aperture ? `f/${d.aperture}` : '', d.shutter || '', d.iso ? `ISO ${d.iso}` : ''].filter(Boolean).join(' · ');
+      const dl = rows => h('dl', ...rows.filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '').flatMap(([k, v]) => [h('dt', k), h('dd', v)]));
+      const stars = h('div.stars', ...[1, 2, 3, 4, 5].map(n => h('button' + (n <= d.rating ? '' : '.off'), { title: `${n} étoile(s) (touche ${n})`, onclick: () => setField(p, { rating: n === d.rating ? 0 : n }, n === d.rating ? 'Note retirée' : `Note : ${n}`) }, '★')));
+      const labels = h('div.labels', ...[1, 2, 3, 4, 5].map(n => h('button' + (d.color === n ? '.on' : ''), { title: `Étiquette ${LABEL_NAMES[n]}${n <= 4 ? ` (touche ${n + 5})` : ''}`, style: { background: LABEL_COLORS[n] }, onclick: () => setField(p, { color: d.color === n ? 0 : n }, d.color === n ? 'Étiquette retirée' : `Étiquette ${LABEL_NAMES[n]}`) })));
+      kwInput = h('input', { type: 'text', placeholder: 'Ajouter un mot-clé (touche K)…', onkeydown: async e => {
+        if (e.key !== 'Enter' || !kwInput.value.trim()) return;
+        const names = kwInput.value.split(',').map(x => x.trim()).filter(Boolean);
+        try { await api('/metadata/edit', 'POST', { ids: [p.id], changes: { keywordsAdd: names }, apply: true }); toast('Mot-clé ajouté'); onChange(); lightboxUpdate({ id: p.id }); }
+        catch (err) { toast(err.message, 'bad'); }
+      } });
+      const file = d.files?.[0];
+      return h('div',
+        h('b', d.title || file?.file_name || 'Sans titre'), d.description ? h('p.dim', d.description) : null,
+        h('h4', 'Classement'), stars, labels,
+        h('h4', 'Mots-clés'), h('div', ...(d.keywords ?? []).map(k => h('span.kw-chip', { title: 'Voir les photos', onclick: () => { lightboxClose(); App.searchKeyword(k); } }, k.name))), kwInput,
+        h('h4', 'Prise de vue'), dl([['Date', d.captured_at ? fmtDateTime(d.captured_at) : ''], ['Appareil', [d.camera_make, d.camera_model].filter(Boolean).join(' ')], ['Objectif', d.lens], ['Exposition', exp],
+          ['Dimensions', d.width ? `${d.width} × ${d.height} px` : ''], ['Format', d.format ? String(d.format).toUpperCase() : ''], ['Couleur', [data.ColorModel, data.IccProfile].filter(Boolean).join(' · ')],
+          ['Lieu', place], ['GPS', d.gps_lat != null ? `${(+d.gps_lat).toFixed(5)} ; ${(+d.gps_lon).toFixed(5)}` : ''], ['Auteur', d.author], ['Copyright', d.copyright]]),
+        h('h4', `Fichier${(d.files?.length ?? 0) > 1 ? 's' : ''}`), ...(d.files ?? []).map(fl => dl([['Chemin', fl.path], ['État', fl.status === 'available' ? 'disponible' : 'indisponible'], ['Taille', fl.size_bytes != null ? fmtBytes(fl.size_bytes) : '']])),
+        h('p.dim', { style: { marginTop: '14px' } }, 'Touches : ← → photo · 0–5 note · 6–9 étiquette · K mot-clé · Z zoom · I informations · Échap fermer'));
+    };
+    return {
+      info, onClose,
+      fullUrl: (p, showOriginal) => p.edit && !showOriginal ? `/api/photos/${encodeURIComponent(p.id)}/render?edit=${encodeURIComponent(p.edit.id)}&size=3000` : `/api/photos/${encodeURIComponent(p.id)}/full`,
+      onKey: (e, p) => {
+        if (e.ctrlKey || e.metaKey || e.altKey || !p) return false;
+        if (/^[0-5]$/.test(e.key)) { const n = +e.key; setField(p, { rating: n }, n ? `Note : ${n}` : 'Note retirée'); return true; }
+        if (/^[6-9]$/.test(e.key)) { const n = +e.key - 5; const cur = p.color === n ? 0 : n; setField(p, { color: cur }, cur ? `Étiquette ${LABEL_NAMES[n]}` : 'Étiquette retirée'); return true; }
+        if (e.key === 'k' || e.key === 'K') { if (!document.getElementById('lbInfo').hidden && kwInput) { kwInput.focus(); return true; } return false; }
+        return false;
+      },
+    };
+  }
+
+  // ---------- Comparaison côte à côte (2 à 4 photos), zoom et déplacement synchronisés ----------
+  async function compareView(ids) {
+    ids = [...new Set(ids)].slice(0, 4);
+    if (ids.length < 2) return toast('Choisissez de 2 à 4 photos', 'bad');
+    const r = await api('/photos?ids=' + encodeURIComponent(ids.join(',')) + '&limit=4');
+    const cards = ids.map(id => r.rows.find(x => x.id === id)).filter(Boolean);
+    const details = await Promise.all(cards.map(c => api('/photos/' + c.id).then(x => x.photo).catch(() => null)));
+    let z = 1, sync = true, lock = false, changed = false;
+    const panels = cards.map((c, i) => {
+      const img = h('img', { src: c.preview || c.thumb || '', alt: '', draggable: 'false' });
+      const stageEl = h('div.cmp-stage', img);
+      const d = details[i] ?? {};
+      const size = d.files?.[0]?.size_bytes;
+      const stars = h('div.stars');
+      const drawStars = () => mount(stars, ...[1, 2, 3, 4, 5].map(n => h('button' + (n <= (c.rating ?? 0) ? '' : '.off'), { onclick: async () => {
+        const v = n === c.rating ? 0 : n; await api('/photos', 'PUT', { id: c.id, rating: v }); c.rating = v; changed = true; drawStars(); } }, '★')));
+      drawStars();
+      const meta = h('div.cmp-meta', h('b', d.title || d.files?.[0]?.file_name || 'Sans titre'),
+        h('div.dim', [c.width ? `${c.width} × ${c.height}` : '', size != null ? fmtBytes(size) : '', c.format ? String(c.format).toUpperCase() : ''].filter(Boolean).join(' · ')),
+        h('div.dim', [c.captured_at ? fmtDateTime(c.captured_at) : 'sans date', [c.camera_make, c.camera_model].filter(Boolean).join(' ')].filter(Boolean).join(' · ')),
+        stars);
+      return { c, img, stageEl, el: h('div.cmp-panel', stageEl, meta), full: false, nat: null };
+    });
+    const zoomLbl = h('span.cmp-zoom', 'Ajusté');
+    const syncCb = h('input', { type: 'checkbox', checked: true, onchange: () => { sync = syncCb.checked; } });
+    const root = h('div.compare', { tabindex: '-1' },
+      h('div.cmp-bar', h('b', `Comparaison de ${cards.length} photos`), h('span.dim', 'Molette ou double-clic : zoom · glisser : déplacer'),
+        h('div.spacer'), zoomLbl, h('button.ghost.small', { onclick: () => setZoom(1) }, 'Ajuster'), h('button.ghost.small', { onclick: () => setZoom(z * 2) }, 'Zoom ×2'),
+        h('label.check', syncCb, h('span', 'Synchroniser')), h('button.small', { onclick: close }, 'Fermer')),
+      h('div.cmp-grid', { style: { gridTemplateColumns: `repeat(${cards.length}, 1fr)` } }, ...panels.map(p => p.el)));
+    document.body.appendChild(root); root.focus();
+    // taille « ajustée » de chaque photo dans son panneau ; le zoom z multiplie cette taille (même cadrage relatif pour toutes)
+    async function ensureFull(p) {
+      if (p.full) return; p.full = true;
+      const im = new Image(); im.src = p.c.edit ? `/api/photos/${encodeURIComponent(p.c.id)}/render?edit=${encodeURIComponent(p.c.edit.id)}&size=3000` : `/api/photos/${encodeURIComponent(p.c.id)}/full`;
+      try { await UI.loadImage(im); p.img.src = im.src; } catch { p.full = false; }
+    }
+    function layout(p) {
+      const st = p.stageEl, w0 = p.img.naturalWidth || p.c.width || 1, h0 = p.img.naturalHeight || p.c.height || 1;
+      const fit = Math.min(st.clientWidth / w0, st.clientHeight / h0);
+      p.img.style.width = Math.round(w0 * fit * z) + 'px'; p.img.style.height = Math.round(h0 * fit * z) + 'px';
+      root.classList.toggle('zoomed', z > 1);
+    }
+    function setZoom(nz, src = null, fx = 0.5, fy = 0.5) {
+      z = Math.max(1, Math.min(16, nz)); zoomLbl.textContent = z === 1 ? 'Ajusté' : `× ${z.toFixed(1)}`;
+      for (const p of (sync || !src ? panels : [src])) {
+        if (z > 1.5) ensureFull(p).then(() => { layout(p); scrollTo(p, fx, fy); });
+        layout(p); scrollTo(p, fx, fy);
+      }
+    }
+    function scrollTo(p, fx, fy) { const st = p.stageEl; st.scrollLeft = fx * st.scrollWidth - st.clientWidth / 2; st.scrollTop = fy * st.scrollHeight - st.clientHeight / 2; }
+    for (const p of panels) {
+      p.img.addEventListener('load', () => layout(p));
+      const st = p.stageEl;
+      st.addEventListener('wheel', e => { e.preventDefault(); const rc = st.getBoundingClientRect(); const fx = (st.scrollLeft + e.clientX - rc.left) / st.scrollWidth, fy = (st.scrollTop + e.clientY - rc.top) / st.scrollHeight; setZoom(e.deltaY < 0 ? z * 1.25 : z / 1.25, p, fx, fy); }, { passive: false });
+      st.addEventListener('dblclick', e => { const rc = st.getBoundingClientRect(); setZoom(z > 1 ? 1 : 3, p, (st.scrollLeft + e.clientX - rc.left) / st.scrollWidth, (st.scrollTop + e.clientY - rc.top) / st.scrollHeight); });
+      st.addEventListener('scroll', () => {
+        if (lock || !sync) return; lock = true;
+        const fx = (st.scrollLeft + st.clientWidth / 2) / st.scrollWidth, fy = (st.scrollTop + st.clientHeight / 2) / st.scrollHeight;
+        for (const o of panels) if (o !== p) scrollTo(o, fx, fy);
+        requestAnimationFrame(() => { lock = false; });
+      });
+      let drag = null;
+      st.addEventListener('mousedown', e => { if (z <= 1 || e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, l: st.scrollLeft, t: st.scrollTop }; e.preventDefault(); });
+      root.addEventListener('mousemove', e => { if (!drag) return; st.scrollLeft = drag.l - (e.clientX - drag.x); st.scrollTop = drag.t - (e.clientY - drag.y); });
+      root.addEventListener('mouseup', () => { drag = null; });
+    }
+    const onResize = () => panels.forEach(layout);
+    addEventListener('resize', onResize);
+    root.addEventListener('keydown', e => { if (e.key === 'Escape') close(); else if (e.key === '+' || e.key === '=') setZoom(z * 1.25); else if (e.key === '-') setZoom(z / 1.25); else if (e.key === 'z' || e.key === 'Z') setZoom(z > 1 ? 1 : 3); });
+    requestAnimationFrame(onResize);
+    function close() { removeEventListener('resize', onResize); root.remove(); if (changed && state.view === 'photos') go('photos'); }
+  }
+
+  // ---------- Historique de navigation (boutons ‹ › et touches Alt+← / Alt+→ du navigateur) ----------
+  let restoring = false;
+  const navSnapshot = () => ({ view: state.view, facet: { ...state.facet }, q: state.q, sort: state.sort, page: state.page, albumId: state.albumId ?? null, editPhotoId: state.editPhotoId ?? null });
+  function pushNav() {
+    if (restoring) return;
+    const snap = navSnapshot();
+    const { _i, ...cur } = history.state ?? {};
+    if (JSON.stringify(cur) === JSON.stringify(snap)) return;
+    if (history.state) history.pushState(snap, '', '#' + snap.view); else history.replaceState(snap, '', '#' + snap.view);
+    updateNavButtons();
+  }
+  let navDepth = 0, navMax = 0; // position dans l'historique de cette session (pour griser ‹ ›)
+  function updateNavButtons() {
+    const s = history.state; if (s && typeof s._i !== 'number') { s._i = ++navDepth; navMax = navDepth; history.replaceState(s, '', location.hash); }
+    const back = document.getElementById('navBack'), fwd = document.getElementById('navFwd');
+    if (back) back.disabled = !(history.state?._i > 1);
+    if (fwd) fwd.disabled = !(history.state?._i < navMax);
+  }
+  addEventListener('popstate', async e => {
+    const s = e.state; if (!s || !s.view) return;
+    restoring = true;
+    try {
+      state.facet = { ...(s.facet ?? {}) }; state.q = s.q ?? ''; state.sort = s.sort ?? state.sort; state.page = s.page ?? 0;
+      if (s.albumId) state.albumId = s.albumId; if (s.editPhotoId) state.editPhotoId = s.editPhotoId;
+      const se = document.getElementById('search'); if (se) se.value = state.q;
+      navDepth = s._i ?? navDepth;
+      await go(s.view);
+    } finally { restoring = false; updateNavButtons(); }
+  });
+
   // ---------- Métadonnées documentaires : modifier, relire les fichiers, écrire les XMP (lib/metadata.mjs) ----------
   // Toujours un aperçu avant d'écrire ; chaque modification de fiches forme un lot annulable.
   async function metadataDialog({ ids, query, label, count, onDone = () => {} }) {
@@ -1613,6 +1795,7 @@ const App = (() => {
       const hasRef = g.photos.some(p => p.isReference || p.reference);
       return card(
         h('div.row', h('b', g.photos.length > 1 ? `${g.photos.length} photos` : `${g.photos[0]?.files.length ?? 0} fichiers`), h('span.dim', g.reason), h('div.spacer'),
+          g.photos.length > 1 ? h('button.ghost.small', { title: g.photos.length > 4 ? 'Compare les 4 premières photos du groupe' : 'Afficher les photos côte à côte, zoom synchronisé', onclick: () => compareView(g.photos.map(x => x.id).slice(0, 4)) }, 'Comparer') : null,
           hasRef ? h('button.ghost.small', { onclick: async () => { await api('/duplicates/reference', 'POST', { photoIds: g.photos.map(x => x.id), clear: true }); load(); } }, 'Annuler la référence') : null,
           g.photos.length > 1 ? h('button.ghost.small', { title: 'Ce groupe ne sera plus proposé', onclick: async () => { await api('/duplicates/ignore', 'POST', { photoIds: g.photos.map(x => x.id) }); toast('Groupe écarté : ces photos sont distinctes'); load(); } }, 'Ce ne sont pas des doublons') : null),
         h('div.dup-row', ...g.photos.map(p => photoCol(g, p))));
@@ -1812,6 +1995,10 @@ const App = (() => {
     let tId; searchEl.addEventListener('input', () => { clearTimeout(tId); tId = setTimeout(() => setQuery(searchEl.value.trim()), 300); });
     // menu admin
     document.getElementById('topbarActions').appendChild(h('button.ghost.small', { onclick: () => go('admin') }, 'Administration'));
+    // historique de navigation : précédent / suivant (vue, filtres, recherche, page)
+    document.getElementById('menuToggle').after(
+      h('button.icon-btn', { id: 'navBack', title: 'Revenir à l’écran précédent (Alt+←)', disabled: true, onclick: () => history.back() }, '‹'),
+      h('button.icon-btn', { id: 'navFwd', title: 'Écran suivant (Alt+→)', disabled: true, onclick: () => history.forward() }, '›'));
     renderNav(); await go('photos');
   }
 
