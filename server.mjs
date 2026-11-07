@@ -20,8 +20,9 @@ import { createImports } from './lib/imports.mjs';
 import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
 import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN } from './lib/albums.mjs';
 import { createAlbumPdf, PDF_PROFILES, BLEED_MM } from './lib/albumpdf.mjs';
-import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION } from './lib/edits.mjs';
-import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS } from './lib/exports.mjs';
+import { createEdits, EDIT_FIELDS, PRESETS, DEFAULT_PARAMS, EDIT_PARAMS_VERSION, CURVES, TONE_KEYS } from './lib/edits.mjs';
+import { createExports, EXPORT_FORMATS, METADATA_MODES, WATERMARK_POSITIONS, COLOR_PROFILES, PROFILES_DIR, iccFiles } from './lib/exports.mjs';
+import { createExternal, cleanExternalSettings, checkEditor, EXTERNAL_DIR, EXTERNAL_SOURCES } from './lib/external.mjs';
 import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURST_SECONDS, MAX_THRESHOLD } from './lib/duplicates.mjs';
 import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, SHEET_BACKGROUNDS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
 import { createCatalog, CSV_COLUMNS, GROUP_BY } from './lib/catalog.mjs';
@@ -45,6 +46,7 @@ const edits = createEdits(db, library);
 const albums = createAlbums(db, library, edits); // edits : recréer les retouches d'un projet réimporté
 const albumPdf = createAlbumPdf(db, library, albums);
 const exportsSvc = createExports(db, edits);
+const external = createExternal(db, { edits, library, settings: () => store.external });
 const duplicates = createDuplicates(db, library);
 const contactSheets = createContactSheets(db, library, edits);
 const catalog = createCatalog(db);
@@ -268,7 +270,7 @@ async function api(req, res, url) {
   if (p.startsWith('/api/photos/')) {
     const sub = p.split('/')[4];
     // ---- Retouche non destructive : versions, rendu ----
-    if (sub === 'edits' && m === 'GET') return json(res, 200, { versions: edits.list(id), capability: edits.capability(id), fields: EDIT_FIELDS, presets: PRESETS, defaults: DEFAULT_PARAMS, paramsVersion: EDIT_PARAMS_VERSION });
+    if (sub === 'edits' && m === 'GET') return json(res, 200, { versions: edits.list(id), capability: edits.capability(id), fields: EDIT_FIELDS, presets: PRESETS, curves: CURVES, toneKeys: TONE_KEYS, defaults: DEFAULT_PARAMS, paramsVersion: EDIT_PARAMS_VERSION });
     if (sub === 'edits' && m === 'POST') return json(res, 200, { version: edits.create(id, sanitize(await readBody(req)) ?? {}) });
     if (sub === 'render' && m === 'GET') {
       // aperçu retouché : réglages d'une version (?edit=) ou à l'essai (?params= JSON), taille ?size=
@@ -279,6 +281,12 @@ async function api(req, res, url) {
       const file = await edits.preview(id, params, { size: sp.get('size'), noCrop: sp.get('nocrop') === '1' });
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600' });
       return fs.createReadStream(file).pipe(res);
+    }
+    // ---- ouverture dans un logiciel externe : toujours sur une copie (lib/external.mjs) ----
+    if (sub === 'external' && m === 'POST') {
+      const b = await readBody(req);
+      try { return json(res, 200, await external.open(id, { source: b.source === 'version' ? 'version' : 'original' })); }
+      catch (e) { return json(res, 400, { error: e.message }); }
     }
     if (sub === 'full' && m === 'GET') {
       const file = await library.fullImage(id); if (!file) return json(res, 404, { error: 'Aucune image lisible pour cette photo' });
@@ -328,7 +336,7 @@ async function api(req, res, url) {
   }
 
   // ---- Exports de photos (travail en arrière-plan, suivi par /api/jobs/<id>) ----
-  if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR });
+  if (p === '/api/exports/profiles' && m === 'GET') return json(res, 200, { ...exportsSvc.profiles(), formats: EXPORT_FORMATS, metadata: METADATA_MODES, positions: WATERMARK_POSITIONS, dir: EXPORT_DIR, colorProfiles: { ...COLOR_PROFILES, ...Object.fromEntries(iccFiles().map(n => ['file:' + n, `${n} (dossier Profils)`])) }, profilesDir: PROFILES_DIR });
   if (p === '/api/exports/profiles' && m === 'POST') return json(res, 200, exportsSvc.saveProfile(sanitize(await readBody(req)) ?? {}));
   if (p.startsWith('/api/exports/profiles/') && m === 'DELETE') return json(res, 200, exportsSvc.removeProfile(decodeURIComponent(p.split('/')[4] ?? '')));
   if (p === '/api/exports' && m === 'GET') return json(res, 200, { list: db.prepare("SELECT id, kind, target, profile, count, status, created_at FROM exports ORDER BY created_at DESC LIMIT 30").all() });
@@ -348,6 +356,14 @@ async function api(req, res, url) {
 
   // ---- Mots-clés ----
   if (p === '/api/keywords' && m === 'GET') return json(res, 200, { list: keywords.list(), tree: keywords.tree(), categories: keywords.categories(), suggest: keywords.suggest(url.searchParams.get('q') || '') });
+  // ---- logiciel externe : réglage, indexation des copies modifiées ----
+  if (p === '/api/external' && m === 'GET') return json(res, 200, { settings: store.external, check: checkEditor(store.external?.editor), dir: EXTERNAL_DIR, sources: EXTERNAL_SOURCES });
+  if (p === '/api/external' && m === 'PUT') {
+    const b = await readBody(req); const next = cleanExternalSettings(b, store.external);
+    const chk = checkEditor(next.editor); if (!chk.ok) return json(res, 400, { error: chk.label });
+    store.external = next; saveStore(db, store); return json(res, 200, { settings: store.external, check: chk });
+  }
+  if (p === '/api/external/index' && m === 'POST') { try { return json(res, 200, await external.index()); } catch (e) { return json(res, 400, { error: e.message }); } }
   // ---- métadonnées documentaires : aperçu puis application (lib/metadata.mjs) ----
   if (p === '/api/metadata' && m === 'GET') return json(res, 200, { settings: store.metadata, destinations: DESTINATIONS, namings: NAMINGS, modes: META_MODES, fields: DOC_FIELDS, labels: LABELS_FR, dir: XMP_DIR, max: META_MAX, batches: metadata.batches() });
   if (p === '/api/metadata/settings' && m === 'PUT') { const b = await readBody(req); store.metadata = cleanMetadataSettings(b, store.metadata); saveStore(db, store); return json(res, 200, { settings: store.metadata }); }

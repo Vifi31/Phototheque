@@ -1497,6 +1497,83 @@ group('Navigation : liste explicite, image pleine définition');
   LIB.removeFromIndex([id]);
 }
 
+// ===================================================================
+group('Retouche avancée : tonalité, courbe, vibrance, bruit, profils, logiciel externe');
+// ===================================================================
+{
+  const E = await import('../lib/edits.mjs');
+  const { createExports } = await import('../lib/exports.mjs');
+  const { createExternal, EXTERNAL_DIR, checkEditor, cleanExternalSettings } = await import('../lib/external.mjs');
+  const X = await import('../lib/xmp.mjs');
+  // courbe
+  const lut = E.curveLut([[0, 0], [64, 44], [192, 212], [255, 255]]);
+  check('courbe : passe par ses points', `${lut[0]}|${lut[64]}|${lut[192]}|${lut[255]}`, '0|44|212|255');
+  check('courbe : toujours croissante (pas d’oscillation)', [...lut].every((v, i) => !i || v >= lut[i - 1]), true, 0);
+  check('courbe : hors des points extrêmes, constante', E.curveLut([[20, 30], [200, 220]])[5], 30);
+  check('courbe identité = aucune', E.cleanParams({ curve: [[0, 0], [255, 255]] }).curve, null);
+  check('courbe : points nettoyés (bornes, doublons)', JSON.stringify(E.cleanParams({ curve: [[10, 20], [10, 30], [300, 200], ['x', 1]] }).curve), '[[10,20],[255,200]]');
+  check('courbe : 16 points au plus', E.cleanParams({ curve: Array.from({ length: 20 }, (_, i) => [i * 12, i * 10]) }).curve, null);
+  check('tonalité : ombres relevées, extrémités fixes', `${E.toneCurve(0, 1, 0)}|${E.toneCurve(1, 1, 0)}|${E.toneCurve(0.25, 1, 0) > 0.3}`, '0|1|true');
+  check('tonalité : toujours croissante aux extrêmes', [-1, 1].every(a => [-1, 1].every(b => { let prev = -1; for (let i = 0; i <= 100; i++) { const v = E.toneCurve(i / 100, a, b); if (v < prev) return false; prev = v; } return true; })), true, 0);
+  const px = (rgb, prm) => { const b = Buffer.from(rgb); E.applyPixelOps(b, 1, 1, 3, prm); return [...b].join(','); };
+  check('ombres : un pixel sombre s’éclaircit, teinte conservée', (() => { const [r, g, b] = px([40, 20, 10], { shadows: 80 }).split(',').map(Number); return r > 40 && Math.abs(r / g - 2) < 0.15; })(), true, 0);
+  check('hautes lumières : un pixel clair s’assombrit', +px([230, 230, 230], { highlights: -80 }).split(',')[0] < 230, true, 0);
+  check('ombres sans effet sur le blanc', px([255, 255, 255], { shadows: 100 }), '255,255,255');
+  const vib = (rgb, v) => { const o = px(rgb, { vibrance: v }).split(',').map(Number); return Math.max(...o) - Math.min(...o); };
+  check('vibrance : couleur terne plus relevée que couleur vive', (vib([140, 120, 110], 80) - 30) / 30 > (vib([250, 30, 20], 80) - 230) / 230, true, 0);
+  check('vibrance : gris inchangé', px([128, 128, 128], { vibrance: 100 }), '128,128,128');
+  // bruit : image bruitée → écart-type réduit ; un contour net reste net
+  const W = 64, H = 64, noisy = Buffer.alloc(W * H * 3);
+  let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let i = 0; i < W * H; i++) { const base = (i % W) < 32 ? 60 : 190; for (let c = 0; c < 3; c++) noisy[i * 3 + c] = Math.max(0, Math.min(255, base + Math.round((rnd() - 0.5) * 30))); }
+  const sd = b => { let s1 = 0, s2 = 0, n = 0; for (let y = 0; y < H; y++) for (let x = 4; x < 28; x++) { const v = b[(y * W + x) * 3]; s1 += v; s2 += v * v; n++; } return Math.sqrt(s2 / n - (s1 / n) ** 2); };
+  const den = Buffer.from(noisy); E.applyPixelOps(den, W, H, 3, { noise: 80, colorNoise: 50 });
+  check('bruit : grain atténué', sd(den) < sd(noisy) * 0.6, true, 0);
+  check('bruit : le contour reste net', den[(10 * W + 30) * 3] < 100 && den[(10 * W + 34) * 3] > 150, true, 0);
+  check('gris (1 canal) : courbe appliquée', (() => { const b = Buffer.from([64]); E.applyPixelOps(b, 1, 1, 1, { curve: [[0, 0], [64, 128], [255, 255]] }); return b[0]; })(), 128);
+  check('anciennes versions de réglages relues sans changement', JSON.stringify(E.cleanParams({ v: 1, contrast: 10 }).curve) + E.cleanParams({ v: 1 }).highlights, 'null0');
+  const src = path.join(TMP, 'retouche-avancee.jpg'); await makeImage(src, { w: 400, h: 300, color: { r: 120, g: 90, b: 70 } });
+  const { image } = await E.pipeline(src, { shadows: 40, curve: E.CURVES['s-doux'].points, vibrance: 20, noise: 20, colorNoise: 20, saturation: 10, mono: null });
+  const outMeta = await image.jpeg().toBuffer().then(b => sharp(b).metadata());
+  check('rendu complet : dimensions conservées', `${outMeta.width}x${outMeta.height}`, '400x300');
+  check('filtres : les nouveaux réglages font partie du ton', ['curve', 'vibrance', 'highlights', 'shadows'].every(k => E.TONE_KEYS.includes(k)), true, 0);
+
+  // export : profils de couleur
+  await LIB.indexFile(src, {});
+  const pid = DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(src).photo_id;
+  const EXP = createExports(DB, E.createEdits(DB, LIB));
+  const exp = async colorProfile => { const r = await EXP.run([pid], { format: 'jpeg', colorProfile, folder: 'test-icc-' + colorProfile }); const m = await sharp(r.files[0].file).metadata(); return { label: r.files[0].colorProfile, space: m.space, icc: X.iccDescription(m.icc) }; };
+  check('export sRGB', (await exp('srgb')).icc, 'sRGB');
+  check('export Display P3 : profil embarqué', /P3/.test((await exp('p3')).icc), true, 0);
+  check('export CMJN en JPEG : 4 couches', (await exp('cmyk')).space, 'cmyk');
+  check('export « profil de l’original » sans profil : sRGB', (await exp('original')).label, 'sRGB (l’original n’a pas de profil)');
+  const r2 = await EXP.run([pid], { format: 'png', colorProfile: 'cmyk', folder: 'test-icc-png' });
+  check('CMJN refusé en PNG : sRGB', r2.files[0].colorProfile, 'sRGB (le CMJN exige JPEG ou TIFF)');
+  check('profil personnel : chemin hors du dossier Profils refusé', (await EXP.run([pid], { format: 'jpeg', colorProfile: 'file:../../evil.icc', folder: 'test-icc-evil' })).files[0].colorProfile, 'sRGB');
+  const r3 = await EXP.run([pid], { format: 'jpeg', colorProfile: 'file:absent.icc', folder: 'test-icc-bad' });
+  check('profil personnel introuvable : erreur, rien d’écrit', r3.errors.length === 1 && !r3.files.length, true, 0);
+
+  // logiciel externe : copie, jamais l'original
+  const launched = [];
+  const EXT = createExternal(DB, { edits: E.createEdits(DB, LIB), library: LIB, settings: () => ({ editor: '' }), launcher: (ed, file) => { launched.push(file); return { program: 'test' }; } });
+  const before = fs.readFileSync(src);
+  const o1 = await EXT.open(pid, { source: 'original' });
+  check('externe : copie dans « Edition externe »', o1.file.startsWith(EXTERNAL_DIR) && fs.existsSync(o1.file), true, 0);
+  check('externe : copie identique à l’original', Buffer.compare(fs.readFileSync(o1.file), before), 0, 0);
+  check('externe : le logiciel reçoit la copie', launched[0], o1.file);
+  const o2 = await EXT.open(pid, { source: 'version' });
+  check('externe : version rendue en TIFF', /\.tif$/.test(o2.file) && (await sharp(o2.file).metadata()).format === 'tiff', true, 0);
+  let err = ''; try { EXT.launch(src); } catch (e) { err = e.message; }
+  check('externe : refuse d’ouvrir un original', /Edition externe/.test(err), true, 0);
+  check('externe : programme inexistant refusé', checkEditor('C:\\nexiste\\pas.exe').ok, false, 0);
+  check('externe : seul un exécutable est accepté', checkEditor(src).ok, false, 0);
+  check('externe : réglage nettoyé (guillemets)', cleanExternalSettings({ editor: ' "C:\\a b\\gimp.exe" ' }).editor, 'C:\\a b\\gimp.exe');
+  fs.writeFileSync(path.join(EXTERNAL_DIR, 'modifiee.png'), await sharp({ create: { width: 50, height: 40, channels: 3, background: '#123456' } }).png().toBuffer());
+  const ix = await EXT.index();
+  check('externe : fichiers modifiés ajoutés à la photothèque', ix.added >= 1, true, 0);
+  check('original intact', Buffer.compare(before, fs.readFileSync(src)), 0, 0);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

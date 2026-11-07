@@ -126,9 +126,9 @@
   .toc-print { display: none; }
   .toc-title { font-size: 26px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 3px solid var(--blue); }
   .toc-line { display: flex; align-items: baseline; gap: 8px; }
-  .toc-line.l1 { margin-top: 11px; font-weight: 700; font-size: 12pt; }
-  .toc-line.l2 { padding-left: 34px; font-size: 10pt; color: var(--soft); margin-top: 2px; }
-  .toc-line .num { flex: none; width: 26px; height: 22px; border-radius: 6px; color: #fff; display: inline-grid; place-items: center; font-size: 10.5pt; }
+  .toc-line.l1 { margin-top: 8px; font-weight: 700; font-size: 11.5pt; }
+  .toc-line.l2 { padding-left: 34px; font-size: 9.5pt; color: var(--soft); margin-top: 1px; }
+  .toc-line .num { flex: none; width: 26px; height: 20px; border-radius: 6px; color: #fff; display: inline-grid; place-items: center; font-size: 10.5pt; }
   .toc-line .t { flex: none; max-width: 80%; }
   .toc-line .dots { flex: 1; border-bottom: 1.5px dotted #94a3b8; transform: translateY(-4px); min-width: 20px; }
   .toc-line .pg { flex: none; width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -169,7 +169,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version 0.21.1 · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.25.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -469,10 +469,12 @@
     <div>
       <h3>Les outils</h3>
       <ul>
-        <li><b>Filtres</b> : noir et blanc, sépia, chaud, froid, couleurs vives, doux.</li>
+        <li><b>Filtres</b> : noir et blanc, sépia, chaud, froid, couleurs vives, doux, film, détails dans les ombres.</li>
         <li><b>Géométrie</b> : rotation, miroir, <span class="ui">Recadrer</span>, redressement en degrés.</li>
-        <li><b>Lumière</b> : exposition, luminosité, contraste.</li>
-        <li><b>Couleur</b> : température, teinte, saturation ; <b>Détail</b> : netteté.</li>
+        <li><b>Lumière</b> : exposition, luminosité, contraste, <b>hautes lumières</b> (récupérer un ciel brûlé) et <b>ombres</b> (déboucher un contre-jour), sans changer les couleurs.</li>
+        <li><b>Couleur</b> : température, teinte, <b>vibrance</b> (ravive d’abord les couleurs ternes, épargne les peaux), saturation.</li>
+        <li><b>Détail</b> : netteté, <b>réduction du bruit</b> de luminance (grain, sans adoucir les contours) et de couleur (taches colorées des photos de nuit).</li>
+        <li><b>Courbe de tonalité</b> : cliquez sur la courbe pour ajouter un point, faites-le glisser, double-cliquez pour le retirer ; ou partez d’une courbe prédéfinie (S doux, fondu…).</li>
         <li><span class="ui">Avant / après</span>, <span class="ui">Annuler</span>, <span class="ui">Rétablir</span>, <span class="ui">Réinitialiser</span>.</li>
       </ul>
     </div>
@@ -495,7 +497,11 @@
     </svg>
     <figcaption>Une version n’est qu’une recette de réglages ; l’image est recalculée quand on en a besoin.</figcaption>
   </figure>
-  <div class="note tip"><b>Exporter une photo retouchée.</b> <span class="ui">Exporter…</span> crée un nouveau fichier (JPEG, PNG, WebP, TIFF) dans le dossier <i>Exports</i>, avec ou sans métadonnées et filigrane. Il n’écrase jamais rien.</div>
+  <div class="note tip"><b>Exporter une photo retouchée.</b> <span class="ui">Exporter…</span> crée un nouveau fichier (JPEG, PNG, WebP, TIFF) dans le dossier <i>Exports</i>, avec ou sans métadonnées et filigrane. Il n’écrase jamais rien. Le <b>profil de couleur</b> se choisit à l’export : sRGB (écrans, web, la plupart des laboratoires), Display P3, profil de l’original, CMJN générique pour un imprimeur, ou le profil ICC fourni par votre laboratoire (déposez le fichier .icc dans le dossier <i>Profils</i>).</div>
+
+  <h3>Ouvrir dans un autre logiciel</h3>
+  <p><span class="ui">Ouvrir dans…</span> (en haut de l’écran de retouche) confie la photo à GIMP, Photoshop, Affinity, darktable… Le logiciel reçoit une <b>copie</b> rangée dans le dossier <i>Edition externe</i> : soit le fichier d’origine tel quel (RAW compris), soit la version retouchée en TIFF. Choisissez le programme dans <span class="ui">Paramètres</span> ; sans choix, Windows ouvre la copie avec l’application associée. Une fois votre travail enregistré dans ce dossier, <span class="ui">Ajouter les fichiers modifiés à la photothèque</span> les indexe.</p>
+  <div class="note warn"><b>Fichiers RAW.</b> Le moteur de retouche intégré ne sait pas décoder les RAW : il travaille sur leur aperçu (définition réduite) et le signale. Pour développer un RAW en pleine définition, utilisez <span class="ui">Ouvrir dans…</span> avec un logiciel dédié (darktable, RawTherapee, Lightroom…).</div>
 </section>
 
 <!-- ============================================================ 8. albums -->

@@ -450,3 +450,7 @@ p.bad { color: var(--bad); }
 .lightbox.zoomed .lb-stage { display: flex; align-items: flex-start; justify-content: flex-start; }
 .lightbox.zoomed .lb-stage img, .cmp-stage img { margin: auto; flex: none; }
 .cmp-stage { display: flex; align-items: flex-start; justify-content: flex-start; }
+
+/* ---------- Retouche : courbe de tonalité ---------- */
+.rt-curve-wrap { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.rt-curve { width: 220px; height: 220px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; }

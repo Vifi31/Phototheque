@@ -139,8 +139,8 @@ bibliothèque).
 4. Retouches non destructives + exports — **première version livrée
    (v0.9.0)** : `lib/edits.mjs` (réglages JSON versionnés dans `edits`,
    versions, historique persistant, rendu sharp) et `lib/exports.mjs`
-   (formats, métadonnées, filigrane, profils, export par lot). Restent : RAW
-   (sharp ne les décode pas), courbes / bruit, profils ICC. Les albums
+   (formats, métadonnées, filigrane, profils, export par lot). Courbes, bruit,
+   profils ICC de sortie en v0.25.0 ; reste : RAW (sharp ne les décode pas). Les albums
    utilisent la version retouchée par défaut depuis v0.10.0, la grille et la
    visionneuse depuis v0.13.0 (`editedCard`, règle commune).
 5. Détection de doublons avancée (similitude perceptuelle) et outil dédié —
@@ -170,7 +170,9 @@ bibliothèque).
    en masse avec aperçu et annulation, profil ICC) — **livré en v0.23.0** (§20).
    Navigation (tailles de vignettes, zoom pleine définition, informations et
    classement au clavier, comparaison, historique, récemment vues) — **livré en
-   v0.24.0** (§21). Suivent : retouche avancée, albums et exports, sauvegardes, tableau de bord.
+   v0.24.0** (§21). Retouche avancée (hautes lumières, ombres, vibrance, bruit,
+   courbe, profils de sortie, logiciel externe) — **livré en v0.25.0** (§22) ;
+   RAW toujours sur l'aperçu. Suivent : albums et exports, sauvegardes, tableau de bord.
    Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
    lire les noms avec `keywordNamesOf`.
 

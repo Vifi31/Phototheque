@@ -128,7 +128,7 @@ async function fillLibrary() {
   await api('/collections', 'POST', { name: 'Mes meilleures photos', kind: 'dynamic', query: { rating: 5 } });
   // une version retouchée
   const lav = byName('Lavande.jpg');
-  const { version } = await api(`/photos/${lav.id}/edits`, 'POST', { name: 'Chaude et contrastée', params: { contrast: 12, saturation: 22, temperature: 12 } });
+  const { version } = await api(`/photos/${lav.id}/edits`, 'POST', { name: 'Chaude et contrastée', params: { contrast: 12, saturation: 12, vibrance: 15, shadows: 20, temperature: 12, curve: [[0, 0], [64, 56], [192, 200], [255, 255]] } });
   await api(`/edits/${version.id}`, 'PUT', { isDefault: true });
   // album
   const { album } = await api('/albums', 'POST', { name: 'Été 2023 en montagne', format: 'a4-paysage' });
@@ -302,7 +302,7 @@ export const SHOTS = ctx => [
   { name: 'metadonnees', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 1, 2]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click(); [...document.querySelectorAll('button')].find(b => b.textContent === 'Métadonnées…')?.click(); await new Promise(r => setTimeout(r, 700)); const g = document.querySelectorAll('#modalRoot .meta-grid > *'); const lab = [...g].findIndex(x => x.textContent === 'Ville'); g[1].value = 'fill'; g[1].onchange(); g[2].value = 'Vacances 2023'; g[lab + 1].value = 'set'; g[lab + 1].onchange(); g[lab + 2].value = 'Chamonix'; [...document.querySelectorAll('#modalRoot button')].find(b => b.textContent === 'Aperçu')?.click(); await new Promise(r => setTimeout(r, 900)); document.querySelector('#modalRoot .meta-out')?.scrollIntoView();` },
   { name: 'albums', js: `await App.go('albums');` },
   { name: 'album-editeur', js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album');` },
-  { name: 'retouche', js: `App.state.editPhotoId = ${JSON.stringify(ctx.lav.id)}; App.state.editBack = 'photos'; await App.go('retouche');` },
+  { name: 'retouche', h: 1500, js: `App.state.editPhotoId = ${JSON.stringify(ctx.lav.id)}; App.state.editBack = 'photos'; await App.go('retouche');` },
   { name: 'doublons', js: `await App.go('duplicates');` },
   { name: 'statistiques', js: `await App.go('stats');` },
   { name: 'rapports', js: `await App.go('reports');` },
@@ -310,9 +310,18 @@ export const SHOTS = ctx => [
   { name: 'parametres', js: `await App.go('settings');` },
 ];
 
+/** Numéro de version de la couverture : celui de package.json (sinon le PDF garde une version périmée). */
+function stampVersion() {
+  const v = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const f = path.join(OUT, 'index.html'), html = fs.readFileSync(f, 'utf8');
+  const next = html.replace(/(<span id="appVersion">)[^<]*(<\/span>)/, `$1${v}$2`);
+  if (next !== html) fs.writeFileSync(f, next, 'utf8');
+}
+
 async function main() {
   let server = null, browser = null;
   try {
+    stampVersion();
     if (!args.has('--pdf')) { console.log('Photothèque d’exemple…'); await makeLibrary(); }
     server = await startServer();
     let ctx = null;

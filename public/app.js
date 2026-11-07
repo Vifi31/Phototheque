@@ -884,7 +884,7 @@ const App = (() => {
           beforeBtn),
         h('div.rt-sect', 'Filtres'),
         h('div.rt-presets', ...Object.entries(meta.presets).map(([k, pr]) => h('button.ghost.small', { onclick: () => {
-          const tone = Object.fromEntries(['exposure', 'brightness', 'contrast', 'temperature', 'tint', 'saturation', 'sharpen', 'mono'].map(t => [t, neutral[t]]));
+          const tone = Object.fromEntries(meta.toneKeys.map(t => [t, neutral[t]]));
           set({ ...tone, ...pr.params }, true);
         } }, pr.label))),
         h('div.rt-sect', 'Géométrie'),
@@ -901,10 +901,76 @@ const App = (() => {
               h('button.ghost.small' + (params.crop ? '.on' : ''), { onclick: startCrop }, '✂ Recadrer')),
         cropMode ? null : slider('straighten'),
         ...Object.entries(groups).flatMap(([g, list]) => [h('div.rt-sect', g), ...list]),
+        h('div.rt-sect', 'Courbe de tonalité'), curveEditor(),
         h('div.form', field('Noir et blanc', h('select', { onchange: e => set({ mono: e.target.value || null }, true) },
           h('option', { value: '' }, 'Couleur'), h('option', { value: 'bw', selected: params.mono === 'bw' }, 'Noir et blanc'), h('option', { value: 'sepia', selected: params.mono === 'sepia' }, 'Sépia')))),
         h('p.dim', 'Double-clic sur un curseur : remise à zéro. Les réglages sont enregistrés à part ; l’original n’est jamais modifié.'));
       drawCrop();
+    }
+
+    // ---- courbe de tonalité : points déplaçables (clic = ajouter, double-clic = retirer) ----
+    function curveEditor() {
+      const S = 220, cv = h('canvas.rt-curve', { width: S, height: S, title: 'Cliquer pour ajouter un point, le faire glisser ; double-clic pour le retirer' });
+      const pts = () => params.curve ? params.curve.map(q => [...q]) : [[0, 0], [255, 255]];
+      let work = pts(), drag = -1;
+      const toXY = e => { const r = cv.getBoundingClientRect(); return [Math.round(Math.min(255, Math.max(0, (e.clientX - r.left) / r.width * 255))), Math.round(Math.min(255, Math.max(0, 255 - (e.clientY - r.top) / r.height * 255)))]; };
+      function draw() {
+        const c = cv.getContext('2d'), css = getComputedStyle(document.body);
+        c.clearRect(0, 0, S, S);
+        c.strokeStyle = css.getPropertyValue('--border') || '#334155'; c.lineWidth = 1;
+        for (let i = 1; i < 4; i++) { const v = Math.round(i * S / 4) + 0.5; c.beginPath(); c.moveTo(v, 0); c.lineTo(v, S); c.moveTo(0, v); c.lineTo(S, v); c.stroke(); }
+        c.setLineDash([3, 3]); c.beginPath(); c.moveTo(0, S); c.lineTo(S, 0); c.stroke(); c.setLineDash([]);
+        const lut = curveLutUi(work);
+        c.strokeStyle = css.getPropertyValue('--accent') || '#22d3ee'; c.lineWidth = 2; c.beginPath();
+        for (let x = 0; x < 256; x++) { const px = x / 255 * S, py = S - lut[x] / 255 * S; x ? c.lineTo(px, py) : c.moveTo(px, py); }
+        c.stroke();
+        c.fillStyle = '#fff';
+        for (const [x, y] of work) { c.beginPath(); c.arc(x / 255 * S, S - y / 255 * S, 4.5, 0, 7); c.fill(); c.stroke(); }
+      }
+      const apply = commitNow => { const sorted = [...work].sort((a, b) => a[0] - b[0]); set({ curve: sorted }, commitNow); };
+      cv.addEventListener('pointerdown', e => {
+        const [x, y] = toXY(e);
+        drag = work.findIndex(q => Math.abs(q[0] - x) <= 8 && Math.abs(q[1] - y) <= 10);
+        if (drag < 0 && work.length < 16 && !work.some(q => q[0] === x)) { work.push([x, y]); work.sort((a, b) => a[0] - b[0]); drag = work.findIndex(q => q[0] === x); }
+        try { cv.setPointerCapture(e.pointerId); } catch { /* sans capture */ }
+        draw();
+      });
+      cv.addEventListener('pointermove', e => {
+        if (drag < 0) return;
+        let [x, y] = toXY(e);
+        const lo = drag > 0 ? work[drag - 1][0] + 1 : 0, hi = drag < work.length - 1 ? work[drag + 1][0] - 1 : 255;
+        x = Math.min(hi, Math.max(lo, x)); work[drag] = [x, y]; draw(); apply(false);
+      });
+      cv.addEventListener('pointerup', () => { if (drag >= 0) { drag = -1; apply(true); } });
+      cv.addEventListener('dblclick', e => {
+        const [x, y] = toXY(e), i = work.findIndex(q => Math.abs(q[0] - x) <= 8 && Math.abs(q[1] - y) <= 10);
+        if (i > 0 && i < work.length - 1) { work.splice(i, 1); draw(); apply(true); }
+      });
+      const preset = h('select', { onchange: e => { const c = meta.curves[e.target.value]; work = c.points ? c.points.map(q => [...q]) : [[0, 0], [255, 255]]; draw(); set({ curve: c.points }, true); } },
+        h('option', { value: '' }, 'Courbes prédéfinies…'), ...Object.entries(meta.curves).map(([k, c]) => h('option', { value: k }, c.label)));
+      requestAnimationFrame(draw);
+      return h('div.rt-curve-wrap', cv, h('div.row', preset, h('button.ghost.small', { onclick: () => { work = [[0, 0], [255, 255]]; draw(); set({ curve: null }, true); } }, 'Linéaire')));
+    }
+
+    // ---- logiciel externe : toujours sur une copie ----
+    async function externalDialog() {
+      const ext = await api('/external');
+      const src = h('select', {}, ...Object.entries(ext.sources).map(([k, l]) => h('option', { value: k }, l)));
+      const out = h('div');
+      const m2 = modal({ title: 'Ouvrir dans un logiciel externe', body: h('div',
+        h('p', 'Le logiciel reçoit une ', h('b', 'copie'), ' rangée dans ', h('code', ext.dir), ' : l’original n’est jamais modifié.'),
+        h('p.dim', `Logiciel : ${ext.check.label}. `, h('button.link', { onclick: () => { m2.close(); go('settings'); } }, 'Choisir dans Paramètres')),
+        h('div.form', field('Fichier à ouvrir', src)), out),
+        actions: [h('button.ghost', { onclick: () => m2.close() }, 'Fermer'),
+          h('button', { onclick: async () => {
+            try {
+              const r = await api(`/photos/${enc}/external`, 'POST', { source: src.value });
+              mount(out, h('p', `Copie ouverte avec ${r.program} : `, h('code', r.file)),
+                r.fromPreview ? h('div.album-alert.warn', 'Original indisponible ou RAW : la version a été rendue depuis l’aperçu en cache.') : null,
+                h('p.dim', 'Enregistrez vos modifications dans ce dossier, puis :'),
+                h('button.ghost.small', { onclick: async () => { const x = await api('/external/index', 'POST'); toast(`${x.added} photo(s) ajoutée(s), ${x.updated} mise(s) à jour`); } }, 'Ajouter les fichiers modifiés à la photothèque'));
+            } catch (e) { mount(out, h('div.album-alert.bad', e.message)); }
+          } }, 'Ouvrir')] });
     }
 
     // raccourcis Ctrl+Z / Ctrl+Y (hors champs de saisie)
@@ -919,12 +985,36 @@ const App = (() => {
     mount(v,
       h('div.row', h('h2.page-title', `Retouche — ${fileName}`), h('div.spacer'),
         h('button.ghost.small', { onclick: () => go(state.editBack || 'photos') }, '← Retour'),
+        h('button.ghost.small', { title: 'GIMP, Photoshop, darktable… sur une copie', onclick: externalDialog }, 'Ouvrir dans…'),
         h('button.small', { onclick: () => exportDialog([pid]) }, 'Exporter…')),
       h('div.rt-layout', h('div.rt-view', stage, busy), panel));
     drawPanel(); refreshPreview(0);
   }
 
   // ---------- Export de photos (lib/exports.mjs) : profil, réglages, travail suivi, compte rendu ----------
+  // ---------- Courbe de tonalité : affichage (même interpolation que curveLut, lib/edits.mjs, qui fait foi) ----------
+  function curveLutUi(points) {
+    const lut = new Uint8Array(256), n = points.length, xs = points.map(q => q[0]), ys = points.map(q => q[1]);
+    if (n < 2) { for (let i = 0; i < 256; i++) lut[i] = i; return lut; }
+    const d = [], m = new Array(n);
+    for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / Math.max(1, xs[i + 1] - xs[i]));
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], t = a * a + b * b;
+      if (t > 9) { const k = 3 / Math.sqrt(t); m[i] = k * a * d[i]; m[i + 1] = k * b * d[i]; }
+    }
+    for (let x = 0; x < 256; x++) {
+      let y;
+      if (x <= xs[0]) y = ys[0]; else if (x >= xs[n - 1]) y = ys[n - 1];
+      else { let i = 0; while (x > xs[i + 1]) i++; const hh = xs[i + 1] - xs[i], t = (x - xs[i]) / hh, t2 = t * t, t3 = t2 * t;
+        y = (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * hh * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * hh * m[i + 1]; }
+      lut[x] = Math.round(Math.min(255, Math.max(0, y)));
+    }
+    return lut;
+  }
+
   // ---------- Photos récemment consultées (préférence locale, 60 au plus) ----------
   const RECENT_KEY = 'phototheque.recent';
   const recentIds = () => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter(x => typeof x === 'string'); } catch { return []; } };
@@ -1194,17 +1284,18 @@ const App = (() => {
     const quality = h('input', { type: 'number', min: 30, max: 100 }), maxSide = h('input', { type: 'number', min: 64, max: 20000, placeholder: 'pleine définition' });
     const version = h('select', {}, h('option', { value: 'default' }, 'Version retouchée par défaut (sinon l’original)'), h('option', { value: 'original' }, 'Original non retouché'));
     const metaSel = h('select', {}, ...Object.entries(meta.metadata).map(([k, l]) => h('option', { value: k }, l)));
+    const iccSel = h('select', {}, ...Object.entries(meta.colorProfiles).map(([k, l]) => h('option', { value: k }, l)));
     const wmText = h('input', { type: 'text', placeholder: 'aucun' }), wmPos = h('select', {}, ...Object.entries(meta.positions).map(([k, l]) => h('option', { value: k }, l)));
     const naming = h('input', { type: 'text' }), folder = h('input', { type: 'text', placeholder: 'Export <date et heure>' });
     const status = h('div'), delBtn = h('button.ghost.small.danger', { hidden: true }, 'Supprimer ce profil');
     function fillSel(selected) { mount(sel, ...keyOf().map(k => h('option', { value: k, selected: k === selected }, (k.startsWith('s:') ? '★ ' : '') + profOf(k).name))); }
     function load(k) {
       const p = profOf(k); if (!p) return;
-      fmt.value = p.format; quality.value = p.quality; maxSide.value = p.maxSide ?? ''; version.value = p.version; metaSel.value = p.metadata;
+      fmt.value = p.format; quality.value = p.quality; maxSide.value = p.maxSide ?? ''; version.value = p.version; metaSel.value = p.metadata; iccSel.value = meta.colorProfiles[p.colorProfile] ? p.colorProfile : 'srgb';
       wmText.value = p.watermark.text; wmPos.value = p.watermark.position; naming.value = p.naming; folder.value = p.folder;
       delBtn.hidden = !k.startsWith('s:'); quality.disabled = !meta.formats[p.format].quality;
     }
-    const current = () => ({ format: fmt.value, quality: +quality.value, maxSide: maxSide.value ? +maxSide.value : null, version: version.value, metadata: metaSel.value,
+    const current = () => ({ format: fmt.value, quality: +quality.value, maxSide: maxSide.value ? +maxSide.value : null, version: version.value, metadata: metaSel.value, colorProfile: iccSel.value,
       watermark: { text: wmText.value, position: wmPos.value }, naming: naming.value, folder: folder.value });
     sel.addEventListener('change', () => load(sel.value));
     fmt.addEventListener('change', () => { quality.disabled = !meta.formats[fmt.value].quality; });
@@ -1221,7 +1312,7 @@ const App = (() => {
         do { await new Promise(r => setTimeout(r, 400)); job = (await api('/jobs/' + jobId)).job; mount(status, h('p.dim', `Export en cours… ${job.done ?? 0} / ${job.total || ids.length}`)); } while (job.status === 'running');
         if (job.status === 'error') throw new Error(job.error);
         const r = job.result;
-        mount(status, h('p', `✓ ${r.files.length} fichier(s) · ${fmtBytes(r.bytes)}`), h('p.dim', 'Dossier : ' + r.dir),
+        mount(status, h('p', `✓ ${r.files.length} fichier(s) · ${fmtBytes(r.bytes)}`, r.files[0]?.colorProfile ? ` · profil ${r.files[0].colorProfile}` : ''), h('p.dim', 'Dossier : ' + r.dir),
           r.fromPreview ? h('div.album-alert.warn', `${r.fromPreview} photo(s) exportée(s) depuis l’aperçu en cache (original indisponible ou RAW) : définition réduite.`) : null,
           ...r.errors.slice(0, 8).map(e => h('div.album-alert.bad', `${e.photoId.slice(0, 8)}… : ${e.error}`)));
         toast(`${r.files.length} photo(s) exportée(s)`);
@@ -1232,7 +1323,7 @@ const App = (() => {
     const m = modal({ title: 'Exporter', wide: true, body: h('div',
       h('div.form', field('Profil', sel)),
       h('div.form', field('Format', fmt), field('Qualité (JPEG, WebP)', quality), field('Plus grand côté (pixels)', maxSide)),
-      h('div.form', field('Version', version), field('Métadonnées', metaSel)),
+      h('div.form', field('Version', version), field('Métadonnées', metaSel), field('Profil de couleur', iccSel, `Profils ICC d’un laboratoire : déposez les fichiers .icc dans ${meta.profilesDir}`)),
       h('div.form', field('Filigrane (texte)', wmText), field('Position du filigrane', wmPos)),
       h('div.form', field('Nom des fichiers', naming), field('Sous-dossier', folder)),
       h('p.dim', `Modèles de nom : {nom} (fichier d’origine), {titre}, {date}, {n} (rang). Les fichiers vont dans ${meta.dir} ; un fichier existant n’est jamais écrasé et les originaux ne sont jamais modifiés.`),
@@ -1945,6 +2036,8 @@ const App = (() => {
     const destInput = h('input', { type: 'text', value: state.import.dest || '', placeholder: 'Dossier de destination des imports copiés' });
     const keepCb = h('input', { type: 'checkbox', checked: state.import.keepFolders !== false });
     const MD = await api('/metadata');
+    const EXT = await api('/external');
+    const editorIn = h('input', { type: 'text', value: EXT.settings.editor || '', placeholder: 'ex. : C:\\Program Files\\GIMP 2\\bin\\gimp-2.10.exe — vide : application associée' });
     const readCb = h('input', { type: 'checkbox', checked: MD.settings.readOnIndex !== false });
     const destSel = h('select', {}, ...Object.entries(MD.destinations).map(([k, l]) => h('option', { value: k, selected: MD.settings.destination === k }, l)));
     const nameSel = h('select', {}, ...Object.entries(MD.namings).map(([k, l]) => h('option', { value: k, selected: MD.settings.naming === k }, l)));
@@ -1965,6 +2058,9 @@ const App = (() => {
           h('label.check', readCb, h('span', 'À l’indexation, remplir les champs vides des nouvelles photos (titre, légende, mots-clés, note, lieu…) depuis leurs fichiers')),
           field('Emplacement des XMP écrits', destSel, `Dossier dédié : ${MD.dir}`),
           field('Nom des fichiers XMP', nameSel))),
+      card(h('div.sect', 'Logiciel de retouche externe'),
+        h('p.dim', `« Ouvrir dans… » (écran Retouche) donne au logiciel une copie rangée dans ${EXT.dir} ; l’original n’est jamais modifié.`),
+        h('div.form', field('Programme', editorIn, EXT.check.ok ? `Actuellement : ${EXT.check.label}` : EXT.check.label))),
       h('div.row', h('button', { onclick: save }, 'Enregistrer les paramètres')));
 
     async function save() {
@@ -1973,6 +2069,7 @@ const App = (() => {
         import: { dest: destInput.value, keepFolders: keepCb.checked },
       });
       await api('/metadata/settings', 'PUT', { readOnIndex: readCb.checked, destination: destSel.value, naming: nameSel.value });
+      try { await api('/external', 'PUT', { editor: editorIn.value }); } catch (e) { toast(e.message, 'bad'); }
       state.scan = r.scan; state.import = r.import; toast('Paramètres enregistrés');
     }
   }

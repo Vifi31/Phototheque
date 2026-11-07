@@ -4,6 +4,34 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.25.0] — 2026-11-07
+
+### Ajouté
+
+- Retouche :
+  - **hautes lumières** et **ombres** (sur la luminance : la teinte est
+    conservée) ;
+  - **vibrance** (ravive d'abord les couleurs ternes) ;
+  - **réduction du bruit** de luminance (filtre bilatéral, contours préservés)
+    et de couleur (flou de la chrominance) ;
+  - **courbe de tonalité** éditable (points à glisser, interpolation monotone)
+    et six courbes prédéfinies ;
+  - filtres « Film (fondu) » et « Détails dans les ombres ».
+- Export : **profil de couleur** de sortie — sRGB, Display P3, profil de
+  l'original, CMJN générique (JPEG / TIFF), ou un profil ICC personnel déposé
+  dans le dossier `Profils/`.
+- **Ouvrir dans un logiciel externe** (écran Retouche) : le logiciel reçoit une
+  copie dans `Edition externe/` (fichier d'origine, RAW compris, ou version
+  retouchée en TIFF) ; les fichiers modifiés s'ajoutent à la photothèque en un
+  clic. Programme choisi dans Paramètres (sinon l'application associée).
+
+### Inchangé
+
+- Les RAW restent retouchés sur leur aperçu (sharp ne les décode pas) ; le
+  guide conseille « Ouvrir dans… » vers un logiciel de développement RAW.
+- Les versions existantes s'affichent à l'identique (nouveaux réglages neutres
+  par défaut, format de réglages inchangé).
+
 ## [0.24.0] — 2026-11-07
 
 ### Ajouté

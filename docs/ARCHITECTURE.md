@@ -650,3 +650,32 @@ les confirmations se font par un second clic sur le bouton, pas par
 * **Récemment vues** : `localStorage` `phototheque.recent` (60 ids), affichées
   via le critère `ids` (`lib/search.mjs`, 500 au plus, exclu des recherches
   enregistrées) dans l'ordre de consultation.
+
+## 22. Retouche avancée, profils de couleur, logiciel externe (v0.25.0)
+
+* **Nouveaux réglages** (`lib/edits.mjs`, format `v: 1` inchangé, valeurs neutres
+  par défaut) : `highlights`, `shadows`, `vibrance`, `noise`, `colorNoise`,
+  `curve` (2 à 16 points [x, y] 0–255, `cleanCurve` ; identité → `null`).
+  `TONE_KEYS` (exporté, lu par l'interface) = réglages remplacés par un filtre.
+* **Étape pixel par pixel** `applyPixelOps(buf, w, h, canaux, params)`, appelée
+  par `pipeline` seulement si l'un de ces réglages est actif : le résultat
+  intermédiaire est matérialisé (`raw()`), traité en JS, puis repris par sharp
+  (saturation, noir et blanc, netteté). Ordre : bruit (YCbCr ; Y : bilatéral
+  rayon 1 ou 2, Cb/Cr : flou en boîte séparable 2 passes), hautes lumières /
+  ombres (`toneCurve` sur la luminance, rapport appliqué aux 3 canaux),
+  courbe (`curveLut`, Fritsch-Carlson, recopiée dans `app.js` pour l'affichage
+  seulement), vibrance. Mesuré : 6 Mpx, bruit fort + couleur ≈ 1,7 s ; aperçu
+  1 400 px ≈ 0,3 s.
+* **Profil de sortie** (`lib/exports.mjs`, `colorProfile` du profil d'export) :
+  rendu en sRGB puis `withIccProfile` (`srgb`, `p3`, `cmyk` — JPEG / TIFF
+  seulement, sinon sRGB —, profil embarqué de l'original écrit dans
+  `data/thumbs/icc/`, ou `file:<nom>` dans `HOME/Profils/`, nom sans chemin).
+* **Logiciel externe** (`lib/external.mjs`) : `prepare` copie l'original
+  (`COPYFILE_EXCL`, RAW compris) ou rend la version par défaut en TIFF dans
+  `HOME/Edition externe/` ; `launch` n'accepte qu'un fichier de ce dossier et
+  un programme .exe/.bat/.cmd/.app existant (`store.external.editor`), sinon
+  `explorer.exe` (application associée) ; `index` crée au besoin la fiche du
+  dossier et l'indexe. Une copie non modifiée a la même empreinte que
+  l'original : l'indexation la rattache à la même photo comme copie.
+  Routes : `POST /api/photos/:id/external`, `GET|PUT /api/external`,
+  `POST /api/external/index`.
