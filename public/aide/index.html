@@ -169,7 +169,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version <span id="appVersion">0.26.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.27.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -622,7 +622,7 @@
 <section class="page" id="proteger" style="--c: #0f172a">
   <h2 class="ch"><span class="n">12</span>Sauvegarder et administrer</h2>
   <p class="sub">Votre catalogue représente des heures de classement : protégez-le.</p>
-  <figure><img src="img/administration.jpg" alt="L'administration, onglet Sauvegardes"><figcaption>Administration → Sauvegardes : créer, vérifier, télécharger, restaurer, programmer.</figcaption></figure>
+  <figure><img src="img/administration.jpg" alt="L'administration, onglet Sauvegardes"><figcaption>Administration → Sauvegardes : alertes, règle 3-2-1, couverture des originaux, archives et tests de restauration.</figcaption></figure>
   <table>
     <tr><th style="width:22%">Type</th><th>Contient</th></tr>
     <tr><td><b>Données</b></td><td>le catalogue (base), les réglages et vos documents de travail. <b>À faire régulièrement.</b></td></tr>
@@ -641,13 +641,26 @@
     </svg>
     <figcaption>La règle « 3-2-1 », simple et efficace pour ne jamais perdre ses photos.</figcaption>
   </figure>
+  <h3>Plusieurs destinations</h3>
+  <p><span class="ui">Ajouter…</span> (carte <b>Destinations</b>) déclare un autre disque interne, un disque externe, un NAS ou un support que vous conservez ailleurs. Chaque nouvelle sauvegarde y est copiée dans un dossier « Phototheque - sauvegardes », puis la copie est <b>relue et comparée</b> (empreinte SHA-256). Un disque débranché n’empêche rien : la copie échoue, une alerte le dit, et <span class="ui">Copier</span> la refait plus tard. La carte <b>Stratégie 3-2-1</b> indique ce qui manque.</p>
+  <h4>Vérifier qu’une sauvegarde se restaure</h4>
+  <p>Une sauvegarde n’est fiable que si elle se relit. <span class="ui">Tester</span> fait un <b>test de restauration</b> sans rien remplacer : contrôle de chaque élément (CRC et SHA-256), ouverture du catalogue sauvegardé dans un dossier temporaire et contrôle de son intégrité. Le résultat et sa date s’affichent à côté de l’archive. La programmation peut lancer ce test automatiquement (par défaut tous les 7 jours).</p>
+  <h4>Voir le contenu, restaurer une partie</h4>
+  <p><span class="ui">Contenu…</span> compare la sauvegarde au catalogue actuel (photos, mots-clés, albums, collections) et liste ses albums, collections et documents. Cochez ceux à récupérer puis <span class="ui">Restaurer la sélection</span> : ils sont <b>recréés à côté</b> de l’existant (« … (restauré) »), rien n’est écrasé. <span class="ui">Tout restaurer…</span> remplace l’ensemble du catalogue : l’application explique ce qui sera perdu, crée une sauvegarde de sécurité de l’état actuel, puis redémarre.</p>
+  <h4>Alertes</h4>
+  <p>Une sauvegarde programmée manquée, une copie en échec, une destination inaccessible, un test raté ou une sauvegarde trop ancienne s’affichent en haut de l’écran Sauvegardes, et un bouton <span class="ui">⚠ Sauvegardes</span> apparaît en haut de chaque page. Le <b>journal</b> garde les 100 dernières opérations ; le <b>rapport de sauvegardes</b> (menu Rapports) les reprend.</p>
+  <figure><img src="img/sauvegardes-destinations.jpg" alt="Destinations, programmation, chiffrement"><figcaption>Destinations, programmation et contrôles, chiffrement, journal.</figcaption></figure>
+  <div class="two">
+    <div class="note key"><b>Chiffrer les sauvegardes.</b> <span class="ui">Activer le chiffrement…</span> protège les nouvelles archives par un mot de passe (AES-256) : utile pour un disque confié à un proche. Le mot de passe n’est enregistré nulle part : <b>perdu, il rend ces archives illisibles</b>. Saisi une fois par démarrage, il permet les sauvegardes programmées chiffrées. Seules les archives sont chiffrées, pas la base en service ni les photos : pour cela, utilisez le chiffrement du disque (BitLocker).</div>
+    <div class="note warn"><b>Les originaux.</b> Le rapport <b>Originaux non couverts</b> (menu Rapports) liste les photos dont aucun fichier n’est sur un support de rôle « Sauvegarde » ou « Archive ». Copiez-les sur un tel disque puis indexez-le : la couverture remonte. Une synchronisation n’est pas une sauvegarde (une suppression s’y propage).</div>
+  </div>
+  <h3>Verrouiller l’application</h3>
+  <p>Dans <b>Paramètres</b>, <span class="ui">Activer le verrouillage</span> fait demander un mot de passe au lancement et après une période d’inactivité ; le bouton <span class="ui">🔒 Verrouiller</span> en haut de l’écran verrouille tout de suite. Le verrou protège l’accès par l’interface : il ne chiffre pas les fichiers. Mot de passe oublié : arrêtez l’application puis lancez <code>node scripts/deverrouiller.mjs</code> dans son dossier.</p>
   <ul>
-    <li><b>Sauvegarde automatique</b> : réglez la fréquence, l’heure et le nombre de sauvegardes à conserver.</li>
-    <li><b>Restaurer</b> : une sauvegarde de sécurité de l’état actuel est toujours créée avant.</li>
     <li>Les autres onglets (Versions, Base de données, Licence, Manifeste, Prompts, Modèle) servent surtout à la maintenance.</li>
   </ul>
-  <h3>Paramètres</h3>
-  <figure><img src="img/parametres.jpg" alt="Les paramètres"><figcaption>Taille des vignettes et des aperçus, empreintes, dossier de destination des imports.</figcaption></figure>
+  <h4>Paramètres</h4>
+  <figure><img src="img/parametres.jpg" alt="Les paramètres"><figcaption>Indexation, importation, métadonnées, verrouillage, logiciel externe.</figcaption></figure>
 </section>
 
 <!-- ============================================================ 13. FAQ -->
@@ -667,7 +680,9 @@
   <h4>Le PDF d’un album affiche des alertes de résolution.</h4>
   <p>La photo est trop petite pour la taille de son cadre : choisissez un gabarit avec des cadres plus petits ou une photo de meilleure définition.</p>
   <h4>Comment transférer la Photothèque sur un nouvel ordinateur ?</h4>
-  <p>Faites une sauvegarde <b>Données</b>, installez l’application sur le nouvel ordinateur, puis restaurez-la dans <b>Administration → Sauvegardes</b>. Rebranchez vos supports : ils seront reconnus.</p>
+  <p>Faites une sauvegarde <b>Données</b>, installez l’application sur le nouvel ordinateur, importez l’archive (<span class="ui">Télécharger</span> puis importer, ou depuis une destination), puis <span class="ui">Restaurer…</span> dans <b>Administration → Sauvegardes</b>. Rebranchez vos supports : ils seront reconnus par leur empreinte, et les chemins devenus invalides apparaissent dans le rapport <b>Fichiers manquants</b>.</p>
+  <h4>J’ai supprimé un album par erreur.</h4>
+  <p><b>Administration → Sauvegardes</b>, <span class="ui">Contenu…</span> d’une sauvegarde antérieure, cochez l’album, <span class="ui">Restaurer la sélection</span>. Il revient sous le nom « … (restauré) », sans toucher au reste.</p>
 </section>
 
 <!-- ============================================================ 14. glossaire -->

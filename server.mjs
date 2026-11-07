@@ -27,7 +27,9 @@ import { createDuplicates, LEVELS as DUP_LEVELS, DEFAULT_THRESHOLD, DEFAULT_BURS
 import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_DEFAULTS, SHEET_LAYOUTS, SHEET_BACKGROUNDS, MAX_SHEET_PHOTOS } from './lib/contactsheet.mjs';
 import { createCatalog, CSV_COLUMNS, GROUP_BY } from './lib/catalog.mjs';
 import { createReports, REPORTS } from './lib/reports.mjs';
-import { createBackupService } from './lib/backup.mjs';
+import { createSelectiveRestore } from './lib/restore.mjs';
+import { createLock } from './lib/lock.mjs';
+import { BACKED_UP } from './lib/search.mjs';
 import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as META_MODES, MAX_BATCH as META_MAX } from './lib/metadata.mjs';
 import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
 import { XMP_DIR } from './lib/paths.mjs';
@@ -54,9 +56,15 @@ const metadata = createMetadata(db, { keywords, library, settings: () => store.m
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
-// rapports : instance de lecture du service de sauvegarde (liste, vérification), programmation lue dans le store
-const reports = createReports(db, { backups: createBackupService({ root: ROOT, getStats }), backupSettings: () => store.backup });
-const extra = setupExtra({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store), reloadStore, getStats, getDb: () => db, reimport: async () => {} });
+// couverture des originaux par une copie sur un support de sauvegarde ou d'archive
+const getCoverage = () => db.prepare(`SELECT COUNT(*) photos, COALESCE(SUM(${BACKED_UP}), 0) covered,
+  COALESCE(SUM((SELECT COUNT(DISTINCT COALESCE(support_id, '-')) FROM files WHERE photo_id = p.id) <= 1), 0) single FROM photos p`).get();
+const extra = setupExtra({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store), reloadStore, getStats, getDb: () => db, reimport: async () => {}, getCoverage });
+// rapports : même service de sauvegarde (liste, vérification, tests, destinations), réglages du store
+const reports = createReports(db, { backups: extra.backups, backupSettings: () => store.backup });
+const selective = createSelectiveRestore(db, { backups: extra.backups, albums, collections });
+// verrouillage facultatif (lib/lock.mjs) : empreinte du mot de passe dans store.security.lock
+const lock = createLock({ getLock: () => store.security?.lock, setLock: l => { store.security = { ...(store.security ?? {}), lock: l }; saveStore(db, store); } });
 const admin = setupAdmin({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store) });
 const dbAdmin = setupDbAdmin({ getDb: () => db, getError: () => null, getStore: () => store, mirrorFile: STORE_FILE, dbFile: DB_FILE });
 
@@ -66,6 +74,7 @@ const buildState = () => ({
   license: licenseBrief(store), menu: store.menu ?? null, version: currentVersion(), installed: INSTALLED,
   scan: store.scan, import: store.import, stats: getStats(),
   supportKinds: SUPPORT_KINDS, supportRoles: SUPPORT_ROLES,
+  backupAlerts: (() => { try { return extra.backups.alerts().filter(x => x.level !== 'info').length; } catch { return 0; } })(),
 });
 
 const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); };
@@ -136,6 +145,27 @@ async function api(req, res, url) {
   const p = url.pathname, m = req.method;
   const id = decodeURIComponent(p.split('/')[3] ?? '');
 
+  // ---- verrouillage (accessibles verrouillé : état et déverrouillage ; le reste exige une session ouverte)
+  if (p.startsWith('/api/lock')) {
+    const send = (code, body, cookie) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...(cookie ? { 'Set-Cookie': cookie } : {}) }); res.end(JSON.stringify(body)); };
+    try {
+      if (p === '/api/lock' && m === 'GET') return send(200, lock.status(req));
+      if (p === '/api/lock/unlock' && m === 'POST') { const b = await readBody(req); const r = lock.unlock(String(b.password ?? '')); logHistory(db, 'lock.unlock', 'Application déverrouillée'); return send(200, { ok: true }, r.cookie); }
+      if (p === '/api/lock/lock' && m === 'POST') { const r = lock.lockNow(); return send(200, { ok: true }, r.cookie); }
+      if (!lock.allowed(req)) return send(401, { error: 'Application verrouillée', locked: true });
+      const b = await readBody(req);
+      if (p === '/api/lock/password' && m === 'POST') { const r = lock.setPassword({ current: String(b.current ?? ''), password: String(b.password ?? ''), idleMinutes: b.idleMinutes }); logHistory(db, 'lock.password', 'Verrouillage activé ou mot de passe changé'); return send(200, lock.status({ headers: { cookie: r.cookie } }), r.cookie); }
+      if (p === '/api/lock/idle' && m === 'POST') return send(200, lock.setIdle({ current: String(b.current ?? ''), idleMinutes: b.idleMinutes }));
+      if (p === '/api/lock/disable' && m === 'POST') { const r = lock.disable({ current: String(b.current ?? '') }); logHistory(db, 'lock.disable', 'Verrouillage désactivé'); return send(200, { enabled: false }, r.cookie); }
+    } catch (e) { return send(400, { error: e.message }); }
+    return send(404, { error: 'Not found' });
+  }
+  // restauration sélective (albums, collections, documents) : nouveaux éléments, sauvegarde de sécurité d'abord
+  if (p === '/api/backups/selective' && m === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, await selective.restoreSelection(String(b.name ?? ''), { albums: b.albums, collections: b.collections, documents: b.documents, password: b.password || null })); }
+    catch (e) { return json(res, 400, { error: e.message }); }
+  }
   if (await extra(req, res, url, { json, readBody })) return;
   if (await admin(req, res, url, { json, readBody })) return;
   if (await dbAdmin(req, res, url, { json })) return;
@@ -511,7 +541,11 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
-    if (url.pathname.startsWith('/api/')) return await api(req, res, url);
+    if (url.pathname.startsWith('/api/')) {
+      // application verrouillée : seules l'état du verrou, le déverrouillage et /api/ping répondent
+      if (!url.pathname.startsWith('/api/lock') && url.pathname !== '/api/ping' && !lock.allowed(req)) return json(res, 401, { error: 'Application verrouillée', locked: true });
+      return await api(req, res, url);
+    }
     let file = path.join(PUBLIC, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
     // dossier : sa page index.html (guide utilisateur sous /aide/)
     if (inside(PUBLIC, file) && fs.existsSync(file) && fs.statSync(file).isDirectory() && fs.existsSync(path.join(file, 'index.html'))) file = path.join(file, 'index.html');

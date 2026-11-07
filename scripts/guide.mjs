@@ -138,7 +138,13 @@ async function fillLibrary() {
   // doublons : empreintes visuelles
   const h = await api('/duplicates/hashes', 'POST', { all: true }); await waitJob(h.jobId);
   // une sauvegarde
-  await api('/backups', 'POST', { type: 'data', label: 'Avant rangement' });
+  // destinations de démonstration (dossiers du répertoire temporaire), puis sauvegarde copiée et testée
+  for (const [name, kind] of [['Disque externe bleu', 'external'], ['Chez mes parents', 'offsite']]) {
+    const dir = path.join(HOME, 'Destinations', name); fs.mkdirSync(dir, { recursive: true });
+    await api('/backups/destinations', 'POST', { name, path: dir, kind });
+  }
+  const bk = await api('/backups', 'POST', { type: 'data', label: 'Avant rangement' });
+  await api('/backups/test', 'POST', { name: bk.created });
   return { rows, album, lav };
 }
 
@@ -312,6 +318,7 @@ export const SHOTS = ctx => [
   { name: 'statistiques', js: `await App.go('stats');` },
   { name: 'rapports', js: `await App.go('reports');` },
   { name: 'administration', js: `await App.go('admin');` },
+  { name: 'sauvegardes-destinations', h: 1100, js: `await App.go('admin-backups'); await new Promise(r => setTimeout(r, 600)); document.querySelector('.two-cards')?.scrollIntoView();` },
   { name: 'parametres', js: `await App.go('settings');` },
 ];
 

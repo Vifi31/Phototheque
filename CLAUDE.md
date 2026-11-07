@@ -174,7 +174,12 @@ bibliothèque).
    courbe, profils de sortie, logiciel externe) — **livré en v0.25.0** (§22) ;
    RAW toujours sur l'aperçu. Albums et exports (bordures, modèles graphiques,
    alignement, envoi au prestataire, tirages aux dimensions physiques) — **livré en
-   v0.26.0** (§23). Suivent : sauvegardes et sécurité, tableau de bord.
+   v0.26.0** (§23). Sauvegardes et sécurité (destinations, chiffrement, test de
+   restauration, restauration sélective, alertes, originaux non couverts,
+   verrouillage) — **livré en v0.27.0** (§24). Suit : tableau de bord.
+   Piège : les clés `config` contenant un point appartiennent aux modules
+   (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
+   complète appliquée au démarrage (`STAGED_DB`).
    Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
    lire les noms avec `keywordNamesOf`.
 

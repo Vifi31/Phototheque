@@ -713,3 +713,48 @@ les confirmations se font par un second clic sur le bouton, pas par
   ne ramène pas le GPS de l'original). Résolution effective = dpi / échelle,
   `bad` sous 150 ppp, `warn` sous 80 % du dpi visé. Fiche `LISEZ-MOI.txt` (nom
   unique, jamais écrasée).
+
+## 24. Sauvegardes et sécurité (v0.27.0)
+
+* **Réglages** `store.backup` (`backupSettings`) : programmation (`every`
+  daily | weekly), `keep`, `verifyEvery`, `maxAgeDays`, `destinations[]`
+  ({ id, name, path, kind, enabled, last }), `encrypt` + `verifier` (sel +
+  empreinte scrypt, jamais le mot de passe), `events` (100 dernières opérations,
+  `ack` pour les échecs vus), `tests` (résultat par archive).
+* **Archives** (`lib/backup.mjs`) : ZIP avec `manifest.json` (désormais avec
+  `sha256` par fichier). Chiffrée : fichier `.enc` = « PHTQENC1 » | longueur |
+  en-tête JSON en clair (manifeste public, authentifié en AAD) | sel | iv |
+  étiquette | ZIP chiffré en AES-256-GCM (clé scrypt N = 2^15). Le mot de passe
+  vit en mémoire le temps de la session (`unlockEncryption`). Les sauvegardes de
+  sécurité (avant restauration) restent possibles sans mot de passe
+  (`allowPlain`) : elles ne quittent pas le dossier Sauvegardes.
+* **Destinations** : copie dans `<chemin>/Phototheque - sauvegardes/` via un
+  fichier temporaire, comparaison SHA-256, renommage ; rétention des seules
+  sauvegardes programmées de l'application.
+* **Test de restauration** (`testRestore`) : CRC, déchiffrement authentifié,
+  SHA-256 du manifeste, `store.json` lisible, base extraite dans un dossier
+  temporaire privé (`withArchiveDb`, nettoyé en `finally`) puis ouverte en lecture
+  seule : `PRAGMA integrity_check`, tables essentielles. Périodique dans
+  `autoTick` (`lib/extra.mjs`).
+* **Restauration complète** : sauvegarde de sécurité, base écrite dans
+  `data/phototheque.db.restauration` (`STAGED_DB`), appliquée par
+  `applyStagedRestore` (`lib/store.mjs`) avant l'ouverture de la base au démarrage
+  (fichiers -wal / -shm écartés) ; l'interface relance le serveur.
+  **Sélective** (`lib/restore.mjs`) : albums reconstruits en projet puis
+  `albums.importProject` (photos retrouvées par id / SHA-256 / chemin),
+  collections recréées (statiques : photos retrouvées ; dynamiques : critères),
+  documents rendus ; toujours de nouveaux éléments.
+* **Alertes** (`alerts`) et **3-2-1** (`rule321`) calculées à la demande ;
+  nombre d'alertes dans `/api/state` (`backupAlerts`). Liste des archives : manifestes
+  en cache (nom, taille, date) pour ne pas relire chaque archive.
+* **Couverture des originaux** : `BACKED_UP` (`lib/search.mjs`) ; rapport
+  `coverage` (`lib/reports.mjs`).
+* **Verrouillage** (`lib/lock.mjs`) : `store.security.lock` = { enabled, salt, hash
+  (scrypt), idleMinutes }. Jetons de session en mémoire, cookie HttpOnly
+  SameSite=Strict ; `server.mjs` répond 401 `{ locked: true }` à toute route
+  `/api/*` sauf `/api/lock*` et `/api/ping`. L'interface (`api()`) affiche l'écran de
+  verrouillage puis rejoue la requête. Oubli : `node scripts/deverrouiller.mjs`.
+* **Correctif `config`** (`lib/db.mjs`) : les clés contenant un point
+  (`export.profiles`, `album.styles`, `album.services`, `duplicates.ignored`)
+  appartiennent à leurs modules ; `saveAdminToDb` ne les efface ni ne les
+  réécrit plus, `loadAdminFromDb` ne les charge plus dans le store.

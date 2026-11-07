@@ -1713,6 +1713,163 @@ group('Albums et exports : styles, modèles, JPEG par page, prestataires, tirage
   check('profil intégré « Tirage 10 × 15 »', EXP.profiles().builtin['tirage-10x15'].print.width_mm, 100);
 }
 
+// ===================================================================
+group('Sauvegardes et sécurité : chiffrement, destinations, tests, restauration sélective, verrou');
+// ===================================================================
+{
+  const B = await import('../lib/backup.mjs');
+  const { createSelectiveRestore } = await import('../lib/restore.mjs');
+  const { createLock, checkPassword, LOCK_COOKIE } = await import('../lib/lock.mjs');
+  const { applyStagedRestore, cleanLock } = await import('../lib/store.mjs');
+  const R = await import('../lib/reports.mjs');
+  const A = await import('../lib/albums.mjs');
+  const { createCollections } = await import('../lib/collections.mjs');
+  const { saveStore: save2, loadStore: load2 } = await import('../lib/store.mjs');
+
+  // chiffrement de bas niveau
+  const zip = createZip([{ name: 'manifest.json', data: Buffer.from('{}') }, { name: 'x.txt', data: Buffer.from('données') }]);
+  const enc = B.encryptArchive(zip, 'mot-de-passe', { app: 'Phototheque', type: 'data' });
+  check('chiffré : en-tête lisible sans mot de passe', B.encryptedHeader(enc).header.type, 'data');
+  check('chiffré : contenu illisible en clair', enc.includes(Buffer.from('données')), false, 0);
+  check('déchiffrement : archive identique', Buffer.compare(B.decryptArchive(enc, 'mot-de-passe'), zip), 0, 0);
+  let err = ''; try { B.decryptArchive(enc, 'faux'); } catch (e) { err = e.message; }
+  check('mauvais mot de passe refusé', err, 'Mot de passe incorrect, ou archive altérée');
+  const tampered = Buffer.from(enc); tampered[14] ^= 1; err = '';
+  try { B.decryptArchive(tampered, 'mot-de-passe'); } catch (e) { err = e.message; }
+  check('en-tête modifié détecté (authentifié)', /altérée/.test(err), true, 0);
+  const ver = B.makeVerifier('abc12345');
+  check('vérificateur : bon mot de passe', B.checkVerifier(ver, 'abc12345'), true, 0);
+  check('vérificateur : mauvais mot de passe', B.checkVerifier(ver, 'abc12346'), false, 0);
+  check('réglages : jamais de mot de passe, vérificateur nettoyé', JSON.stringify(Object.keys(B.backupSettings({ password: 'x', verifier: { salt: 'zz' } }))).includes('password') || B.backupSettings({ verifier: { salt: 'zz' } }).verifier !== null, false, 0);
+
+  // service complet, avec réglages en mémoire
+  const S = B.backupSettings({ keep: 2 });
+  const svc = B.createBackupService({ root: process.cwd(), getStats: () => ({ photos: LIB.stats().photos }), db: DB, getSettings: () => S, saveSettings: () => {} });
+  const destA = path.join(TMP, 'dest-a'), destB = path.join(TMP, 'dest-b'); fs.mkdirSync(destA); fs.mkdirSync(destB);
+  svc.saveDestination({ name: 'Externe', path: destA, kind: 'external' });
+  svc.saveDestination({ name: 'Ailleurs', path: destB, kind: 'offsite' });
+  svc.saveDestination({ name: 'Débranché', path: path.join(TMP, 'absent'), kind: 'nas' });
+  err = ''; try { svc.saveDestination({ name: 'x', path: 'relatif' }); } catch (e) { err = e.message; }
+  check('destination : chemin absolu exigé', /Chemin absolu/.test(err), true, 0);
+  err = ''; try { svc.saveDestination({ name: 'x', path: svc.DIR }); } catch (e) { err = e.message; }
+  check('destination : pas le dossier Sauvegardes lui-même', /autre emplacement/.test(err), true, 0);
+  const b1 = svc.create('data', { label: 'test 0.27' });
+  check('copies vers les destinations accessibles', b1.copies.filter(c => c.ok).length, 2);
+  check('copie identique (SHA-256)', Buffer.compare(fs.readFileSync(path.join(destA, B.DEST_SUBDIR, b1.name)), fs.readFileSync(svc.filePath(b1.name))), 0, 0);
+  check('destination débranchée : échec signalé', b1.copies.find(c => c.name === 'Débranché').ok, false, 0);
+  check('échec journalisé et en alerte', svc.alerts().some(a => a.level === 'bad' && /Débranché/.test(a.message)), true, 0);
+  check('manifeste : empreintes SHA-256 des fichiers', !!b1.manifest.sha256['data/phototheque.db'], true, 0);
+  check('règle 3-2-1 satisfaite', JSON.stringify(svc.rule321()), JSON.stringify({ copies: 4, three: true, two: true, one: true }));
+  svc.ackAlerts();
+  check('alertes acquittées', svc.alerts().some(a => a.level === 'bad' && /Débranché/.test(a.message)), false, 0);
+  // test de restauration
+  const t1 = await svc.testRestore(b1.name);
+  check('test de restauration réussi', t1.ok, true, 0);
+  check('test : catalogue ouvert et contrôlé', /intégrité SQLite correcte/.test(t1.message), true, 0);
+  check('test mémorisé dans la liste', svc.list().find(x => x.name === b1.name).test.ok, true, 0);
+  const broken = path.join(svc.DIR, 'phototheque_data_casse.zip');
+  const raw = fs.readFileSync(svc.filePath(b1.name)); const cut = Buffer.from(raw); cut[200] ^= 0xff; fs.writeFileSync(broken, cut);
+  const t2 = await svc.testRestore('phototheque_data_casse.zip');
+  check('test : archive altérée détectée', t2.ok, false, 0);
+  fs.rmSync(broken);
+  // aperçu du contenu
+  const c1 = await svc.contents(b1.name);
+  check('aperçu : nombre de photos du catalogue sauvegardé', c1.catalogue.counts.photos, LIB.stats().photos);
+  check('aperçu : albums listés', Array.isArray(c1.catalogue.albums), true, 0);
+  // chiffrement activé
+  err = ''; try { svc.setEncryption({ password: 'court' }); } catch (e) { err = e.message; }
+  check('mot de passe trop court refusé', /trop court/.test(err), true, 0);
+  svc.setEncryption({ password: 'tres-secret' });
+  check('chiffrement : vérificateur seul conservé', S.encrypt && !!S.verifier && !JSON.stringify(S).includes('tres-secret'), true, 0);
+  const b2 = svc.create('data');
+  check('sauvegarde chiffrée (.enc)', /\.enc$/.test(b2.name) && B.isEncrypted(fs.readFileSync(svc.filePath(b2.name))), true, 0);
+  check('liste : manifeste public lisible', svc.list().find(x => x.name === b2.name).manifest.encrypted, true, 0);
+  svc.lockEncryption();
+  err = ''; try { svc.create('data'); } catch (e) { err = e.message; }
+  check('sans mot de passe en session : création refusée', /requis/.test(err), true, 0);
+  check('alerte : mot de passe attendu si programmation', (S.auto = true, svc.alerts().some(a => /attendent le mot de passe/.test(a.message))), true, 0);
+  S.auto = false;
+  check('vérification sans mot de passe : partielle', svc.verify(b2.name).ok, null);
+  check('test avec le mot de passe : réussi', (await svc.testRestore(b2.name, 'tres-secret')).ok, true, 0);
+  check('test avec un mauvais mot de passe : échec', (await svc.testRestore(b2.name, 'faux')).ok, false, 0);
+  err = ''; try { svc.unlockEncryption('faux'); } catch (e) { err = e.message; }
+  check('session : mauvais mot de passe refusé', err, 'Mot de passe incorrect');
+  svc.unlockEncryption('tres-secret');
+  check('session : mot de passe accepté', svc.encryptionUnlocked(), true, 0);
+  // restauration sélective : un album et une collection supprimés depuis
+  const ALB = A.createAlbums(DB, LIB), COL = createCollections(DB, LIB);
+  const pid = DB.prepare('SELECT id FROM photos LIMIT 1').get().id;
+  const al = ALB.create({ name: 'Album à retrouver' }); ALB.fill(al.id, [pid], 'une');
+  const col = COL.create({ name: 'Sélection à retrouver', kind: 'static', photoIds: [pid] });
+  const b3 = svc.create('data');
+  ALB.remove(al.id); COL.remove(col.id);
+  const SEL = createSelectiveRestore(DB, { backups: svc, albums: ALB, collections: COL });
+  const rs = await SEL.restoreSelection(b3.name, { albums: [al.id], collections: [col.id] });
+  check('sélective : album recréé', rs.albums[0].name + rs.albums[0].found, 'Album à retrouver (restauré)1');
+  check('sélective : collection recréée avec sa photo', rs.collections[0].photos, 1);
+  check('sélective : sauvegarde de sécurité', !!rs.safety && fs.existsSync(svc.filePath(rs.safety)), true, 0);
+  check('sélective : rien d’écrasé (nouvel album)', ALB.list().filter(x => x.name.startsWith('Album à retrouver')).length, 1);
+  // restauration complète : la base est mise en attente, jamais réécrite ouverte
+  const rr = svc.restore(b1.name);
+  check('restauration complète : redémarrage demandé', rr.restartRequired, true, 0);
+  check('base en attente identique à la sauvegarde', Buffer.compare(fs.readFileSync(B.STAGED_DB), zipBufDb(svc, b1.name)), 0, 0);
+  check('base en service non remplacée (données postérieures présentes)', DB.prepare("SELECT COUNT(*) n FROM albums WHERE name = 'Album à retrouver (restauré)'").get().n, 1);
+  fs.rmSync(B.STAGED_DB);
+  check('rien en attente : rien à appliquer', applyStagedRestore(), false, 0);
+  // rétention dans les destinations (2 programmées gardées)
+  for (let k = 0; k < 3; k++) svc.create('data', { auto: true });
+  check('destination : rétention des sauvegardes programmées', fs.readdirSync(path.join(destA, B.DEST_SUBDIR)).filter(f => /_auto/.test(f)).length, 2);
+
+  // rapport des originaux non couverts
+  const REP = R.createReports(DB, { backups: svc, backupSettings: () => S });
+  const cov = await REP.build('coverage');
+  check('rapport : originaux non couverts', cov.summary.photos, LIB.stats().photos);
+  check('rapport : couverture + non couverture = total', cov.summary.covered + cov.summary.uncovered, cov.summary.photos);
+  const bk = await REP.build('backups', { verify: false });
+  check('rapport de sauvegardes : destinations et journal', bk.sections.some(s => s.heading === 'Destinations') && bk.sections.some(s => /Journal/.test(s.heading ?? '')), true, 0);
+
+  // clés des modules préservées par l'enregistrement des réglages (correctif 0.27)
+  ALB.saveStyle({ name: 'Survivant', background: '#123456' });
+  const st0 = load2(DB); save2(DB, st0);
+  check('réglages enregistrés : modèles d’album conservés', Object.values(ALB.styles().saved).some(m => m.name === 'Survivant'), true, 0);
+  check('store : les clés des modules n’y sont pas recopiées', Object.keys(load2(DB)).some(k => k.includes('.')), false, 0);
+
+  // verrouillage
+  let L = cleanLock({});
+  const lock = createLock({ getLock: () => L, setLock: x => { L = cleanLock(x); } });
+  const req = c => ({ headers: { cookie: c ?? '' } });
+  check('verrou inactif : tout est permis', lock.allowed(req()), true, 0);
+  err = ''; try { lock.setPassword({ password: '123' }); } catch (e) { err = e.message; }
+  check('verrou : mot de passe trop court', /trop court/.test(err), true, 0);
+  const set = lock.setPassword({ password: 'secret1', idleMinutes: 10 });
+  check('verrou : empreinte seulement', !!L.hash && !JSON.stringify(L).includes('secret1'), true, 0);
+  check('verrou : empreinte vérifiable', checkPassword(L, 'secret1'), true, 0);
+  const ck = set.cookie.split(';')[0];
+  check('cookie HttpOnly, SameSite=Strict', /HttpOnly/.test(set.cookie) && /SameSite=Strict/.test(set.cookie) && ck.startsWith(LOCK_COOKIE + '='), true, 0);
+  check('session ouverte : permis', lock.allowed(req(ck)), true, 0);
+  check('sans jeton : refusé', lock.allowed(req()), false, 0);
+  lock.lockNow();
+  check('verrouiller : la session est fermée', lock.allowed(req(ck)), false, 0);
+  err = ''; try { lock.unlock('faux'); } catch (e) { err = e.message; }
+  check('déverrouillage : mauvais mot de passe', err, 'Mot de passe incorrect');
+  const u = lock.unlock('secret1');
+  check('déverrouillage : nouvelle session', lock.allowed(req(u.cookie.split(';')[0])), true, 0);
+  for (let k = 0; k < 5; k++) { try { lock.unlock('faux'); } catch { /* attendu */ } }
+  err = ''; try { lock.unlock('secret1'); } catch (e) { err = e.message; }
+  check('après 5 erreurs : attente imposée', /réessayez/.test(err), true, 0);
+  // inactivité
+  let t = 0; let L2 = cleanLock({});
+  const lock2 = createLock({ getLock: () => L2, setLock: x => { L2 = cleanLock(x); }, now: () => t });
+  const c2 = lock2.setPassword({ password: 'secret2', idleMinutes: 1 }).cookie.split(';')[0];
+  t = 30000; check('inactivité courte : session gardée', lock2.allowed(req(c2)), true, 0);
+  t = 30000 + 61000; check('inactivité dépassée : verrouillé', lock2.allowed(req(c2)), false, 0);
+  err = ''; try { lock2.disable({ current: 'faux' }); } catch (e) { err = e.message; }
+  check('désactivation : mot de passe actuel exigé', err, 'Mot de passe actuel incorrect');
+  lock2.disable({ current: 'secret2' });
+  check('désactivé : tout est permis', lock2.allowed(req()), true, 0);
+}
+function zipBufDb(svc, name) { return readZip(fs.readFileSync(svc.filePath(name))).find(e => e.name === 'data/phototheque.db').read(); }
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

@@ -4,6 +4,45 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.27.0] — 2026-11-07
+
+### Ajouté
+
+- Sauvegardes :
+  - **plusieurs destinations** (autre disque, disque externe, NAS, support
+    conservé ailleurs) : chaque sauvegarde y est copiée puis **vérifiée par
+    SHA-256**, avec rétention ; un disque débranché donne une alerte, pas une
+    erreur bloquante ; bouton « Copier » pour rattraper ;
+  - **chiffrement** facultatif des archives (AES-256-GCM, clé dérivée par
+    scrypt ; mot de passe jamais enregistré, seulement une empreinte de
+    contrôle ; saisi une fois par démarrage pour les sauvegardes programmées) ;
+  - **test de restauration** sans rien remplacer (CRC, empreintes SHA-256,
+    catalogue ouvert dans un dossier temporaire, intégrité SQLite), manuel ou
+    périodique ;
+  - **aperçu du contenu** (comparé au catalogue actuel) et **restauration
+    sélective** d'albums, de collections et de documents, recréés à côté de
+    l'existant ;
+  - **alertes** (échec, copie impossible, sauvegarde trop ancienne, test raté),
+    bouton « ⚠ Sauvegardes » en haut des pages, **journal** des opérations ;
+  - carte **3-2-1** et taux de **couverture des originaux**.
+- Rapport **Originaux non couverts** (photos sans copie sur un support de
+  sauvegarde ou d'archive), PDF et CSV. Le rapport de sauvegardes reprend tests,
+  destinations et journal.
+- **Verrouillage** facultatif de l'application : mot de passe au lancement et
+  après inactivité, bouton « Verrouiller », attente après 5 erreurs ;
+  `scripts/deverrouiller.mjs` en cas d'oubli.
+
+### Corrigé
+
+- La base n'était pas vidée de son journal WAL avant d'être sauvegardée (le
+  service recevait `getDb` mais attendait `db`) : une sauvegarde pouvait manquer
+  les dernières modifications.
+- La restauration complète réécrivait la base pendant qu'elle était ouverte :
+  elle est désormais déposée à côté et appliquée au redémarrage.
+- L'enregistrement des réglages effaçait ou remettait à une ancienne valeur les
+  données rangées par les modules dans la table `config` (profils d'export,
+  modèles d'album, profils de prestataire, groupes de doublons écartés).
+
 ## [0.26.0] — 2026-11-07
 
 ### Ajouté

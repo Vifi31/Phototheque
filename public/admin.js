@@ -35,36 +35,230 @@ const Admin = (() => {
   }
 
   // ---------- Sauvegardes ----------
+  // Catalogue et réglages : archives (chiffrées ou non), copiées vers des destinations, testées.
+  // Originaux : couverts par des copies sur des supports de rôle « Sauvegarde » / « Archive ».
+  function askPassword(title, message, { confirm = false, current = false } = {}) {
+    return new Promise(resolve => {
+      const cur = current ? h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'mot de passe actuel' }) : null;
+      const pw = h('input', { type: 'password', autocomplete: confirm ? 'new-password' : 'current-password' });
+      const pw2 = confirm ? h('input', { type: 'password', autocomplete: 'new-password' }) : null;
+      let done = false;
+      const finish = v => { if (!done) { done = true; m.close(); resolve(v); } };
+      const ok = () => {
+        if (confirm && pw.value !== pw2.value) { toast('Les deux saisies diffèrent', 'bad'); return; }
+        finish(current ? { current: cur.value, password: pw.value } : pw.value);
+      };
+      for (const el of [cur, pw, pw2].filter(Boolean)) el.addEventListener('keydown', e => { if (e.key === 'Enter') ok(); });
+      const m = modal({ title, body: h('div', h('p', message), cur ? field('Mot de passe actuel', cur) : null, field(confirm ? 'Nouveau mot de passe' : 'Mot de passe', pw), pw2 ? field('Confirmation', pw2) : null),
+        actions: [h('button.ghost', { onclick: () => finish(null) }, 'Annuler'), h('button', { onclick: ok }, 'Valider')] });
+      setTimeout(() => (cur ?? pw).focus(), 50);
+    });
+  }
+
   async function backups(body) {
     const wrap = h('div');
+    let o = null;
+    const TYPE = { data: 'Données', program: 'Programme', full: 'Complète' };
+    // mot de passe d'une archive chiffrée : celui de la session s'il est saisi, sinon demandé
+    async function pwFor(b) {
+      if (!b?.manifest?.encrypted || o.encryption.unlocked) return '';
+      const pw = await askPassword('Archive chiffrée', `${b.name} est chiffrée. Saisissez le mot de passe des sauvegardes.`);
+      if (pw === null) throw new Error('Opération annulée');
+      return pw;
+    }
+    const run = async (fn, okMsg) => { try { const r = await fn(); if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg); return r; } catch (e) { if (e.message !== 'Opération annulée') toast(e.message, 'bad'); return null; } };
+
     async function refresh() {
-      const o = await api('/backups');
+      o = await api('/backups');
       clear(wrap);
-      wrap.appendChild(h('div.kpis', kpi('Sauvegardes', o.total.count), kpi('Volume total', fmtBytes(o.total.size)),
-        kpi('Prochaine auto', o.nextAuto ? fmtDateTime(o.nextAuto) : 'désactivée', { tone: o.nextAuto ? 'ok' : '' })));
-      const rows = o.list.map(b => ({ ...b, _size: b.size, _date: b.manifest?.createdAt ?? b.mtime }));
+      const last = o.list.find(b => b.manifest && b.manifest.type !== 'program');
+      const cov = o.coverage;
+      wrap.appendChild(h('div.kpis',
+        kpi('Sauvegardes', o.total.count, { sub: fmtBytes(o.total.size) }),
+        kpi('Dernière du catalogue', last ? fmtDateTime(last.manifest.createdAt) : 'aucune', { tone: last ? 'ok' : 'bad' }),
+        kpi('Prochaine programmée', o.nextAuto ? fmtDateTime(o.nextAuto) : 'désactivée', { tone: o.nextAuto ? 'ok' : '' }),
+        kpi('Destinations', o.destinations.filter(d => d.enabled).length, { sub: o.destinations.filter(d => d.enabled && d.last?.ok).length + ' à jour' }),
+        cov ? kpi('Originaux couverts', cov.photos ? Math.round(cov.covered * 100 / cov.photos) + ' %' : '—', { sub: `${fmtNum(cov.photos - cov.covered)} sans copie de sauvegarde`, tone: cov.covered === cov.photos ? 'ok' : 'warn' }) : null));
+
+      // alertes
+      if (o.alerts.length) wrap.appendChild(card(h('div.sect', `⚠ Alertes (${o.alerts.filter(a => a.level !== 'info').length})`, h('div.spacer'),
+        o.events.some(e => !e.ok && !e.ack) ? h('button.ghost.small', { onclick: async () => { await api('/backups/alerts/ack', 'POST'); refresh(); } }, 'Marquer les échecs comme vus') : null),
+        ...o.alerts.map(a => h('div.album-alert.' + a.level, a.message))));
+
+      // règle 3-2-1
+      const R = o.rule321, mark = ok => h('b', { style: { color: ok ? 'var(--ok)' : 'var(--warn)' } }, ok ? '✓' : '✗');
+      wrap.appendChild(card(h('div.sect', 'Stratégie 3-2-1'),
+        h('div.rule321',
+          h('div', mark(R.three), ` 3 copies du catalogue (actuellement ${R.copies} : la base en service, les archives locales, les destinations à jour)`),
+          h('div', mark(R.two), ' 2 types de supports (une destination autre qu’un disque interne : disque externe, NAS…)'),
+          h('div', mark(R.one), ' 1 copie dans un autre lieu (destination « Support conservé dans un autre lieu »)'),
+          cov ? h('div', mark(cov.covered === cov.photos), ` Originaux : ${fmtNum(cov.covered)} / ${fmtNum(cov.photos)} photo(s) ont une copie sur un support de sauvegarde ou d’archive`,
+            cov.covered < cov.photos ? h('button.ghost.small', { style: { marginLeft: '8px' }, onclick: () => { App.state.q = ''; App.state.facet = { backup: 'uncovered' }; App.state.page = 0; App.go('photos'); } }, 'Voir les photos non couvertes') : null) : null),
+        h('p.dim', 'Les archives ci-dessous contiennent le catalogue, les réglages et les documents, pas les photos : copiez les originaux sur un disque déclaré « Sauvegarde » ou « Archive » (menu Supports) puis indexez-le. Une synchronisation n’est pas une sauvegarde : une suppression ou une corruption s’y propage.')));
+
+      // archives
       wrap.appendChild(h('div.sect', 'Sauvegardes disponibles', h('div.spacer'),
-        h('button.small', { onclick: () => create('data') }, 'Données'),
+        h('button.small', { onclick: () => create('data') }, 'Sauvegarder les données'),
         h('button.small.ghost', { onclick: () => create('program') }, 'Programme'),
         h('button.small.ghost', { onclick: () => create('full') }, 'Complète')));
+      const rows = o.list.map(b => ({ ...b, _date: b.manifest?.createdAt ?? b.mtime }));
       if (!rows.length) wrap.appendChild(h('p.dim', 'Aucune sauvegarde.'));
       else wrap.appendChild(table({ columns: [
-        { label: 'Fichier', key: 'name' },
-        { label: 'Type', format: b => h('span.pill', b.manifest?.type || '?') },
-        { label: 'Taille', format: b => fmtBytes(b._size), align: 'right' },
-        { label: 'Date', format: b => fmtDateTime(b._date) },
+        { label: 'Date', format: b => h('span', { title: b.name }, fmtDateTime(b._date)) },
+        { label: 'Type', format: b => h('span', h('span.pill', TYPE[b.manifest?.type] ?? '?'), b.manifest?.encrypted ? h('span.pill', { title: 'Chiffrée (AES-256)' }, '🔒') : null, b.manifest?.auto ? h('small.dim', ' auto') : null) },
+        { label: 'Taille', format: b => fmtBytes(b.size), align: 'right' },
+        { label: 'Test de restauration', format: b => b.test ? h('span.' + (b.test.ok ? 'ok' : 'bad'), { title: b.test.message }, `${b.test.ok ? '✓ réussi' : '✗ échec'} · ${fmtDate(b.test.at)}`) : h('span.dim', 'jamais') },
         { label: '', align: 'right', format: b => h('div.row-actions',
-          h('button.ghost.small', { onclick: () => verify(b.name) }, 'Vérifier'),
+          b.manifest?.type !== 'program' ? h('button.ghost.small', { title: 'Voir ce que contient la sauvegarde et en restaurer une partie', onclick: () => contents(b) }, 'Contenu…') : null,
+          h('button.ghost.small', { title: 'Contrôles CRC, empreintes, ouverture du catalogue dans un dossier temporaire : rien n’est remplacé', onclick: () => test(b) }, 'Tester'),
+          o.destinations.some(d => d.enabled) ? h('button.ghost.small', { title: 'Copier vers les destinations actives', onclick: () => copy(b) }, 'Copier') : null,
           h('a', { href: '/api/backups/file?name=' + encodeURIComponent(b.name), style: { padding: '5px 10px', fontSize: '12.5px' } }, 'Télécharger'),
-          h('button.small', { onclick: () => restore(b.name) }, 'Restaurer'),
-          h('button.danger.small', { onclick: async () => { if (await confirmDialog('Supprimer', `Supprimer ${b.name} ?`)) { await api('/backups?name=' + encodeURIComponent(b.name), 'DELETE'); refresh(); } } }, 'Supprimer')) },
+          b.manifest?.type !== 'program' ? h('button.small', { onclick: () => restore(b) }, 'Restaurer…') : null,
+          h('button.danger.small', { onclick: async () => { if (await confirmDialog('Supprimer', `Supprimer ${b.name} ? Les copies des destinations ne sont pas touchées.`)) { await api('/backups?name=' + encodeURIComponent(b.name), 'DELETE'); refresh(); } } }, '🗑')) },
       ], rows }));
+
+      wrap.appendChild(h('div.two-cards', destinationsCard(), h('div', scheduleCard(), encryptionCard())));
+
+      // journal
+      wrap.appendChild(h('div.sect', 'Journal des opérations'));
+      if (!o.events.length) wrap.appendChild(h('p.dim', 'Aucune opération enregistrée.'));
+      else wrap.appendChild(table({ columns: [
+        { label: 'Date', format: e => fmtDateTime(e.at) },
+        { label: 'Opération', key: 'kind' },
+        { label: 'Résultat', format: e => h('span.' + (e.ok ? 'ok' : 'bad'), e.ok ? 'réussi' : 'ÉCHEC') },
+        { label: 'Détail', format: e => h('span.wrap', e.message) },
+      ], rows: o.events.slice(0, 30) }));
     }
-    async function create(type) { const r = await api('/backups', 'POST', { type }); toast('Sauvegarde créée : ' + r.created); refresh(); }
-    async function verify(name) { const r = await api('/backups/verify', 'POST', { name }); toast(r.ok ? `Archive intacte (${r.entries} entrées)` : 'Archive corrompue : ' + r.bad.join(', '), r.ok ? 'ok' : 'bad'); }
-    async function restore(name) {
-      if (!await confirmDialog('Restaurer', `Restaurer ${name} ? Une sauvegarde de sécurité sera créée avant.`)) return;
-      const r = await api('/backups/restore', 'POST', { name }); toast(`Restauré (${r.restored} fichier(s)). Sauvegarde de sécurité : ${r.safety}`); refresh();
+
+    function destinationsCard() {
+      const list = o.destinations.map(d => h('div.dest' + (d.enabled ? '' : '.off'),
+        h('div.row', h('b', d.name), h('span.pill', o.destKinds[d.kind] ?? d.kind), d.reachable ? null : h('span.pill.warn', 'inaccessible'), h('div.spacer'),
+          h('button.ghost.small', { onclick: () => editDest(d) }, 'Modifier'),
+          h('button.ghost.small.danger', { onclick: async () => { if (await confirmDialog('Retirer la destination', `Retirer « ${d.name} » ? Les archives déjà copiées restent sur place.`)) { await api('/backups/destinations?id=' + encodeURIComponent(d.id), 'DELETE'); refresh(); } } }, 'Retirer')),
+        h('small.dim', `${d.folder} · ${d.archives} archive(s)`),
+        h('small.' + (d.last ? (d.last.ok ? 'ok' : 'bad') : 'dim'), d.last ? `Dernière copie : ${fmtDateTime(d.last.at)} — ${d.last.message}` : 'Aucune copie encore')));
+      return card(h('div.sect', 'Destinations', h('div.spacer'), h('button.small', { onclick: () => editDest(null) }, 'Ajouter…')),
+        ...(list.length ? list : [h('p.dim', 'Aucune : les archives ne sont que dans le dossier Sauvegardes de l’application, sur le même disque.')]),
+        h('p.dim', `Chaque nouvelle sauvegarde est copiée dans « ${o.destSubdir} » sur chaque destination active, puis la copie est relue et comparée (SHA-256). Les sauvegardes programmées y sont conservées au nombre réglé ci-contre.`));
+    }
+    function editDest(d) {
+      const name = h('input', { type: 'text', value: d?.name ?? '', placeholder: 'ex. : Disque externe bleu' });
+      const pth = h('input', { type: 'text', value: d?.path ?? '', placeholder: 'ex. : E:\\  ou  \\\\NAS\\sauvegardes' });
+      const kind = h('select', {}, ...Object.entries(o.destKinds).map(([k, l]) => h('option', { value: k, selected: k === (d?.kind ?? 'external') }, l)));
+      const en = h('input', { type: 'checkbox', checked: d ? d.enabled : true });
+      const m = modal({ title: d ? 'Modifier la destination' : 'Nouvelle destination', body: h('div', field('Nom', name), field('Dossier (chemin complet)', pth), field('Type de support', kind), h('label.check', en, ' Active (copier les nouvelles sauvegardes)'),
+        h('p.dim', 'Un disque débranché ou un NAS éteint n’est pas une erreur grave : la copie échoue, une alerte le signale, et vous pouvez recopier plus tard avec « Copier ».')),
+        actions: [h('button.ghost', { onclick: () => m.close() }, 'Annuler'), h('button', { onclick: async () => {
+          try { await api('/backups/destinations', 'POST', { id: d?.id, name: name.value, path: pth.value, kind: kind.value, enabled: en.checked }); m.close(); toast('Destination enregistrée'); refresh(); } catch (e) { toast(e.message, 'bad'); }
+        } }, 'Enregistrer')] });
+    }
+
+    function scheduleCard() {
+      const s = o.settings;
+      const auto = h('input', { type: 'checkbox', checked: s.auto });
+      const every = h('select', {}, h('option', { value: 'daily', selected: s.every !== 'weekly' }, 'Chaque jour'), h('option', { value: 'weekly', selected: s.every === 'weekly' }, 'Chaque semaine'));
+      const days = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+      const wd = h('select', {}, ...days.map((d, i) => h('option', { value: i, selected: i === s.weekday }, d)));
+      const time = h('input', { type: 'time', value: s.time });
+      const type = h('select', {}, ...Object.entries(TYPE).map(([k, l]) => h('option', { value: k, selected: k === s.type }, l)));
+      const keep = h('input', { type: 'number', min: 1, max: 200, value: s.keep });
+      const vEvery = h('input', { type: 'number', min: 0, max: 90, value: s.verifyEvery });
+      const maxAge = h('input', { type: 'number', min: 1, max: 365, value: s.maxAgeDays });
+      const save = async () => { await run(async () => { await api('/backups/settings', 'PUT', { auto: auto.checked, every: every.value, weekday: +wd.value, time: time.value, type: type.value, keep: +keep.value, verifyEvery: +vEvery.value, maxAgeDays: +maxAge.value }); await refresh(); }, 'Programmation enregistrée'); };
+      return card(h('div.sect', 'Programmation et contrôles'),
+        h('label.check', auto, ' Sauvegarde automatique'),
+        h('div.form', field('Fréquence', every), field('Jour (hebdomadaire)', wd), field('Heure', time)),
+        h('div.form', field('Contenu', type), field('Sauvegardes programmées conservées', keep)),
+        h('div.form', field('Test de restauration automatique tous les (jours, 0 = jamais)', vEvery), field('Alerte si la dernière sauvegarde a plus de (jours)', maxAge)),
+        h('div.row', h('button.small', { onclick: save }, 'Enregistrer')),
+        h('p.dim', 'L’application doit être ouverte pour que la sauvegarde programmée ait lieu ; un créneau manqué est rattrapé au démarrage suivant.'));
+    }
+
+    function encryptionCard() {
+      const E = o.encryption;
+      const actions = [];
+      if (!E.enabled) actions.push(h('button.small', { onclick: async () => {
+        const pw = await askPassword('Chiffrer les sauvegardes', 'Les nouvelles sauvegardes seront chiffrées (AES-256). Sans ce mot de passe, elles seront illisibles : notez-le en lieu sûr. Il n’est enregistré nulle part.', { confirm: true });
+        if (pw === null) return; await run(async () => { await api('/backups/encryption', 'POST', { enabled: true, password: pw }); await refresh(); }, 'Chiffrement activé');
+      } }, 'Activer le chiffrement…'));
+      else {
+        if (!E.unlocked) actions.push(h('button.small', { onclick: async () => { const pw = await askPassword('Mot de passe des sauvegardes', 'Saisi pour la session : permet les sauvegardes programmées chiffrées et l’ouverture des archives chiffrées jusqu’à l’arrêt de l’application.'); if (pw === null) return; await run(async () => { await api('/backups/encryption/unlock', 'POST', { password: pw }); await refresh(); }, 'Mot de passe accepté pour la session'); } }, 'Saisir le mot de passe…'));
+        else actions.push(h('button.ghost.small', { onclick: async () => { await api('/backups/encryption/lock', 'POST'); refresh(); } }, 'Oublier le mot de passe (session)'));
+        actions.push(h('button.ghost.small', { onclick: async () => { const r = await askPassword('Changer le mot de passe', 'Les nouvelles sauvegardes utiliseront le nouveau mot de passe ; les anciennes gardent l’ancien.', { confirm: true, current: true }); if (!r) return; await run(async () => { await api('/backups/encryption', 'POST', { enabled: true, password: r.password, current: r.current }); await refresh(); }, 'Mot de passe changé'); } }, 'Changer…'));
+        actions.push(h('button.ghost.small.danger', { onclick: async () => { const pw = await askPassword('Désactiver le chiffrement', 'Les nouvelles sauvegardes ne seront plus chiffrées (les anciennes le restent).'); if (pw === null) return; await run(async () => { await api('/backups/encryption', 'POST', { enabled: false, current: pw }); await refresh(); }, 'Chiffrement désactivé'); } }, 'Désactiver…'));
+      }
+      return card(h('div.sect', 'Chiffrement des sauvegardes'),
+        h('p', E.enabled ? (E.unlocked ? '🔒 Activé — mot de passe saisi pour cette session.' : '🔒 Activé — mot de passe non saisi depuis le démarrage.') : 'Désactivé.'),
+        h('div.row', { style: { gap: '8px' } }, ...actions),
+        h('p.dim', 'Seules les archives de sauvegarde sont chiffrées : la base en service et les photos originales ne le sont pas. Pour chiffrer tout le disque, utilisez le chiffrement du système (BitLocker sous Windows). Le mot de passe n’est jamais enregistré ; seule une empreinte de contrôle l’est.'));
+    }
+
+    async function create(type) {
+      let password = '';
+      if (o.encryption.enabled && !o.encryption.unlocked) { const pw = await askPassword('Sauvegarde chiffrée', 'Saisissez le mot de passe des sauvegardes.'); if (pw === null) return; password = pw; }
+      const r = await run(() => api('/backups', 'POST', { type, password }), r => `Sauvegarde créée : ${r.created}`);
+      if (r?.copies?.length) { const bad = r.copies.filter(c => !c.ok); if (bad.length) toast(`Copie en échec : ${bad.map(c => `${c.name} (${c.message})`).join(' ; ')}`, 'bad'); else toast(`Copiée vers ${r.copies.length} destination(s), copies vérifiées`); }
+      refresh();
+    }
+    async function test(b) {
+      let pw; try { pw = await pwFor(b); } catch { return; }
+      toast('Test de restauration en cours…');
+      const r = await run(() => api('/backups/test', 'POST', { name: b.name, password: pw }));
+      if (r) { toast(r.test.message, r.test.ok ? 'ok' : 'bad'); refresh(); }
+    }
+    async function copy(b) {
+      const r = await run(() => api('/backups/copy', 'POST', { name: b.name }));
+      if (r) { const bad = r.copies.filter(c => !c.ok); toast(bad.length ? `Échec : ${bad.map(c => `${c.name} (${c.message})`).join(' ; ')}` : `Copiée vers ${r.copies.length} destination(s), copies vérifiées`, bad.length ? 'bad' : 'ok'); refresh(); }
+    }
+    async function restore(b, pw = null) {
+      try { pw ??= await pwFor(b); } catch { return; }
+      const when = fmtDateTime(b.manifest.createdAt);
+      if (!await confirmDialog('Restaurer tout le catalogue', `Le catalogue actuel (photos indexées, mots-clés, albums, collections, retouches, réglages) sera remplacé par celui du ${when}. Les modifications faites depuis seront perdues, mais une sauvegarde de sécurité de l’état actuel est créée d’abord. Les photos elles-mêmes ne sont pas touchées. L’application redémarre ensuite.`)) return;
+      const r = await run(() => api('/backups/restore', 'POST', { name: b.name, password: pw }));
+      if (!r) return;
+      if (r.restartRequired) {
+        toast(`Restauration prête (sauvegarde de sécurité : ${r.safety}). Redémarrage…`);
+        try { await api('/restart', 'POST'); } catch { /* le serveur s'arrête */ }
+        setTimeout(() => location.reload(), 5000);
+      } else { toast(`Restauré (${r.restored} fichier(s)). Sauvegarde de sécurité : ${r.safety}`); refresh(); }
+    }
+    async function contents(b) {
+      let pw; try { pw = await pwFor(b); } catch { return; }
+      const c = await run(() => api('/backups/contents', 'POST', { name: b.name, password: pw })); if (!c) return;
+      const K = c.catalogue?.counts ?? {}, cur = c.current ?? {};
+      const chk = (val, label, sub) => { const cb = h('input', { type: 'checkbox', value: val }); return { cb, el: h('label.check.pick', cb, ' ', label, sub ? h('small.dim', ' ' + sub) : null) }; };
+      const al = (c.catalogue?.albums ?? []).map(a => ({ id: a.id, ...chk(a.id, a.name, `${a.pages} page(s) · modifié le ${fmtDate(a.updated_at)}`) }));
+      const co = (c.catalogue?.collections ?? []).map(x => ({ id: x.id, ...chk(x.id, x.name, x.kind === 'dynamic' ? 'recherche enregistrée' : `${x.photos} photo(s)`) }));
+      const docs = (c.documents ?? []).map(d => ({ id: d, ...chk(d, d) }));
+      const cmp = (label, a, now) => h('tr', h('td', label), h('td.right', a == null ? '—' : fmtNum(a)), h('td.right', now == null ? '—' : fmtNum(now)));
+      const status = h('div');
+      const m = modal({ title: `Contenu — ${fmtDateTime(c.manifest.createdAt)}`, wide: true, body: h('div',
+        h('p.dim', `${c.name} · ${TYPE[c.manifest.type] ?? c.manifest.type}${c.manifest.encrypted ? ' · chiffrée' : ''} · version ${c.manifest.version} · ${c.files.length} fichier(s)${c.manifest.label ? ' · ' + c.manifest.label : ''}`),
+        c.catalogue ? h('table.table', h('thead', h('tr', h('th', ''), h('th.right', 'Sauvegarde'), h('th.right', 'Actuellement'))),
+          h('tbody', cmp('Photos', K.photos, cur.photos), cmp('Supports', K.supports, cur.supports), cmp('Mots-clés', K.keywords, cur.keywords), cmp('Albums', K.albums, cur.albums), cmp('Collections', K.collections, cur.collections))) : null,
+        h('div.sect', 'Restaurer une partie'),
+        h('p.dim', 'Les éléments cochés sont recréés à côté de l’existant (« … (restauré) ») : rien n’est écrasé, et une sauvegarde de sécurité est faite avant. Les photos sont retrouvées par identifiant ou par empreinte.'),
+        al.length ? h('details', { open: true }, h('summary', `Albums (${al.length})`), h('div.pick-list', ...al.map(x => x.el))) : null,
+        co.length ? h('details', h('summary', `Collections (${co.length})`), h('div.pick-list', ...co.map(x => x.el))) : null,
+        docs.length ? h('details', h('summary', `Documents (${docs.length})`), h('div.pick-list', ...docs.map(x => x.el))) : null,
+        status),
+        actions: [
+          h('button.ghost', { onclick: () => m.close() }, 'Fermer'),
+          h('button.ghost', { onclick: () => { m.close(); restore(b, pw); } }, 'Tout restaurer…'),
+          h('button', { onclick: async () => {
+            const sel = l => l.filter(x => x.cb.checked).map(x => x.id);
+            const payload = { name: b.name, password: pw, albums: sel(al), collections: sel(co), documents: sel(docs) };
+            if (!payload.albums.length && !payload.collections.length && !payload.documents.length) { toast('Cochez au moins un élément', 'bad'); return; }
+            mount(status, h('p.dim', 'Restauration…'));
+            try {
+              const r = await api('/backups/selective', 'POST', payload);
+              mount(status, h('div.album-alert.ok', `✓ ${r.albums.length} album(s), ${r.collections.length} collection(s), ${r.documents} document(s) restauré(s). Sauvegarde de sécurité : ${r.safety}`),
+                ...r.albums.filter(a => a.found < a.total).map(a => h('div.album-alert.warn', `« ${a.name} » : ${a.total - a.found} photo(s) introuvable(s) dans le catalogue actuel (signalées dans l’album)`)),
+                ...r.collections.filter(x => x.missing).map(x => h('div.album-alert.warn', `« ${x.name} » : ${x.missing} photo(s) introuvable(s), non ajoutée(s)`)));
+              toast('Restauration sélective faite');
+            } catch (e) { mount(status, h('div.album-alert.bad', e.message)); }
+          } }, 'Restaurer la sélection'),
+        ] });
     }
     mount(wrap, h('div')); await refresh(); clear(body); body.appendChild(wrap);
   }

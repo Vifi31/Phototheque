@@ -20,9 +20,36 @@ const App = (() => {
   const api = async (p, method = 'GET', body) => {
     const r = await fetch('/api' + p, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
+    // application verrouillée (lib/lock.mjs) : écran de mot de passe, puis la requête est rejouée
+    if (r.status === 401 && j.locked) { await lockScreen(); return api(p, method, body); }
     if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
     return j;
   };
+
+  // ---------- verrouillage ----------
+  let lockWait = null;
+  /** Écran de verrouillage plein écran (hors des modales) ; une seule attente partagée par toutes les requêtes. */
+  function lockScreen() {
+    if (lockWait) return lockWait;
+    lockWait = new Promise(resolve => {
+      const pw = h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Mot de passe' });
+      const msg = h('small.bad');
+      const go2 = async () => {
+        const r = await fetch('/api/lock/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw.value }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { msg.textContent = j.error || 'Mot de passe incorrect'; pw.select(); return; }
+        el.remove(); lockWait = null; resolve();
+        if (state.view) go(state.view, { replace: true }).catch(() => {}); // vignettes refusées pendant le verrouillage : on redessine
+      };
+      pw.addEventListener('keydown', e => { if (e.key === 'Enter') go2(); });
+      const el = h('div', { id: 'lockScreen' }, h('div.lock-box', h('div.lock-icon', '🔒'), h('h2', 'Photothèque verrouillée'), h('p.dim', 'Saisissez le mot de passe pour continuer.'), pw, msg,
+        h('button', { onclick: go2 }, 'Déverrouiller'),
+        h('p.dim.small', 'Mot de passe oublié : arrêtez l’application puis lancez « node scripts/deverrouiller.mjs » dans son dossier.')));
+      document.body.appendChild(el); setTimeout(() => pw.focus(), 50);
+    });
+    return lockWait;
+  }
+  async function lockNow() { await fetch('/api/lock/lock', { method: 'POST' }); clear(document.getElementById('view')); lockScreen(); }
 
   // ---------- navigation ----------
   const NAV = [
@@ -2130,6 +2157,8 @@ const App = (() => {
     }
     if (kind === 'backups') return h('div.album-alert' + (s.bad || s.ageDays === null ? '.bad' : '.ok'),
       `${n(s.count)} sauvegarde(s) · dernière sauvegarde des données : ${s.ageDays === null ? 'aucune' : s.ageDays === 0 ? 'aujourd’hui' : `il y a ${s.ageDays} jour(s)`}${s.bad != null ? ` · ${n(s.bad)} archive(s) altérée(s)` : ''} · sauvegarde automatique ${s.auto ? 'activée' : 'désactivée'}`);
+    if (kind === 'coverage') return h('div.album-alert' + (s.uncovered ? '.warn' : '.ok'),
+      `${n(s.covered)} / ${n(s.photos)} photo(s) avec une copie sur un support de sauvegarde ou d’archive · ${n(s.uncovered)} sans copie · ${n(s.single)} sur un seul support${s.backupSupports ? '' : ' · aucun support de sauvegarde déclaré'}`);
     return null;
   }
 
@@ -2198,6 +2227,27 @@ const App = (() => {
         facets.formats.length ? table({ columns: [{ label: 'Format', key: 'format' }, { label: 'Photos', key: 'n', align: 'right' }], rows: facets.formats }) : h('p.dim', 'Aucune donnée.')));
   }
 
+  // ---------- verrouillage de l'application (Paramètres) ----------
+  function lockCard(LK) {
+    const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: '6 caractères au moins' });
+    const pw2 = h('input', { type: 'password', autocomplete: 'new-password' });
+    const cur = h('input', { type: 'password', autocomplete: 'current-password' });
+    const idle = h('input', { type: 'number', min: 1, max: 480, value: LK.idleMinutes ?? 30 });
+    const out = h('div');
+    const call = async (path, payload, okMsg) => {
+      try { await api(path, 'POST', payload); toast(okMsg); await state.refreshLock?.(); go('settings', { replace: true }); } catch (e) { mount(out, h('div.album-alert.bad', e.message)); }
+    };
+    const setPw = () => { if (pw.value !== pw2.value) { mount(out, h('div.album-alert.bad', 'Les deux saisies diffèrent')); return; } call('/lock/password', { current: cur.value, password: pw.value, idleMinutes: +idle.value }, LK.enabled ? 'Mot de passe changé' : 'Verrouillage activé'); };
+    return card(h('div.sect', 'Verrouillage de l’application'),
+      h('p', LK.enabled ? `🔒 Activé : mot de passe demandé au lancement et après ${LK.idleMinutes} min d’inactivité.` : 'Désactivé : l’application s’ouvre sans mot de passe.'),
+      h('div.form', LK.enabled ? field('Mot de passe actuel', cur) : null, field(LK.enabled ? 'Nouveau mot de passe' : 'Mot de passe', pw), field('Confirmation', pw2), field('Verrouiller après (minutes sans activité)', idle)),
+      h('div.row', { style: { gap: '8px' } }, h('button.small', { onclick: setPw }, LK.enabled ? 'Changer le mot de passe' : 'Activer le verrouillage'),
+        LK.enabled ? h('button.ghost.small', { onclick: () => call('/lock/idle', { current: cur.value, idleMinutes: +idle.value }, 'Délai enregistré') }, 'Enregistrer le délai') : null,
+        LK.enabled ? h('button.ghost.small.danger', { onclick: () => call('/lock/disable', { current: cur.value }, 'Verrouillage désactivé') }, 'Désactiver') : null),
+      out,
+      h('p.dim', 'Le verrou protège l’accès par l’interface. Il ne chiffre ni le catalogue ni les photos, lisibles par quiconque a accès aux fichiers de l’ordinateur : pour cela, utilisez le chiffrement du disque (BitLocker). Le mot de passe n’est pas enregistré, seulement une empreinte de contrôle. Oublié ? Arrêtez l’application et lancez « node scripts/deverrouiller.mjs ».'));
+  }
+
   // ---------- vue Paramètres ----------
   async function viewSettings(v) {
     clear(v);
@@ -2211,6 +2261,7 @@ const App = (() => {
     const keepCb = h('input', { type: 'checkbox', checked: state.import.keepFolders !== false });
     const MD = await api('/metadata');
     const EXT = await api('/external');
+    const LK = await api('/lock');
     const editorIn = h('input', { type: 'text', value: EXT.settings.editor || '', placeholder: 'ex. : C:\\Program Files\\GIMP 2\\bin\\gimp-2.10.exe — vide : application associée' });
     const readCb = h('input', { type: 'checkbox', checked: MD.settings.readOnIndex !== false });
     const destSel = h('select', {}, ...Object.entries(MD.destinations).map(([k, l]) => h('option', { value: k, selected: MD.settings.destination === k }, l)));
@@ -2232,6 +2283,7 @@ const App = (() => {
           h('label.check', readCb, h('span', 'À l’indexation, remplir les champs vides des nouvelles photos (titre, légende, mots-clés, note, lieu…) depuis leurs fichiers')),
           field('Emplacement des XMP écrits', destSel, `Dossier dédié : ${MD.dir}`),
           field('Nom des fichiers XMP', nameSel))),
+      lockCard(LK),
       card(h('div.sect', 'Logiciel de retouche externe'),
         h('p.dim', `« Ouvrir dans… » (écran Retouche) donne au logiciel une copie rangée dans ${EXT.dir} ; l’original n’est jamais modifié.`),
         h('div.form', field('Programme', editorIn, EXT.check.ok ? `Actuellement : ${EXT.check.label}` : EXT.check.label))),
@@ -2266,6 +2318,13 @@ const App = (() => {
     let tId; searchEl.addEventListener('input', () => { clearTimeout(tId); tId = setTimeout(() => setQuery(searchEl.value.trim()), 300); });
     // menu admin
     document.getElementById('topbarActions').appendChild(h('button.ghost.small', { onclick: () => go('admin') }, 'Administration'));
+    // verrouillage : bouton « Verrouiller », et contrôle chaque minute (verrou après inactivité, sans attendre un clic)
+    const lockBtn = h('button.ghost.small', { title: 'Verrouiller l’application (mot de passe pour revenir)', onclick: lockNow, style: { display: 'none' } }, '🔒 Verrouiller');
+    document.getElementById('topbarActions').prepend(lockBtn);
+    state.refreshLock = async () => { try { const l = await (await fetch('/api/lock')).json(); lockBtn.style.display = l.enabled ? '' : 'none'; if (l.enabled && !l.unlocked && !lockWait) lockScreen(); } catch { /* serveur arrêté */ } };
+    setInterval(state.refreshLock, 60000);
+    await state.refreshLock();
+    if (st.backupAlerts) document.getElementById('topbarActions').prepend(h('button.ghost.small.warn-btn', { title: 'Sauvegardes : alertes à consulter', onclick: () => go('admin-backups') }, `⚠ Sauvegardes (${st.backupAlerts})`));
     // historique de navigation : précédent / suivant (vue, filtres, recherche, page)
     document.getElementById('menuToggle').after(
       h('button.icon-btn', { id: 'navBack', title: 'Revenir à l’écran précédent (Alt+←)', disabled: true, onclick: () => history.back() }, '‹'),
