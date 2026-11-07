@@ -1371,6 +1371,103 @@ group('Mots-clés : arborescence, synonymes, catégories, vocabulaire');
   void f0;
 }
 
+// ===================================================================
+group('Métadonnées : XMP annexes, priorité, aperçu, annulation');
+// ===================================================================
+{
+  const X = await import('../lib/xmp.mjs');
+  const { createMetadata } = await import('../lib/metadata.mjs');
+  const { XMP_DIR } = await import('../lib/paths.mjs');
+  const doc = { title: 'Lever <de> soleil & co', description: 'Fin de journée', author: 'V. F.', copyright: '© 2024', rating: 4, color: 2, keywords: ['Lieux|Montagne', 'Été'], city: 'Toulouse', country: 'France' };
+  const xmp = X.buildXmp(doc, { captured_at: '2024-07-15T14:30:00.000Z', tool: 'Photothèque test' });
+  const back = X.parseXmp(xmp);
+  check('XMP : aller-retour des champs', JSON.stringify(back.doc), JSON.stringify(X.cleanDoc(doc)));
+  check('XMP : outil d’écriture lu', back.tool, 'Photothèque test');
+  check('XMP : caractères spéciaux échappés', /Lever &lt;de&gt; soleil &amp; co/.test(xmp), true, 0);
+  check('XMP : mot-clé hiérarchique et feuille', /<rdf:li>Lieux\|Montagne<\/rdf:li>/.test(xmp) && /<rdf:li>Montagne<\/rdf:li>/.test(xmp), true, 0);
+  const lr = '<x:xmpmeta><rdf:RDF><rdf:Description xmp:Rating="3" xmp:Label="Green" photoshop:City="Lyon"><dc:subject><rdf:Bag><rdf:li>Nuit</rdf:li><rdf:li>Ville</rdf:li></rdf:Bag></dc:subject><dc:title><rdf:Alt><rdf:li xml:lang="fr-FR">Titre fr</rdf:li><rdf:li xml:lang="x-default">Titre</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>';
+  const o = X.parseXmp(lr).doc;
+  check('XMP d’un autre logiciel : attributs, x-default, liste', `${o.rating}|${o.color}|${o.city}|${o.title}|${o.keywords.join(',')}`, '3|3|Lyon|Titre|Nuit,Ville');
+  check('annexe : nommage Adobe', X.sidecarPath('D:\\photos\\IMG_1.JPG', { destination: 'beside', naming: 'adobe' }), 'D:\\photos\\IMG_1.xmp');
+  check('annexe : nommage complet', X.sidecarPath('D:\\photos\\IMG_1.JPG', { destination: 'beside', naming: 'full' }), 'D:\\photos\\IMG_1.JPG.xmp');
+  check('annexe : dossier dédié, lecteur repris', X.sidecarPath('D:\\photos\\IMG_1.JPG', { destination: 'folder', naming: 'adobe', dir: 'C:\\M' }), 'C:\\M\\D\\photos\\IMG_1.xmp');
+
+  // indexation : métadonnées embarquées puis annexe, champs vides seulement
+  const dir = path.join(TMP, 'meta-src'); fs.mkdirSync(dir, { recursive: true });
+  const fa = path.join(dir, 'embarque.jpg'), fb = path.join(dir, 'annexe.jpg');
+  fs.writeFileSync(fa, await sharp({ create: { width: 120, height: 80, channels: 3, background: '#a52' } }).withIccProfile('srgb').withXmp(xmp).jpeg().toBuffer());
+  fs.writeFileSync(fb, await sharp({ create: { width: 120, height: 80, channels: 3, background: '#25a' } }).withXmp(X.buildXmp({ title: 'Titre embarqué', rating: 1 })).jpeg().toBuffer());
+  fs.writeFileSync(path.join(dir, 'annexe.xmp'), X.buildXmp({ title: 'Titre de l’annexe', keywords: ['Mer'], rating: 5 }, { tool: 'Autre logiciel' }));
+  await LIB.indexFile(fa, {}); await LIB.indexFile(fb, {});
+  const idOf = file => DB.prepare('SELECT photo_id FROM files WHERE path = ?').get(file).photo_id;
+  const pa = idOf(fa), pb = idOf(fb);
+  const MD = createMetadata(DB, { keywords: KW, library: LIB, settings: () => STORE.metadata, version: 'test' });
+  const da = MD.docOf(pa), db2 = MD.docOf(pb);
+  check('indexation : titre, note, couleur embarqués', `${da.title}|${da.rating}|${da.color}|${da.city}`, 'Lever <de> soleil & co|4|2|Toulouse');
+  check('indexation : mots-clés hiérarchiques recréés', da.keywords.join(','), 'Été,Lieux|Montagne');
+  check('indexation : l’annexe XMP passe avant l’embarqué', `${db2.title}|${db2.rating}|${db2.keywords.join(',')}`, 'Titre de l’annexe|5|Mer');
+  check('profil ICC lu', LIB.detail(pa).data.IccProfile, 'sRGB');
+
+  // modification en masse : aperçu sans écriture, remplir si vide / remplacer
+  DB.prepare("UPDATE photos SET author = NULL WHERE id = ?").run(pb);
+  const plan = MD.planEdit([pa, pb], { author: { mode: 'fill', value: 'Auteur commun' }, title: { mode: 'set', value: 'Nouveau titre' }, keywordsAdd: ['Saisons|Hiver'], keywordsRemove: ['Montagne'] });
+  check('aperçu : n’écrit rien', MD.docOf(pa).title, 'Lever <de> soleil & co');
+  check('aperçu : « remplir si vide » ne touche pas un auteur présent', plan.rows.find(r => r.id === pa).changes.some(c => c.field === 'author'), false, 0);
+  check('aperçu : auteur vide rempli', plan.rows.find(r => r.id === pb).changes.find(c => c.field === 'author')?.after, 'Auteur commun');
+  check('aperçu : écrasements comptés', plan.summary.overwrites, 4, 0);
+  const res = MD.applyEdit([pa, pb], { author: { mode: 'fill', value: 'Auteur commun' }, title: { mode: 'set', value: 'Nouveau titre' }, keywordsAdd: ['Saisons|Hiver'], keywordsRemove: ['Montagne'] });
+  check('application : valeurs écrites', `${MD.docOf(pa).title}|${MD.docOf(pb).author}|${MD.docOf(pa).keywords.join(',')}`, 'Nouveau titre|Auteur commun|Été,Saisons|Hiver');
+  check('application : lot enregistré', MD.batches()[0].photos, 2, 0);
+  LIB.update(pb, { title: 'Retouché à la main' });
+  const u = MD.undo(res.batchId);
+  check('annulation : valeurs rétablies', `${MD.docOf(pa).title}|${MD.docOf(pa).keywords.join(',')}|${MD.docOf(pb).author ?? ''}`, 'Lever <de> soleil & co|Été,Lieux|Montagne|');
+  check('annulation : valeur modifiée depuis laissée', `${MD.docOf(pb).title}|${u.kept}`, 'Retouché à la main|1');
+  let err = ''; try { MD.undo(res.batchId); } catch (e) { err = e.message; }
+  check('annulation : pas deux fois', /déjà/.test(err), true, 0);
+
+  // relecture des fichiers
+  LIB.update(pa, { title: null, description: 'Saisie dans la base' });
+  const rd = await MD.planRead([pa], { mode: 'fill' });
+  check('relecture (remplir) : titre vide repris du fichier', rd.rows[0]?.changes.find(c => c.field === 'title')?.after, 'Lever <de> soleil & co');
+  check('relecture (remplir) : saisie de la base conservée', rd.rows[0].changes.some(c => c.field === 'description'), false, 0);
+  const rr = await MD.planRead([pa], { mode: 'replace' });
+  check('relecture (remplacer) : différence proposée', rr.rows[0].changes.find(c => c.field === 'description')?.after, 'Fin de journée');
+  await MD.applyRead([pa], { mode: 'fill' });
+  check('relecture appliquée', MD.docOf(pa).title, 'Lever <de> soleil & co');
+
+  // écriture des annexes : dossier dédié, puis à côté (conflit avec l'annexe d'un autre logiciel)
+  STORE.metadata = { readOnIndex: true, destination: 'folder', naming: 'adobe' };
+  const w1 = MD.planWrite([pa, pb]);
+  check('écriture : plan « à créer »', w1.count.create, 2, 0);
+  const d1 = MD.applyWrite([pa, pb]);
+  const ta = X.sidecarPath(fa, { destination: 'folder', naming: 'adobe', dir: XMP_DIR });
+  check('écriture : annexes créées hors du dossier des photos', d1.created === 2 && fs.existsSync(ta) && ta.startsWith(XMP_DIR), true, 0);
+  check('écriture : contenu relu identique', X.parseXmp(fs.readFileSync(ta, 'utf8')).doc.title, 'Lever <de> soleil & co');
+  check('écriture : déjà à jour', MD.planWrite([pa]).count.same, 1, 0);
+  LIB.update(pa, { title: 'Titre modifié' });
+  check('écriture : mise à jour d’une annexe écrite par Photothèque', MD.planWrite([pa]).count.update, 1, 0);
+  fs.appendFileSync(ta, '<!-- modifié ailleurs -->');
+  check('écriture : annexe modifiée ailleurs = conflit', MD.planWrite([pa]).count.conflict, 1, 0);
+  const before = fs.readFileSync(ta, 'utf8');
+  MD.applyWrite([pa]);
+  check('conflit : laissé par défaut', fs.readFileSync(ta, 'utf8'), before);
+  MD.applyWrite([pa], { conflicts: 'replace' });
+  check('conflit remplacé : copie de l’ancienne gardée', fs.readdirSync(path.dirname(ta)).some(n => n.endsWith('.xmp.bak')), true, 0);
+  STORE.metadata = { readOnIndex: true, destination: 'beside', naming: 'adobe' };
+  check('à côté : annexe d’un autre logiciel = conflit', MD.planWrite([pb]).rows[0].status, 'conflict');
+  const imgBefore = fs.readFileSync(fa);
+  MD.applyWrite([pa]);
+  check('à côté : annexe créée près de l’original', fs.existsSync(path.join(dir, 'embarque.xmp')), true, 0);
+  check('l’original n’est jamais modifié', Buffer.compare(imgBefore, fs.readFileSync(fa)), 0, 0);
+  STORE.metadata = { readOnIndex: false, destination: 'folder', naming: 'adobe' };
+  const fc = path.join(dir, 'sans-lecture.jpg');
+  fs.writeFileSync(fc, await sharp({ create: { width: 60, height: 40, channels: 3, background: '#5a2' } }).withXmp(X.buildXmp({ title: 'Ignoré' })).jpeg().toBuffer());
+  await LIB.indexFile(fc, {});
+  check('réglage : lecture à l’indexation désactivée', MD.docOf(idOf(fc)).title, '');
+  STORE.metadata = { readOnIndex: true, destination: 'folder', naming: 'adobe' };
+  LIB.removeFromIndex([pa, pb, idOf(fc)]);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

@@ -50,6 +50,8 @@ lib/
   imports.mjs      Importation physique (copie) + détection de doublons
   supports.mjs     Inventaire des supports, détection/reconnexion
   keywords.mjs     Mots-clés (hiérarchie, synonymes, catégories, fusion, doublons de vocabulaire)
+  xmp.mjs          Champs documentaires, lecture / écriture XMP, profil ICC (pur)
+  metadata.mjs     Métadonnées en masse : aperçu, relecture, XMP annexes, annulation
   collections.mjs  Sélections statiques et recherches enregistrées (dynamiques)
   albums.mjs       Albums : formats, pages à gabarits, contrôles, export du projet (§9)
   albumpdf.mjs     Albums : export PDF d'impression / d'aperçu (§9)
@@ -575,3 +577,46 @@ Critères ajoutés à `buildQuery` (et aux recherches enregistrées) : `place`
 `hasPlace`, `backup` (`covered` : un fichier sur un support de rôle `backup` ou
 `archive` ; `uncovered` ; `single` : au plus un support disponible),
 `keywordCategory`.
+
+## 20. Métadonnées : priorité, XMP annexes, modifications en masse (v0.23.0)
+
+**Politique de priorité** (cahier §8) :
+
+1. La fiche (base) est la référence ; aucune valeur n'y est remplacée sans
+   aperçu et confirmation.
+2. Lecture des fichiers : XMP annexe d'abord (à côté de l'original, nommages
+   `IMG.xmp` puis `IMG.jpg.xmp`, puis dossier `Metadonnees/`), sinon
+   métadonnées embarquées (exifr : XMP > IPTC > EXIF), champ par champ
+   (`library.fileDoc`). À l'indexation d'une **nouvelle** photo, seuls ses
+   champs vides sont remplis (`fillFromFile`, réglage `metadata.readOnIndex`).
+3. Écriture : uniquement dans des XMP annexes (`metadata.destination` =
+   `folder` → `HOME/Metadonnees/<chemin complet>/`, ou `beside`), jamais
+   dans l'original.
+
+`lib/xmp.mjs` (pur) : `DOC_FIELDS`, `cleanDoc`, `docFromExifr` (décode les
+entités qu'exifr laisse), `buildXmp` (dc:title/description/creator/rights/
+subject, lr:hierarchicalSubject, xmp:Rating/Label, photoshop:City/State/Country/
+DateCreated, Iptc4xmpCore:Location), `parseXmp` (attributs ou éléments,
+x-default d'abord ; préfixes usuels seulement), `sidecarPath`, `findSidecars`,
+`iccDescription` (étiquette desc / mluc). Étiquettes : 1 à 5 ↔ Red, Yellow,
+Green, Blue, Purple.
+
+`lib/metadata.mjs` : `docOf` (mots-clés en chemins `Parent|Enfant`),
+`planEdit` / `applyEdit`, `planRead` / `applyRead` (modes `fill` /
+`replace`), `planWrite` / `applyWrite`. L'application recalcule toujours le
+plan côté serveur. États d'écriture : create, update (annexe écrite par
+Photothèque et inchangée : empreinte dans `photos.data.xmp`), same,
+conflict (modifiée ailleurs : laissée, ou remplacée avec copie
+`.<date>.xmp.bak`), unavailable, collision. Chaque application de fiches est un
+lot `history.kind = 'metadata.batch'` (avant / après par champ) ; `undo`
+ne rétablit une valeur que si la fiche porte encore celle du lot. Lots limités à
+20 000 photos.
+
+Routes : `GET /api/metadata`, `PUT /api/metadata/settings`,
+`GET /api/metadata/doc?id=`, `POST /api/metadata/edit|read|write` (`ids` ou
+`query`, `apply: true` pour écrire ; sinon aperçu limité à 300 lignes),
+`POST /api/metadata/undo`.
+
+Interface : une seule fenêtre modale à la fois (`ui.js`) — dans le dialogue,
+les confirmations se font par un second clic sur le bouton, pas par
+`confirmDialog` (qui fermerait le dialogue).

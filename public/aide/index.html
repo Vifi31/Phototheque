@@ -428,6 +428,18 @@
     <tr><td><b>Sélection</b></td><td>Les photos que vous y ajoutez vous-même.</td><td>« À imprimer pour mamie »</td></tr>
     <tr><td><b>Recherche enregistrée</b></td><td>Toutes les photos qui répondent aux critères, aujourd’hui et demain.</td><td>« Note 5 étoiles », « Mot-clé Montagne depuis 2020 »</td></tr>
   </table>
+
+  <h3>Les métadonnées en masse</h3>
+  <p>Le bouton <span class="ui">Métadonnées…</span> de la Photothèque agit sur la sélection, ou à défaut sur toutes les photos affichées. Il a quatre onglets ; les trois premiers montrent toujours un <b>aperçu</b> avant d’écrire quoi que ce soit.</p>
+  <figure><img src="img/metadonnees.jpg" alt="Le dialogue Métadonnées"><figcaption>Modifier en masse : pour chaque champ, « Remplacer », « Remplir si vide » ou « Effacer », puis l’aperçu avant / après.</figcaption></figure>
+  <table>
+    <tr><th>Onglet</th><th>Ce qu’il fait</th></tr>
+    <tr><td><b>Modifier</b></td><td>Titre, description, auteur, copyright, note, étiquette de couleur, lieu (lieu précis, ville, région, pays), mots-clés à ajouter ou retirer. Les valeurs existantes qui seraient remplacées sont comptées et barrées dans l’aperçu ; il faut confirmer d’un second clic.</td></tr>
+    <tr><td><b>Relire les fichiers</b></td><td>Reprend les informations écrites dans les fichiers par d’autres logiciels : d’abord le <b>XMP annexe</b> (fichier .xmp à côté de la photo), sinon les métadonnées <b>embarquées</b>. Par défaut, seuls les champs vides de la fiche sont complétés.</td></tr>
+    <tr><td><b>Écrire les XMP</b></td><td>Écrit les informations de la fiche dans un fichier .xmp annexe, lisible par Lightroom, Bridge, darktable, digiKam… <b>Jamais dans la photo elle-même.</b> Une annexe modifiée par un autre logiciel n’est pas remplacée, sauf si vous le demandez (une copie .bak est alors gardée).</td></tr>
+    <tr><td><b>Historique</b></td><td>Chaque modification en masse peut être <b>annulée</b> : les valeurs d’avant sont rétablies, sauf celles modifiées entre-temps.</td></tr>
+  </table>
+  <div class="note tip"><b>Qui a le dernier mot ?</b> La fiche de Photothèque est la référence. À l’indexation d’une nouvelle photo, ses champs vides sont remplis depuis le fichier (XMP annexe d’abord). Ensuite, rien n’est écrasé sans aperçu. Où ranger les XMP écrits (dossier « Metadonnees » ou à côté des photos) et leur nom (<code>IMG_0001.xmp</code> ou <code>IMG_0001.jpg.xmp</code>) se règlent dans <span class="ui">Paramètres</span>.</div>
 </section>
 
 <!-- ============================================================ 7. retoucher -->

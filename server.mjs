@@ -27,6 +27,9 @@ import { createContactSheets, SHEET_PAGES, SHEET_FIELDS, SHEET_QUALITIES, SHEET_
 import { createCatalog, CSV_COLUMNS, GROUP_BY } from './lib/catalog.mjs';
 import { createReports, REPORTS } from './lib/reports.mjs';
 import { createBackupService } from './lib/backup.mjs';
+import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as META_MODES, MAX_BATCH as META_MAX } from './lib/metadata.mjs';
+import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
+import { XMP_DIR } from './lib/paths.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -45,6 +48,7 @@ const exportsSvc = createExports(db, edits);
 const duplicates = createDuplicates(db, library);
 const contactSheets = createContactSheets(db, library, edits);
 const catalog = createCatalog(db);
+const metadata = createMetadata(db, { keywords, library, settings: () => store.metadata, version: currentVersion() });
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -338,6 +342,21 @@ async function api(req, res, url) {
 
   // ---- Mots-clés ----
   if (p === '/api/keywords' && m === 'GET') return json(res, 200, { list: keywords.list(), tree: keywords.tree(), categories: keywords.categories(), suggest: keywords.suggest(url.searchParams.get('q') || '') });
+  // ---- métadonnées documentaires : aperçu puis application (lib/metadata.mjs) ----
+  if (p === '/api/metadata' && m === 'GET') return json(res, 200, { settings: store.metadata, destinations: DESTINATIONS, namings: NAMINGS, modes: META_MODES, fields: DOC_FIELDS, labels: LABELS_FR, dir: XMP_DIR, max: META_MAX, batches: metadata.batches() });
+  if (p === '/api/metadata/settings' && m === 'PUT') { const b = await readBody(req); store.metadata = cleanMetadataSettings(b, store.metadata); saveStore(db, store); return json(res, 200, { settings: store.metadata }); }
+  if (p === '/api/metadata/doc' && m === 'GET') { const d = metadata.docOf(url.searchParams.get('id') || ''); return d ? json(res, 200, { doc: d }) : json(res, 404, { error: 'Photo inconnue' }); }
+  if (p.startsWith('/api/metadata/') && m === 'POST') {
+    const b = await readBody(req); const what = p.slice('/api/metadata/'.length);
+    if (what === 'undo') { try { return json(res, 200, metadata.undo(b.batchId)); } catch (e) { return json(res, 400, { error: e.message }); } }
+    const ids = photoIdsFrom(b, META_MAX); if (!ids) return json(res, 404, { error: 'Collection inconnue' });
+    const apply = b.apply === true;
+    const trim = r => ({ ...r, rows: r.rows.slice(0, 300).map(({ content, ...x }) => x), more: Math.max(0, r.rows.length - 300) });
+    if (what === 'edit') return json(res, 200, apply ? metadata.applyEdit(ids, sanitize(b.changes) ?? {}) : trim(metadata.planEdit(ids, sanitize(b.changes) ?? {})));
+    if (what === 'read') { const o = { mode: b.mode === 'replace' ? 'replace' : 'fill', fields: Array.isArray(b.fields) ? b.fields : null }; if (apply) return json(res, 200, await metadata.applyRead(ids, o)); const r = await metadata.planRead(ids, o); return json(res, 200, { ...trim(r), issues: r.issues.slice(0, 50), issueCount: r.issues.length }); }
+    if (what === 'write') { if (apply) return json(res, 200, metadata.applyWrite(ids, { conflicts: b.conflicts === 'replace' ? 'replace' : 'skip' })); const r = metadata.planWrite(ids); return json(res, 200, { ...trim(r), count: r.count, statuses: r.statuses, settings: r.settings }); }
+    return json(res, 404, { error: 'Action inconnue' });
+  }
   if (p === '/api/keywords/duplicates' && m === 'GET') return json(res, 200, { groups: keywords.vocabularyDuplicates() });
   if (p === '/api/keywords/usage' && m === 'GET') return json(res, 200, keywords.usage());
   if (p === '/api/keywords' && m === 'POST') { const b = await readBody(req); return json(res, 200, { keyword: (() => { const k = keywords.ensure(b.name, b.parentId || null); return ['category', 'synonyms', 'description'].some(x => b[x] != null) ? keywords.update(k.id, { category: b.category, synonyms: b.synonyms, description: b.description }) : k; })() }); }

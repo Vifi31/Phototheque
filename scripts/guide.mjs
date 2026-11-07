@@ -298,6 +298,7 @@ export const SHOTS = ctx => [
   { name: 'supports', js: `await App.go('supports');` },
   { name: 'mots-cles', h: 1180, js: `await App.go('keywords'); await new Promise(r => setTimeout(r, 500)); [...document.querySelectorAll('button')].find(b => b.textContent === 'Tout déplier')?.click();` },
   { name: 'collections', js: `await App.go('collections');` },
+  { name: 'metadonnees', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 1, 2]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click(); [...document.querySelectorAll('button')].find(b => b.textContent === 'Métadonnées…')?.click(); await new Promise(r => setTimeout(r, 700)); const g = document.querySelectorAll('#modalRoot .meta-grid > *'); const lab = [...g].findIndex(x => x.textContent === 'Ville'); g[1].value = 'fill'; g[1].onchange(); g[2].value = 'Vacances 2023'; g[lab + 1].value = 'set'; g[lab + 1].onchange(); g[lab + 2].value = 'Chamonix'; [...document.querySelectorAll('#modalRoot button')].find(b => b.textContent === 'Aperçu')?.click(); await new Promise(r => setTimeout(r, 900)); document.querySelector('#modalRoot .meta-out')?.scrollIntoView();` },
   { name: 'albums', js: `await App.go('albums');` },
   { name: 'album-editeur', js: `App.state.albumId = ${JSON.stringify(ctx.album.id)}; await App.go('album');` },
   { name: 'retouche', js: `App.state.editPhotoId = ${JSON.stringify(ctx.lav.id)}; App.state.editBack = 'photos'; await App.go('retouche');` },

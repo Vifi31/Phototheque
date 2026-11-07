@@ -163,7 +163,14 @@ const App = (() => {
       if (state.selection.size) contactSheetDialog({ ids: [...state.selection], label, count: state.selection.size });
       else contactSheetDialog({ query: searchParams().toString(), label, count: state.total });
     } }, 'Planches, catalogues, portfolio…');
-    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, h('div.spacer'), selInfo, batchBar);
+    // métadonnées : la sélection si elle existe, sinon toutes les photos de la recherche affichée
+    const metaBtn = h('button.ghost.small', { title: 'Modifier les métadonnées en masse (avec aperçu), relire celles des fichiers, écrire des XMP annexes : la sélection, ou toutes les photos affichées', onclick: () => {
+      const label = coll ? coll.name : 'Photothèque';
+      const onDone = () => refresh();
+      if (state.selection.size) metadataDialog({ ids: [...state.selection], label, count: state.selection.size, onDone });
+      else metadataDialog({ query: searchParams().toString(), label, count: state.total, onDone });
+    } }, 'Métadonnées…');
+    mount(toolbar, h('span', { class: 'dim' }, 'Tri :'), sortSel, saveBtn, sheetBtn, metaBtn, h('div.spacer'), selInfo, batchBar);
 
     function renderGrid() {
       clear(grid);
@@ -894,6 +901,108 @@ const App = (() => {
   }
 
   // ---------- Export de photos (lib/exports.mjs) : profil, réglages, travail suivi, compte rendu ----------
+  // ---------- Métadonnées documentaires : modifier, relire les fichiers, écrire les XMP (lib/metadata.mjs) ----------
+  // Toujours un aperçu avant d'écrire ; chaque modification de fiches forme un lot annulable.
+  async function metadataDialog({ ids, query, label, count, onDone = () => {} }) {
+    const M = await api('/metadata');
+    const base = ids ? { ids } : { query };
+    const target = ids ? `${fmtNum(count)} photo(s) sélectionnée(s)` : `${fmtNum(count)} photo(s) de « ${label} »`;
+    const out = h('div.meta-out');
+    const tabsEl = h('div.tabs'); const pane = h('div.meta-pane');
+    let tab = 'edit';
+    const TABS = { edit: 'Modifier', read: 'Relire les fichiers', write: 'Écrire les XMP', history: 'Historique' };
+    const renderTabs = () => mount(tabsEl, ...Object.entries(TABS).map(([k, l]) => h('button' + (k === tab ? '.active' : ''), { onclick: () => { tab = k; renderTabs(); renderPane(); } }, l)));
+    const modeSel = () => h('select', {}, h('option', { value: '' }, '— inchangé —'), ...Object.entries(M.modes).map(([k, l]) => h('option', { value: k }, l)));
+    const changeTable = (rows, { source = false } = {}) => table({ className: 'meta-table', columns: [
+      { label: 'Photo', format: r => h('b', r.name) },
+      { label: 'Champ', format: r => r.c.label },
+      { label: 'Avant', format: r => r.c.beforeText ? h('span' + (r.c.overwrite ? '.meta-old' : ''), r.c.beforeText) : h('span.dim', 'vide') },
+      { label: 'Après', format: r => r.c.afterText ? h('span.meta-new', r.c.afterText) : h('span.dim', 'vide') },
+      ...(source ? [{ label: 'Source', format: r => r.c.source }] : []),
+    ], rows: rows.flatMap(r => r.changes.map(c => ({ name: r.name, c }))).slice(0, 400) });
+    const summaryLine = (s, more) => h('p', h('b', `${fmtNum(s.changed)} photo(s) modifiée(s)`), ` sur ${fmtNum(s.photos)} · ${fmtNum(s.values)} valeur(s)`,
+      s.overwrites ? h('span.pill.warn', { style: { marginLeft: '8px' } }, `${fmtNum(s.overwrites)} valeur(s) existante(s) remplacée(s)`) : h('span.pill.ok', { style: { marginLeft: '8px' } }, 'aucune valeur existante remplacée'),
+      more ? h('small.dim', ` — aperçu limité aux 300 premières photos (${fmtNum(more)} de plus)`) : null);
+    async function run(what, payload, { applyLabel, render }) {
+      mount(out, h('p.dim', 'Calcul de l’aperçu…'));
+      try {
+        const r = await api('/metadata/' + what, 'POST', { ...base, ...payload });
+        const n = what === 'write' ? (r.count.create + r.count.update + (payload.conflicts === 'replace' ? r.count.conflict : 0)) : r.summary.changed;
+        // une seule fenêtre à la fois (ui.js) : la confirmation se fait par un second clic sur le bouton
+        let armed = false;
+        mount(out, ...render(r), n ? h('div.row', h('div.spacer'), h('button', { onclick: async e => {
+          if (what !== 'write' && r.summary.overwrites && !armed) { armed = true; e.target.classList.add('danger'); e.target.textContent = `Confirmer : remplacer ${fmtNum(r.summary.overwrites)} valeur(s) existante(s)`; return; }
+          mount(out, h('p.dim', 'Application…'));
+          try {
+            const a = await api('/metadata/' + what, 'POST', { ...base, ...payload, apply: true });
+            if (what === 'write') mount(out, h('p', `${a.created} annexe(s) créée(s), ${a.updated} mise(s) à jour, ${a.replaced} remplacée(s) (ancienne version gardée en .bak), ${a.skipped} laissée(s).`), a.errors.length ? h('p.bad', `${a.errors.length} erreur(s) : ` + a.errors.slice(0, 5).map(e => `${e.name} (${e.error})`).join(' ; ')) : null);
+            else mount(out, h('p', `${fmtNum(a.photos)} photo(s) modifiée(s), ${fmtNum(a.values)} valeur(s). `, a.batchId ? h('button.ghost.small', { onclick: async () => { const u = await api('/metadata/undo', 'POST', { batchId: a.batchId }); toast(`${u.restored} valeur(s) rétablie(s)${u.kept ? `, ${u.kept} modifiée(s) depuis laissée(s)` : ''}`); mount(out, h('p.dim', 'Lot annulé.')); onDone(); } }, 'Annuler ce lot') : null));
+            toast('Terminé'); onDone();
+          } catch (e) { mount(out, h('p.bad', e.message)); }
+        } }, applyLabel(n))) : h('p.dim', 'Rien à faire.'));
+      } catch (e) { mount(out, h('p.bad', e.message)); }
+    }
+
+    function renderPane() {
+      clear(out);
+      if (tab === 'edit') {
+        const rows = Object.entries(M.fields).filter(([k]) => k !== 'keywords').map(([k, l]) => {
+          const mode = modeSel();
+          const input = k === 'rating' ? h('select', {}, ...[0, 1, 2, 3, 4, 5].map(n => h('option', { value: n }, n ? '★'.repeat(n) : 'aucune')))
+            : k === 'color' ? h('select', {}, ...M.labels.map((c, i) => h('option', { value: i }, c || 'aucune')))
+            : k === 'description' ? h('textarea', { rows: 2 }) : h('input', { type: 'text' });
+          input.disabled = true;
+          mode.onchange = () => { input.disabled = !mode.value || mode.value === 'clear'; };
+          return { k, l, mode, input };
+        });
+        const kwAdd = h('input', { type: 'text', placeholder: 'séparés par des virgules ; « Lieux|Montagne » pour ranger' });
+        const kwDel = h('input', { type: 'text', placeholder: 'séparés par des virgules' });
+        const payload = () => {
+          const changes = {};
+          for (const r of rows) if (r.mode.value) changes[r.k] = { mode: r.mode.value, value: r.input.value };
+          changes.keywordsAdd = kwAdd.value.split(',').map(x => x.trim()).filter(Boolean);
+          changes.keywordsRemove = kwDel.value.split(',').map(x => x.trim()).filter(Boolean);
+          return { changes };
+        };
+        mount(pane, h('p.dim', 'Choisissez pour chaque champ : remplacer, remplir seulement s’il est vide, ou effacer. Rien n’est écrit avant l’aperçu.'),
+          h('div.meta-grid', ...rows.flatMap(r => [h('label', r.l), r.mode, r.input])),
+          h('div.form', field('Ajouter les mots-clés', kwAdd), field('Retirer les mots-clés', kwDel, 'retirer « Montagne » retire aussi « Lieux › Montagne »')),
+          h('div.row', h('div.spacer'), h('button.ghost', { onclick: () => run('edit', payload(), { applyLabel: n => `Appliquer à ${fmtNum(n)} photo(s)`, render: r => [summaryLine(r.summary, r.more), changeTable(r.rows)] }) }, 'Aperçu')));
+      } else if (tab === 'read') {
+        const mode = h('select', {}, h('option', { value: 'fill' }, 'Compléter seulement les champs vides de la fiche'), h('option', { value: 'replace' }, 'Remplacer aussi les valeurs différentes'));
+        mount(pane, h('p', 'Relit les fichiers : le ', h('b', 'XMP annexe'), ' s’il existe, sinon les métadonnées ', h('b', 'embarquées'), ' (XMP, IPTC, EXIF). Les fichiers ne sont pas modifiés.'),
+          h('p.dim', 'Priorité : la fiche de Photothèque est la référence. Par défaut, seuls ses champs vides sont complétés.'),
+          h('div.form', field('Mode', mode)),
+          h('div.row', h('div.spacer'), h('button.ghost', { onclick: () => run('read', { mode: mode.value }, { applyLabel: n => `Reprendre dans ${fmtNum(n)} fiche(s)`, render: r => [summaryLine(r.summary, r.more), r.issueCount ? h('p.dim', `${r.issueCount} photo(s) ignorée(s) : ` + r.issues.slice(0, 5).map(i => `${i.name} (${i.issue})`).join(' ; ')) : null, changeTable(r.rows, { source: true })] }) }, 'Aperçu')));
+      } else if (tab === 'write') {
+        const conf = h('select', {}, h('option', { value: 'skip' }, 'Laisser les annexes modifiées par un autre logiciel'), h('option', { value: 'replace' }, 'Les remplacer (une copie .bak est gardée)'));
+        const s = M.settings;
+        mount(pane, h('p', 'Écrit les métadonnées de la fiche dans un fichier ', h('b', 'XMP annexe'), ', lisible par les autres logiciels. ', h('b', 'L’original n’est jamais modifié.')),
+          h('p.dim', `Emplacement : ${M.destinations[s.destination]}${s.destination === 'folder' ? ` (${M.dir})` : ''} · nom : ${M.namings[s.naming]}. `, h('button.link', { onclick: () => { m.close(); go('settings'); } }, 'Changer dans Paramètres')),
+          h('div.form', field('Annexes déjà modifiées ailleurs', conf)),
+          h('div.row', h('div.spacer'), h('button.ghost', { onclick: () => run('write', { conflicts: conf.value }, { applyLabel: n => `Écrire ${fmtNum(n)} annexe(s)`, render: r => [
+            h('div.row', ...Object.entries(r.statuses).filter(([k]) => r.count[k]).map(([k, l]) => h('span.pill' + (k === 'create' || k === 'update' ? '.ok' : k === 'same' ? '' : '.warn'), `${r.count[k]} ${l}`))),
+            table({ className: 'meta-table', columns: [{ label: 'Photo', format: x => h('b', x.name) }, { label: 'État', format: x => r.statuses[x.status] }, { label: 'Annexe', format: x => h('small.dim', x.target) }], rows: r.rows.slice(0, 300) })] }) }, 'Aperçu')));
+      } else {
+        const list = h('div');
+        const load = async () => {
+          const { batches } = await api('/metadata');
+          if (!batches.length) return mount(list, h('p.dim', 'Aucune modification en masse.'));
+          mount(list, table({ columns: [
+            { label: 'Date', format: b => fmtDateTime(b.ts) }, { label: 'Opération', format: b => b.label ?? b.detail },
+            { label: 'Photos', key: 'photos', align: 'right' }, { label: 'Valeurs', key: 'values', align: 'right' },
+            { label: '', align: 'right', format: b => b.undone ? h('span.dim', 'annulé') : h('button.ghost.small', { title: 'Rétablit les valeurs d’avant ; une valeur modifiée depuis est laissée telle quelle', onclick: async e => {
+              if (!e.target.dataset.armed) { e.target.dataset.armed = '1'; e.target.classList.add('danger'); e.target.textContent = `Confirmer : rétablir ${b.values} valeur(s)`; return; }
+              const u = await api('/metadata/undo', 'POST', { batchId: b.id }); toast(`${u.restored} valeur(s) rétablie(s)${u.kept ? `, ${u.kept} laissée(s)` : ''}`); load(); onDone();
+            } }, 'Annuler') }], rows: batches }));
+        };
+        mount(pane, h('p.dim', 'Les dernières modifications en masse (toutes photos confondues). Annuler rétablit les valeurs d’avant.'), list); load();
+      }
+    }
+    renderTabs(); renderPane();
+    const m = modal({ title: `Métadonnées — ${target}`, wide: true, body: h('div', tabsEl, pane, out), actions: [h('button.ghost', { onclick: () => m.close() }, 'Fermer')] });
+  }
+
   async function exportDialog(ids) {
     if (!ids.length) return;
     let meta = await api('/exports/profiles');
@@ -1652,6 +1761,10 @@ const App = (() => {
     const symCb = h('input', { type: 'checkbox', checked: !!scan.followSymlinks });
     const destInput = h('input', { type: 'text', value: state.import.dest || '', placeholder: 'Dossier de destination des imports copiés' });
     const keepCb = h('input', { type: 'checkbox', checked: state.import.keepFolders !== false });
+    const MD = await api('/metadata');
+    const readCb = h('input', { type: 'checkbox', checked: MD.settings.readOnIndex !== false });
+    const destSel = h('select', {}, ...Object.entries(MD.destinations).map(([k, l]) => h('option', { value: k, selected: MD.settings.destination === k }, l)));
+    const nameSel = h('select', {}, ...Object.entries(MD.namings).map(([k, l]) => h('option', { value: k, selected: MD.settings.naming === k }, l)));
 
     mount(v, h('h2.page-title', 'Paramètres'),
       card(h('div.sect', "Indexation"),
@@ -1663,6 +1776,12 @@ const App = (() => {
           h('label.check', symCb, h('span', 'Suivre les liens symboliques')))),
       card(h('div.sect', 'Importation'),
         h('div.form', field('Dossier de destination', destInput), h('label.check', keepCb, h('span', 'Classer par année de prise de vue')))),
+      card(h('div.sect', 'Métadonnées'),
+        h('p.dim', 'Priorité : la fiche de Photothèque est la référence et n’est jamais écrasée sans aperçu. À la lecture, le XMP annexe passe avant les métadonnées embarquées dans le fichier. L’écriture se fait uniquement dans des XMP annexes : les originaux ne sont jamais modifiés.'),
+        h('div.form',
+          h('label.check', readCb, h('span', 'À l’indexation, remplir les champs vides des nouvelles photos (titre, légende, mots-clés, note, lieu…) depuis leurs fichiers')),
+          field('Emplacement des XMP écrits', destSel, `Dossier dédié : ${MD.dir}`),
+          field('Nom des fichiers XMP', nameSel))),
       h('div.row', h('button', { onclick: save }, 'Enregistrer les paramètres')));
 
     async function save() {
@@ -1670,6 +1789,7 @@ const App = (() => {
         scan: { thumbSize: +thumbSize.value, previewSize: +previewSize.value, hash: hashCb.checked, thumb: thumbCb.checked, followSymlinks: symCb.checked },
         import: { dest: destInput.value, keepFolders: keepCb.checked },
       });
+      await api('/metadata/settings', 'PUT', { readOnIndex: readCb.checked, destination: destSel.value, naming: nameSel.value });
       state.scan = r.scan; state.import = r.import; toast('Paramètres enregistrés');
     }
   }

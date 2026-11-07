@@ -4,6 +4,35 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.23.0] — 2026-11-07
+
+### Ajouté
+
+- **Métadonnées en masse** (bouton « Métadonnées… » de la Photothèque, sur la
+  sélection ou toute la recherche) : titre, description, auteur, copyright,
+  note, étiquette de couleur, lieu (lieu précis, ville, région, pays), mots-clés
+  à ajouter / retirer ; modes « Remplacer », « Remplir si vide », « Effacer ».
+  **Aperçu** avant / après obligatoire, valeurs remplacées comptées et
+  confirmées d'un second clic.
+- **Historique et annulation** des modifications en masse : une valeur
+  modifiée depuis n'est pas touchée.
+- **Relecture des fichiers** : XMP annexe d'abord, puis métadonnées embarquées
+  (XMP / IPTC / EXIF) ; par défaut seuls les champs vides sont complétés.
+- **Écriture de XMP annexes** (jamais dans l'original) : dans le dossier
+  « Metadonnees » de Photothèque ou à côté des photos, nommage
+  `IMG.xmp` ou `IMG.jpg.xmp`. Une annexe modifiée par un autre logiciel
+  n'est remplacée que sur demande, avec copie .bak.
+- **Politique de priorité** documentée et réglable (Paramètres → Métadonnées) :
+  à l'indexation, les champs vides des nouvelles photos sont remplis depuis
+  leurs fichiers (titre, légende, mots-clés hiérarchiques, note, lieu…).
+- **Informations de couleur** lues à l'indexation : espace colorimétrique et
+  nom du profil ICC (fiches détaillées).
+
+### Corrigé
+
+- Auteur et copyright lus dans un XMP embarqué (liste ou texte multilingue)
+  faisaient échouer l'indexation du fichier.
+
 ## [0.22.0] — 2026-11-07
 
 ### Ajouté

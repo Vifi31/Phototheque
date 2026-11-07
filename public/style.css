@@ -390,3 +390,14 @@ button.on { outline: 2px solid var(--accent); }
 .kw-row .grow, .kw-dup .grow { flex: 1; min-width: 0; }
 .kw-bar input[type='search'] { flex: 1 1 220px; width: auto; }
 .kw-bar select { flex: 0 1 220px; width: auto; }
+
+/* ---------- Métadonnées en masse ---------- */
+.meta-pane { margin: 12px 0; }
+.meta-grid { display: grid; grid-template-columns: max-content 190px 1fr; gap: 6px 10px; align-items: center; margin: 8px 0 12px; }
+.meta-grid label { font-size: 13px; color: var(--muted); }
+.meta-out { max-height: 46vh; overflow: auto; }
+.meta-table td { vertical-align: top; overflow-wrap: anywhere; }
+.meta-old { text-decoration: line-through; color: var(--warn); }
+.meta-new { color: var(--ok); font-weight: 600; }
+p.bad { color: var(--bad); }
+@media screen and (max-width: 700px) { .meta-grid { grid-template-columns: 1fr; } }

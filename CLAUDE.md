@@ -166,8 +166,9 @@ bibliothèque).
 7. Reste du cahier des charges, dans l'ordre du point d'étape (0.21.1) :
    mots-clés hiérarchiques, synonymes, catégories, doublons de vocabulaire,
    critères lieu / état de sauvegarde — **livrés en v0.22.0**
-   (`docs/ARCHITECTURE.md` §19). Suivent : métadonnées XMP en écriture avec
-   aperçu, navigation (tailles de vignettes, comparaison, historique),
+   (`docs/ARCHITECTURE.md` §19). Métadonnées (priorité, XMP annexes, modification
+   en masse avec aperçu et annulation, profil ICC) — **livré en v0.23.0** (§20).
+   Suivent : navigation (tailles de vignettes, comparaison, historique),
    retouche avancée, albums et exports, sauvegardes, tableau de bord.
    Piège : `photos.keywords_text` contient après « ¦ » parents et synonymes ;
    lire les noms avec `keywordNamesOf`.
