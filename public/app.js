@@ -62,7 +62,7 @@ const App = (() => {
     { id: 'albums', label: 'Albums', icon: '📖' },
     { group: 'Analyse' },
     { id: 'duplicates', label: 'Doublons', icon: '🧬' },
-    { id: 'stats', label: 'Statistiques', icon: '📊' },
+    { id: 'stats', label: 'Tableau de bord', icon: '📊' },
     { id: 'reports', label: 'Rapports', icon: '📋' },
     { group: 'Administration' },
     { id: 'admin', label: 'Administration', icon: '⚙️' },
@@ -756,7 +756,7 @@ const App = (() => {
     keywordId: 'mot-clé', year: 'année', from: 'depuis', to: "jusqu'au", camera: 'appareil', lens: 'objectif', author: 'auteur', format: 'format',
     rating: 'note ≥', color: 'couleur', missing: 'disponibilité', orientation: 'orientation', minWidth: 'largeur ≥', maxWidth: 'largeur ≤', minHeight: 'hauteur ≥', maxHeight: 'hauteur ≤',
     supportId: 'support', folderId: 'dossier', albumId: 'album', integrity: 'intégrité', hasGps: 'GPS',
-    noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', duplicate: 'doublons',
+    noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', noDate: 'sans date', duplicate: 'doublons',
     hideVariants: 'sans les variantes', variants: 'seulement les variantes', variantsOf: 'référence et variantes de',
     place: 'lieu', hasPlace: 'lieu', backup: 'sauvegarde', keywordCategory: 'catégorie de mot-clé',
   };
@@ -2204,27 +2204,99 @@ const App = (() => {
       h('div.row', { style: { gap: '8px', marginTop: '8px' } }, preview, pdfBtn, csvBtn), status);
   }
 
-  // ---------- vue Statistiques ----------
+  // ---------- vue Statistiques : tableau de bord (lib/dashboard.mjs) ----------
+  // Graphiques en barres (HTML/CSS) : une barre cliquable ouvre la Photothèque filtrée sur cette valeur.
+  const MOIS = ['', 'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+  function openFiltered(facet) { state.q = ''; state.facet = facet; state.page = 0; go('photos'); }
+  /** Barres horizontales : [{ label, n, title?, facet? }] ; `fmt` formate la valeur. */
+  function hbars(rows, { fmt = fmtNum, total = null, empty = 'Aucune donnée.' } = {}) {
+    if (!rows.length) return h('p.dim', empty);
+    const max = Math.max(...rows.map(r => r.n), 1);
+    return h('div.hbars', ...rows.map(r => h(r.facet ? 'button.hbar.link' : 'div.hbar', { title: r.title ?? (r.facet ? 'Voir ces photos' : ''), onclick: r.facet ? () => openFiltered(r.facet) : null },
+      h('span.hbar-label', r.label), h('span.hbar-track', h('span.hbar-fill', { style: { width: Math.max(r.n ? 1.5 : 0, r.n * 100 / max) + '%' } })),
+      h('span.hbar-val', fmt(r.n) + (total ? ` · ${Math.round(r.n * 1000 / total) / 10} %`.replace('.', ',') : '')))));
+  }
+  /** Colonnes verticales (années, mois) : [{ label, n, facet? }]. */
+  function vbars(rows, { empty = 'Aucune donnée.', every = 1 } = {}) {
+    if (!rows.length) return h('p.dim', empty);
+    const max = Math.max(...rows.map(r => r.n), 1);
+    return h('div.vbars', { style: { gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` } }, ...rows.map((r, i) => h(r.facet ? 'button.vbar.link' : 'div.vbar', { title: `${r.title ?? r.label} : ${fmtNum(r.n)} photo(s)`, onclick: r.facet ? () => openFiltered(r.facet) : null },
+      h('span.vbar-val', r.n ? fmtNum(r.n) : ''), h('span.vbar-col', h('span.vbar-fill', { style: { height: (r.n * 100 / max) + '%' } })), h('span.vbar-label', i % every === 0 ? r.label : ''))));
+  }
+
   async function viewStats(v) {
     clear(v);
-    const s = await api('/stats');
-    const facets = await api('/facets');
-    mount(v, h('h2.page-title', 'Statistiques'),
+    state.dash ??= { year: '', supportId: '', format: '' };
+    const F = state.dash;
+    const qs = extra => new URLSearchParams(Object.fromEntries(Object.entries({ ...F, ...extra }).filter(([, x]) => x)));
+    const r = await api('/dashboard?' + qs());
+    const d = r.dashboard, T = d.totals, G = d.gaps;
+    const sel = (key, opts, label) => h('select', { title: label, onchange: e => { F[key] = e.target.value; viewStats(v); } }, h('option', { value: '' }, label), ...opts.map(([val, l]) => h('option', { value: val, selected: F[key] === val }, l)));
+    const filters = h('div.row.wrap.dash-filters', { style: { gap: '8px' } },
+      sel('year', r.years.map(y => [y.y, `${y.y} (${y.n})`]), 'Toutes les années'),
+      sel('supportId', r.supports.map(s => [s.id, s.name]), 'Tous les supports'),
+      sel('format', r.formats.filter(x => x.format).map(x => [x.format, `${x.format} (${x.n})`]), 'Tous les formats'),
+      h('div.spacer'),
+      h('button.ghost.small', { title: 'Recalculer, y compris la taille des dossiers', onclick: async () => { await api('/dashboard?' + qs({ refresh: 1 })); viewStats(v); } }, '↻ Actualiser'),
+      h('button.ghost.small', { onclick: async () => {
+        const res = await fetch('/api/dashboard/pdf?' + qs({ inline: 1 })); if (!res.ok) { toast('Échec du PDF', 'bad'); return; }
+        const src = URL.createObjectURL(await res.blob());
+        const pv = modal({ title: 'Aperçu — tableau de bord', wide: true, body: h('iframe.pdf-frame', { src, title: 'Aperçu PDF' }), actions: [h('button.ghost', { onclick: () => pv.close() }, 'Fermer'), h('a.btn', { href: '/api/dashboard/pdf?' + qs(), download: '' }, 'Télécharger le PDF')] });
+        new MutationObserver((_, ob) => { if (!pv.box.isConnected) { URL.revokeObjectURL(src); ob.disconnect(); } }).observe(document.body, { childList: true, subtree: true });
+      } }, 'Aperçu PDF'),
+      h('a.btn.ghost.small', { href: '/api/dashboard/pdf?' + qs(), download: '' }, 'PDF'),
+      h('a.btn.ghost.small', { href: '/api/dashboard/csv?' + qs(), download: '' }, 'CSV'));
+    const filtered = F.year || F.supportId || F.format;
+    const HL = { ok: ['✓ Bon', 'ok'], warn: ['À surveiller', 'warn'], bad: ['À corriger', 'bad'] }[d.health.level];
+    const cov = d.coverage.photos ? Math.round(d.coverage.covered * 100 / d.coverage.photos) : 0;
+    const base = filtered ? { ...(F.year ? { year: F.year } : {}), ...(F.supportId ? { supportId: F.supportId } : {}), ...(F.format ? { format: F.format } : {}) } : {};
+    const gap = (label, key, facet) => ({ label, n: G[key], facet: facet ? { ...base, ...facet } : null, title: facet ? 'Voir ces photos' : '' });
+    const vol = Object.entries(d.volumes).map(([k, x]) => ({ label: x.label, n: x.bytes, title: `${x.path ?? 'supports indexés'} — ${fmtNum(x.files)} fichier(s)` }));
+    const months = d.dist.month.slice(-36).map(x => { const [y, mo] = x.k.split('-'); const last = new Date(+y, +mo, 0).getDate(); return { label: `${MOIS[+mo]} ${y.slice(2)}`, title: `${MOIS[+mo]} ${y}`, n: x.n, facet: { ...base, from: `${x.k}-01`, to: `${x.k}-${last}T23:59:59` } }; });
+    const B = d.backups;
+
+    mount(v, h('h2.page-title', 'Tableau de bord'), filters,
+      h('p.dim', `Calculé le ${fmtDateTime(d.computedAt)}${d.cached ? ' (en cache : ↻ pour recalculer)' : ` en ${d.ms} ms`}${filtered ? ' — filtré ; les volumes des dossiers ne dépendent pas des filtres' : ''}. Cliquez une barre pour voir les photos correspondantes.`),
       h('div.kpis',
-        kpi('Photos', fmtNum(s.photos)),
-        kpi('Fichiers', fmtNum(s.files)),
-        kpi('Volume', fmtBytes(s.bytes)),
-        kpi('Mots-clés', fmtNum(s.keywords)),
-        kpi('Albums', fmtNum(s.albums)),
-        kpi('Avec GPS', fmtNum(s.gps)),
-        kpi('Notées', fmtNum(s.rated)),
-        kpi('Indisponibles', fmtNum(s.missing), { tone: s.missing ? 'warn' : '' })),
-      card(h('div.sect', 'Répartition par année'),
-        facets.years.length ? table({ columns: [{ label: 'Année', key: 'y' }, { label: 'Photos', key: 'n', align: 'right' }], rows: facets.years }) : h('p.dim', 'Aucune donnée.')),
-      card(h('div.sect', 'Appareils utilisés'),
-        facets.cameras.length ? table({ columns: [{ label: 'Marque', key: 'camera_make' }, { label: 'Modèle', key: 'camera_model' }, { label: 'Photos', key: 'n', align: 'right' }], rows: facets.cameras }) : h('p.dim', 'Aucune donnée.')),
-      card(h('div.sect', 'Formats'),
-        facets.formats.length ? table({ columns: [{ label: 'Format', key: 'format' }, { label: 'Photos', key: 'n', align: 'right' }], rows: facets.formats }) : h('p.dim', 'Aucune donnée.')));
+        kpi('Photos', fmtNum(T.photos)),
+        kpi('Fichiers', fmtNum(T.files), { sub: fmtBytes(T.bytes) + ' référencés' }),
+        kpi('Indisponibles', fmtNum(T.unavailable), { tone: T.unavailable ? 'warn' : '', sub: `${fmtNum(T.missingPhotos)} photo(s) sans fichier disponible` }),
+        kpi('Supports', fmtNum(T.supports), { sub: `${fmtNum(T.supportsAbsent)} absent(s)`, tone: T.supportsAbsent ? 'warn' : '' }),
+        kpi('État du catalogue', HL[0], { tone: HL[1] }),
+        kpi('Originaux couverts', cov + ' %', { tone: cov === 100 ? 'ok' : 'warn', sub: 'copie sur un support de sauvegarde' }),
+        kpi('Doublons', fmtNum(d.duplicates.photosWithCopies), { sub: `${fmtNum(d.duplicates.extraFiles)} fichier(s) en surplus · ${fmtNum(d.duplicates.variants)} variante(s)` }),
+        kpi('Classement', `${fmtNum(T.keywords)} mots-clés`, { sub: `${fmtNum(T.albums)} album(s) · ${fmtNum(T.collections)} collection(s)` })),
+      h('div.dash-grid',
+        card(h('div.sect', 'État général'), ...d.health.notes.map(n => h('div.album-alert.' + (d.health.level === 'ok' ? 'ok' : d.health.level), n)),
+          h('p.dim', d.health.db ? 'Base de données : contrôle rapide correct.' : 'Base de données : ' + d.health.dbMessage)),
+        card(h('div.sect', 'Manques documentaires'), hbars([
+          gap('Sans mot-clé', 'noKeyword', { noKeyword: true }), gap('Sans légende', 'noCaption', { noCaption: true }), gap('Sans titre', 'noTitle'),
+          gap('Sans date de prise de vue', 'noDate', { noDate: true }), gap('Sans coordonnées GPS', 'noGps', { hasGps: '0' }), gap('Sans note', 'noRating')], { total: T.photos })),
+        card(h('div.sect', 'Volumes'), hbars(vol, { fmt: fmtBytes }),
+          h('p.dim', 'Les originaux et leurs copies restent sur leurs supports ; les autres volumes sont des dossiers de l’application. Les aperçus sont un cache régénérable.')),
+        card(h('div.sect', 'Sauvegardes'), B ? h('div',
+          B.alerts.filter(a => a.level !== 'info').map(a => h('div.album-alert.' + a.level, a.message)),
+          B.recent.length ? hbars(B.recent.map(b => ({ label: fmtDateTime(b.at), n: b.size, title: b.name + (b.test ? ` — test ${b.test.ok ? 'réussi' : 'en échec'}` : ' — jamais testée') })), { fmt: fmtBytes }) : h('p.dim', 'Aucune sauvegarde.'),
+          h('p.dim', `${fmtNum(B.count)} archive(s), ${fmtBytes(B.bytes)} · ${B.failures.length} échec(s) en 30 jours · ${B.destinations.filter(x => x.enabled).length} destination(s)`),
+          h('button.ghost.small', { onclick: () => go('admin-backups') }, 'Ouvrir les sauvegardes')) : h('p.dim', 'Indisponible.'))),
+      card(h('div.sect', 'Par année'), vbars(d.dist.year.map(x => ({ label: x.k || '?', title: x.k || 'sans date', n: x.n, facet: x.k ? { ...base, year: x.k } : { ...base, noDate: true } })))),
+      card(h('div.sect', 'Par mois', h('small.dim', months.length < d.dist.month.length ? ' (36 derniers mois avec photos)' : '')), vbars(months, { every: months.length > 18 ? 3 : 1 })),
+      h('div.dash-grid',
+        card(h('div.sect', 'Mois de l’année'), vbars(Array.from({ length: 12 }, (_, i) => ({ label: MOIS[i + 1], n: d.dist.monthOfYear.find(x => x.k === i + 1)?.n ?? 0 })))),
+        card(h('div.sect', 'Formats'), hbars(d.dist.format.map(x => ({ label: x.k || '(inconnu)', n: x.n, facet: x.k ? { ...base, format: x.k } : null })), { total: T.photos })),
+        card(h('div.sect', 'Appareils'), hbars(d.dist.camera.map(x => ({ label: x.k ? (x.make && !x.k.startsWith(x.make) ? `${x.make} ${x.k}` : x.k) : '(inconnu)', n: x.n, facet: x.k ? { ...base, camera: x.k } : null })), { total: T.photos })),
+        card(h('div.sect', 'Objectifs'), hbars(d.dist.lens.map(x => ({ label: x.k || '(inconnu)', n: x.n, facet: x.k ? { ...base, lens: x.k } : null })), { total: T.photos })),
+        card(h('div.sect', 'Notes'), hbars(d.dist.rating.map(x => ({ label: x.k ? '★'.repeat(x.k) : 'sans note', n: x.n, facet: x.k ? { ...base, rating: String(x.k) } : null })), { total: T.photos })),
+        card(h('div.sect', 'Supports'), hbars(d.supports.map(s => ({ label: s.name + (s.status === 'absent' ? ' (absent)' : ''), n: s.photos, facet: { ...base, supportId: s.id }, title: `${fmtBytes(s.bytes)} · ${fmtNum(s.files)} fichier(s)` })), { empty: 'Aucun support.' }))),
+      card(h('div.sect', 'Historique des importations'), d.imports.length ? table({ columns: [
+        { label: 'Date', format: i => fmtDateTime(i.started_at) },
+        { label: 'Source', format: i => h('span.wrap', i.source ?? '') },
+        { label: 'Mode', format: i => (i.mode === 'copy' ? 'copie' : 'index') },
+        { label: 'Traités', key: 'done', align: 'right' },
+        { label: 'Ignorés', key: 'skipped', align: 'right' },
+        { label: 'Erreurs', format: i => h('span.' + (i.errors ? 'bad' : 'dim'), fmtNum(i.errors ?? 0)), align: 'right' },
+        { label: 'État', key: 'status' },
+      ], rows: d.imports }) : h('p.dim', 'Aucune importation.')));
   }
 
   // ---------- verrouillage de l'application (Paramètres) ----------

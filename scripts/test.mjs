@@ -1870,6 +1870,55 @@ group('Sauvegardes et sécurité : chiffrement, destinations, tests, restauratio
 }
 function zipBufDb(svc, name) { return readZip(fs.readFileSync(svc.filePath(name))).find(e => e.name === 'data/phototheque.db').read(); }
 
+// ===================================================================
+group('Tableau de bord : chiffres, répartitions, manques, volumes, cache, export');
+// ===================================================================
+{
+  const D = await import('../lib/dashboard.mjs');
+  const Search = await import('../lib/search.mjs');
+  check('filtres : année, support, format seulement', JSON.stringify(D.cleanDashFilters({ year: '2024', format: 'jpeg', supportId: 's1', pirate: 'x', })), JSON.stringify({ year: '2024', supportId: 's1', format: 'jpeg' }));
+  check('filtres : année invalide ignorée', JSON.stringify(D.cleanDashFilters({ year: '24; DROP' })), '{}');
+  const dir = path.join(TMP, 'taille'); fs.mkdirSync(path.join(dir, 'sous'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a.bin'), Buffer.alloc(1000)); fs.writeFileSync(path.join(dir, 'sous', 'b.bin'), Buffer.alloc(500));
+  check('taille de dossier récursive', JSON.stringify(D.dirSize(dir)), JSON.stringify({ bytes: 1500, files: 2 }));
+  check('dossier absent : zéro', D.dirSize(path.join(TMP, 'nexistepas')).bytes, 0);
+
+  const DB2 = DB;
+  const DSH = D.createDashboard(DB2, {});
+  const d = DSH.compute({});
+  const n = DB2.prepare('SELECT COUNT(*) n FROM photos').get().n;
+  check('photos', d.totals.photos, n);
+  check('fichiers', d.totals.files, DB2.prepare('SELECT COUNT(*) n FROM files').get().n);
+  check('volume référencé = somme des fichiers', d.totals.bytes, DB2.prepare('SELECT COALESCE(SUM(size_bytes), 0) n FROM files').get().n);
+  check('sans mot-clé', d.gaps.noKeyword, DB2.prepare('SELECT COUNT(*) n FROM photos WHERE id NOT IN (SELECT photo_id FROM photo_keywords)').get().n);
+  check('sans date', d.gaps.noDate, DB2.prepare('SELECT COUNT(*) n FROM photos WHERE captured_at IS NULL').get().n);
+  check('sans GPS', d.gaps.noGps, DB2.prepare('SELECT COUNT(*) n FROM photos WHERE gps_lat IS NULL').get().n);
+  check('répartition par année : total = photos', d.dist.year.reduce((s, r) => s + r.n, 0), n);
+  check('répartition par format : total = photos', d.dist.format.reduce((s, r) => s + r.n, 0), n);
+  check('répartition par mois : format AAAA-MM', d.dist.month.every(r => /^\d{4}-\d{2}$/.test(r.k)), true, 0);
+  check('mois de l’année entre 1 et 12', d.dist.monthOfYear.every(r => r.k >= 1 && r.k <= 12), true, 0);
+  check('volumes distincts : originaux, copies, aperçus, exports, sauvegardes', ['originals', 'copies', 'previews', 'exports', 'backups'].every(k => d.volumes[k] && Number.isFinite(d.volumes[k].bytes)), true, 0);
+  check('originaux + copies = volume référencé', d.volumes.originals.bytes + d.volumes.copies.bytes, d.totals.bytes);
+  check('état du catalogue : base contrôlée', d.health.db, true, 0);
+  check('état : niveau connu', ['ok', 'warn', 'bad'].includes(d.health.level), true, 0);
+  check('historique des importations', Array.isArray(d.imports), true, 0);
+  // cache : même résultat sans recalcul, recalcul si le catalogue change
+  const again = DSH.compute({});
+  check('cache : second appel servi du cache', again.cached, true, 0);
+  DB2.prepare("INSERT INTO history(ts, kind, detail) VALUES (?, 'test', 'modification')").run(new Date().toISOString());
+  check('cache : invalidé après une modification', DSH.compute({}).cached ?? false, false, 0);
+  // filtres
+  const yr = d.dist.year.find(r => r.k)?.k;
+  if (yr) check('filtre par année', DSH.compute({ year: yr }).totals.photos, d.dist.year.find(r => r.k === yr).n);
+  const fm = d.dist.format.find(r => r.k)?.k;
+  if (fm) check('filtre par format', DSH.compute({ format: fm }).totals.photos, d.dist.format.find(r => r.k === fm).n);
+  // CSV
+  const c = DSH.csv(d);
+  check('CSV : BOM, sections', c.charCodeAt(0) === 0xfeff && /Manques/.test(c) && /Par objectif/.test(c) && c.includes('\r\n'), true, 0);
+  // critère « sans date » de la recherche
+  check('recherche : critère sans date', LIB.search(Search.cleanFilters({ noDate: true }), { limit: 1 }).total, d.gaps.noDate);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

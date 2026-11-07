@@ -30,6 +30,8 @@ import { createReports, REPORTS } from './lib/reports.mjs';
 import { createSelectiveRestore } from './lib/restore.mjs';
 import { createLock } from './lib/lock.mjs';
 import { BACKED_UP } from './lib/search.mjs';
+import { createDashboard } from './lib/dashboard.mjs';
+import { renderTableDoc } from './lib/reportdoc.mjs';
 import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as META_MODES, MAX_BATCH as META_MAX } from './lib/metadata.mjs';
 import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
 import { XMP_DIR } from './lib/paths.mjs';
@@ -62,6 +64,8 @@ const getCoverage = () => db.prepare(`SELECT COUNT(*) photos, COALESCE(SUM(${BAC
 const extra = setupExtra({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store), reloadStore, getStats, getDb: () => db, reimport: async () => {}, getCoverage });
 // rapports : même service de sauvegarde (liste, vérification, tests, destinations), réglages du store
 const reports = createReports(db, { backups: extra.backups, backupSettings: () => store.backup });
+// tableau de bord (lib/dashboard.mjs) : calculé à l'ouverture de la vue Statistiques, mis en cache
+const dashboard = createDashboard(db, { backups: extra.backups, importDir: () => store.import?.dest || null });
 const selective = createSelectiveRestore(db, { backups: extra.backups, albums, collections });
 // verrouillage facultatif (lib/lock.mjs) : empreinte du mot de passe dans store.security.lock
 const lock = createLock({ getLock: () => store.security?.lock, setLock: l => { store.security = { ...(store.security ?? {}), lock: l }; saveStore(db, store); } });
@@ -91,7 +95,7 @@ function filtersFrom(sp) {
   // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
   for (const k of ['rating', 'color', 'missing', 'hasGps', 'hasPlace', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
   // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère
-  for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
+  for (const k of ['noKeyword', 'hasKeyword', 'hasCaption', 'noCaption', 'noDate', 'duplicate', 'hideVariants', 'variants']) if (sp.get(k) != null && sp.get(k) !== 'false' && sp.get(k) !== '0') f[k] = true;
   f.prefix = sp.get('prefix') !== 'false';
   // listes séparées par des virgules (ET / OU / NON)
   const list = k => { const v = sp.get(k); return v ? v.split(',').map(s => s.trim()).filter(Boolean) : null; };
@@ -383,6 +387,20 @@ async function api(req, res, url) {
   // ---- Navigation : années, appareils, formats ----
   if (p === '/api/facets' && m === 'GET') return json(res, 200, { years: library.years(), cameras: library.cameras(), formats: library.formats() });
   if (p === '/api/stats' && m === 'GET') return json(res, 200, library.stats());
+  if (p.startsWith('/api/dashboard') && m === 'GET') {
+    const sp = url.searchParams, f = { year: sp.get('year'), supportId: sp.get('supportId'), format: sp.get('format') };
+    const d = dashboard.compute(f, { refresh: sp.get('refresh') === '1' });
+    if (p === '/api/dashboard') return json(res, 200, { dashboard: d, supports: db.prepare('SELECT id, name FROM supports ORDER BY name COLLATE NOCASE').all(), years: library.years(), formats: library.formats() });
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (p === '/api/dashboard/csv') { res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="tableau-de-bord-${stamp}.csv"` }); return res.end(dashboard.csv(d)); }
+    if (p === '/api/dashboard/pdf') {
+      const chunks = []; renderTableDoc(dashboardDoc(d), b => chunks.push(b));
+      const buf = Buffer.concat(chunks);
+      res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': buf.length, 'Content-Disposition': `${sp.get('inline') === '1' ? 'inline' : 'attachment'}; filename="tableau-de-bord-${stamp}.pdf"` });
+      logHistory(db, 'dashboard.pdf', 'Tableau de bord exporté en PDF', d.filters);
+      return res.end(buf);
+    }
+  }
 
   // ---- Mots-clés ----
   if (p === '/api/keywords' && m === 'GET') return json(res, 200, { list: keywords.list(), tree: keywords.tree(), categories: keywords.categories(), suggest: keywords.suggest(url.searchParams.get('q') || '') });
@@ -535,6 +553,44 @@ async function api(req, res, url) {
   if (p === '/api/imports' && m === 'GET') return json(res, 200, { list: imports.list() });
 
   json(res, 404, { error: 'Not found' });
+}
+
+/** Tableau de bord → document tabulaire (lib/reportdoc.mjs). */
+function dashboardDoc(d) {
+  const nf = n => Number(n ?? 0).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ');
+  const by = n => { const u = ['o', 'Ko', 'Mo', 'Go', 'To']; let i = 0, x = +n || 0; while (x >= 1024 && i < 4) { x /= 1024; i++; } return (i ? x.toFixed(1).replace('.', ',') : x) + ' ' + u[i]; };
+  const T = d.totals, G = d.gaps, pc = x => String(x).replace('.', ',') + ' %';
+  const filt = [d.filters.year && 'année ' + d.filters.year, d.filters.supportId && 'support ' + (d.supports.find(s => s.id === d.filters.supportId)?.name ?? '?'), d.filters.format && 'format ' + d.filters.format].filter(Boolean).join(', ');
+  const tab = (heading, label, rows, max = 40) => ({ heading, columns: [{ label, w: 3 }, { label: 'Photos', w: 1, align: 'right' }, { label: 'Part', w: 1, align: 'right' }],
+    rows: rows.slice(0, max).map(r => [r.k === '' || r.k == null ? '(inconnu)' : String(r.k), nf(r.n), T.photos ? pc(Math.round(r.n * 1000 / T.photos) / 10) : '']), empty: 'Aucune donnée.' });
+  const MOIS = ['', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  return {
+    title: 'Tableau de bord de la photothèque', subtitle: `État au ${new Date(d.computedAt).toLocaleString('fr-FR')}${filt ? ' — filtré : ' + filt : ''}.`, stamp: new Date().toLocaleString('fr-FR'),
+    sections: [
+      { kpis: [['Photos', nf(T.photos)], ['Fichiers', nf(T.files)], ['Volume référencé', by(T.bytes)], ['Fichiers indisponibles', nf(T.unavailable), T.unavailable ? 'warn' : 'ok'],
+        ['Supports', nf(T.supports)], ['Supports absents', nf(T.supportsAbsent), T.supportsAbsent ? 'warn' : 'ok'], ['État du catalogue', { ok: 'bon', warn: 'à surveiller', bad: 'à corriger' }[d.health.level], d.health.level],
+        ['Originaux couverts', d.coverage.photos ? pc(Math.round(d.coverage.covered * 1000 / d.coverage.photos) / 10) : '—', d.coverage.covered === d.coverage.photos ? 'ok' : 'warn']] },
+      { heading: 'État général', info: d.health.notes.map((x, i) => [i ? '' : 'Constats', x]) },
+      { heading: 'Manques documentaires', columns: [{ label: 'Manque', w: 3 }, { label: 'Photos', w: 1, align: 'right' }, { label: 'Part', w: 1, align: 'right' }],
+        rows: [['Sans mot-clé', 'noKeyword'], ['Sans légende', 'noCaption'], ['Sans titre', 'noTitle'], ['Sans date de prise de vue', 'noDate'], ['Sans coordonnées GPS', 'noGps'], ['Sans note', 'noRating']].map(([l, k]) => [l, nf(G[k]), pc(G.pct[k])]) },
+      { heading: 'Volumes', columns: [{ label: 'Catégorie', w: 2.4 }, { label: 'Emplacement', w: 3 }, { label: 'Fichiers', w: 0.8, align: 'right' }, { label: 'Volume', w: 0.9, align: 'right' }],
+        rows: Object.values(d.volumes).map(x => [x.label, x.path ?? '(supports indexés)', nf(x.files), by(x.bytes)]) },
+      { heading: 'Doublons', info: [['Photos présentes en plusieurs fichiers', nf(d.duplicates.photosWithCopies)], ['Fichiers en surplus', nf(d.duplicates.extraFiles)], ['Variantes rattachées à une référence', nf(d.duplicates.variants)]] },
+      { newPage: true, ...tab('Répartition par année', 'Année', d.dist.year) },
+      tab('Répartition par mois de l’année', 'Mois', d.dist.monthOfYear.map(r => ({ k: MOIS[r.k] ?? r.k, n: r.n }))),
+      tab('Répartition par format', 'Format', d.dist.format),
+      { newPage: true, ...tab('Répartition par appareil', 'Appareil', d.dist.camera, 30) },
+      tab('Répartition par objectif', 'Objectif', d.dist.lens, 30),
+      { heading: 'Supports', columns: [{ label: 'Support', w: 2.4 }, { label: 'Rôle', w: 1 }, { label: 'État', w: 1 }, { label: 'Photos', w: 0.8, align: 'right' }, { label: 'Volume', w: 0.9, align: 'right' }],
+        rows: d.supports.map(s => ({ cells: [s.name, SUPPORT_ROLES[s.role] ?? s.role, s.status === 'absent' ? 'non connecté' : s.status === 'available' ? 'connecté' : s.status, nf(s.photos), by(s.bytes)], tone: s.status === 'absent' ? 'warn' : null })), empty: 'Aucun support.' },
+      { heading: 'Sauvegardes récentes', columns: [{ label: 'Date', w: 1.3 }, { label: 'Archive', w: 3 }, { label: 'Volume', w: 0.8, align: 'right' }, { label: 'Test', w: 1.2 }],
+        rows: (d.backups?.recent ?? []).map(b => ({ cells: [new Date(b.at).toLocaleString('fr-FR'), b.name, by(b.size), b.test ? (b.test.ok ? 'réussi' : 'ÉCHEC') : 'jamais'], tone: b.test?.ok === false ? 'bad' : null })), empty: 'Aucune sauvegarde.' },
+      { heading: 'Échecs de sauvegarde (30 derniers jours)', columns: [{ label: 'Date', w: 1.3 }, { label: 'Détail', w: 5 }],
+        rows: (d.backups?.failures ?? []).map(e => ({ cells: [new Date(e.at).toLocaleString('fr-FR'), e.message], tone: 'bad' })), empty: 'Aucun échec.' },
+      { heading: 'Historique des importations', columns: [{ label: 'Date', w: 1.3 }, { label: 'Source', w: 3 }, { label: 'Mode', w: 0.7 }, { label: 'Traités', w: 0.7, align: 'right' }, { label: 'Erreurs', w: 0.7, align: 'right' }],
+        rows: d.imports.map(i => ({ cells: [i.started_at ? new Date(i.started_at).toLocaleString('fr-FR') : '', i.source ?? '', i.mode === 'copy' ? 'copie' : 'index', nf(i.done), nf(i.errors)], tone: i.errors ? 'warn' : null })), empty: 'Aucune importation.' },
+    ],
+  };
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };

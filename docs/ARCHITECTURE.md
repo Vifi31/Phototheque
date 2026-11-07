@@ -758,3 +758,25 @@ les confirmations se font par un second clic sur le bouton, pas par
   (`export.profiles`, `album.styles`, `album.services`, `duplicates.ignored`)
   appartiennent à leurs modules ; `saveAdminToDb` ne les efface ni ne les
   réécrit plus, `loadAdminFromDb` ne les charge plus dans le store.
+
+## 25. Tableau de bord (v0.28.0)
+
+* `lib/dashboard.mjs` : `compute(filtres, { refresh })` regroupe les chiffres en
+  quelques requêtes agrégées (photos, fichiers, manques, couverture `BACKED_UP`,
+  variantes `VARIANT_OF`, répartitions `GROUP BY`, supports), plus
+  `PRAGMA quick_check`, l'historique `imports` et l'état des sauvegardes (service
+  de `lib/backup.mjs` : liste, journal, alertes, destinations).
+* **Cache** : résultat gardé tant que la signature du catalogue (nombres de photos,
+  de fichiers, d'associations mots-clés, dernière ligne d'historique, photos
+  manquantes) et les filtres sont identiques, 5 minutes au plus ; tailles des
+  dossiers (`dirSize`, parcours récursif) gardées 15 minutes. `refresh=1` force.
+* **Filtres** : année, support, format (`cleanDashFilters`) ; les volumes de
+  dossiers ne dépendent pas des filtres.
+* Routes : `GET /api/dashboard` (avec listes d'années, supports, formats pour les
+  filtres), `/api/dashboard/csv` (sections successives, UTF-8 avec BOM),
+  `/api/dashboard/pdf` (`dashboardDoc` dans `server.mjs` → `renderTableDoc`).
+* Interface : barres HTML/CSS (`hbars`, `vbars` dans `public/app.js`) ; une barre
+  porte des critères de recherche (`year`, `from`/`to` pour un mois, `format`,
+  `camera`, `lens`, `rating`, `supportId`, `noKeyword`, `noCaption`, `noDate`,
+  `hasGps=0`) et ouvre la Photothèque filtrée.
+* Nouveau critère de recherche `noDate` (`p.captured_at IS NULL`).

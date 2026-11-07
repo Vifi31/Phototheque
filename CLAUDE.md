@@ -176,7 +176,9 @@ bibliothèque).
    alignement, envoi au prestataire, tirages aux dimensions physiques) — **livré en
    v0.26.0** (§23). Sauvegardes et sécurité (destinations, chiffrement, test de
    restauration, restauration sélective, alertes, originaux non couverts,
-   verrouillage) — **livré en v0.27.0** (§24). Suit : tableau de bord.
+   verrouillage) — **livré en v0.27.0** (§24). Tableau de bord (répartitions,
+   manques, volumes, barres cliquables, PDF / CSV, cache) — **livré en v0.28.0**
+   (§25). Restent : IA locale (facultative), livrables (installateur, versions signées).
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

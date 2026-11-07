@@ -4,6 +4,32 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.28.0] — 2026-11-07
+
+### Ajouté
+
+- **Tableau de bord** (menu « Tableau de bord », anciennement « Statistiques ») :
+  - chiffres clés : photos, fichiers, volume référencé, fichiers indisponibles,
+    supports et supports absents, état général du catalogue, couverture des
+    originaux, doublons et variantes, mots-clés, albums, collections ;
+  - manques documentaires : sans mot-clé, sans légende, sans titre, sans date,
+    sans GPS, sans note ;
+  - répartitions en barres par année, mois, mois de l'année, format, appareil,
+    objectif, note et support ; **une barre cliquée ouvre la Photothèque
+    filtrée** ;
+  - volumes séparés : originaux, copies, aperçus, exports, sauvegardes,
+    instantanés, XMP, documents, catalogue, photos copiées par l'importation ;
+  - sauvegardes récentes, échecs des 30 derniers jours, alertes ;
+  - historique des importations ;
+  - filtres par année, support et format ; export **PDF** et **CSV**.
+- Critère de recherche « sans date de prise de vue ».
+
+### Performances
+
+- Le tableau de bord n'est calculé qu'à l'ouverture de la vue, puis gardé en
+  cache tant que le catalogue ne change pas (5 minutes au plus ; tailles des
+  dossiers : 15 minutes). La navigation n'en dépend pas.
+
 ## [0.27.0] — 2026-11-07
 
 ### Ajouté

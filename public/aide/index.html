@@ -124,10 +124,10 @@
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
   .toc-print { display: none; }
-  .toc-title { font-size: 26px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 3px solid var(--blue); }
+  .toc-title { font-size: 24px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 3px solid var(--blue); }
   .toc-line { display: flex; align-items: baseline; gap: 8px; }
-  .toc-line.l1 { margin-top: 8px; font-weight: 700; font-size: 11.5pt; }
-  .toc-line.l2 { padding-left: 34px; font-size: 9.5pt; color: var(--soft); margin-top: 1px; }
+  .toc-line.l1 { margin-top: 6px; font-weight: 700; font-size: 11pt; }
+  .toc-line.l2 { padding-left: 34px; font-size: 9pt; color: var(--soft); margin-top: 0; line-height: 1.3; }
   .toc-line .num { flex: none; width: 26px; height: 20px; border-radius: 6px; color: #fff; display: inline-grid; place-items: center; font-size: 10.5pt; }
   .toc-line .t { flex: none; max-width: 80%; }
   .toc-line .dots { flex: 1; border-bottom: 1.5px dotted #94a3b8; transform: translateY(-4px); min-width: 20px; }
@@ -169,7 +169,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version <span id="appVersion">0.27.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.28.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -272,7 +272,7 @@
         <circle cx="520" cy="120" r="15" fill="#7c3aed"/><text x="520" y="125" fill="#fff">C</text>
         <circle cx="520" cy="244" r="15" fill="#ea580c"/><text x="520" y="249" fill="#fff">D</text>
       </g>
-      <g font-size="13" fill="#e2e8f0"><text x="24" y="90">Photothèque</text><text x="24" y="114">Importation</text><text x="24" y="138">Supports</text><text x="24" y="162">Mots-clés</text><text x="24" y="186">Collections</text><text x="24" y="210">Albums</text><text x="24" y="244" fill="#94a3b8">Doublons</text><text x="24" y="268" fill="#94a3b8">Statistiques</text><text x="24" y="292" fill="#94a3b8">Rapports</text><text x="24" y="326" fill="#94a3b8">Administration</text><text x="24" y="350" fill="#94a3b8">Paramètres</text></g>
+      <g font-size="13" fill="#e2e8f0"><text x="24" y="90">Photothèque</text><text x="24" y="114">Importation</text><text x="24" y="138">Supports</text><text x="24" y="162">Mots-clés</text><text x="24" y="186">Collections</text><text x="24" y="210">Albums</text><text x="24" y="244" fill="#94a3b8">Doublons</text><text x="24" y="268" fill="#94a3b8">Tableau de bord</text><text x="24" y="292" fill="#94a3b8">Rapports</text><text x="24" y="326" fill="#94a3b8">Administration</text><text x="24" y="350" fill="#94a3b8">Paramètres</text></g>
       <text x="210" y="34" font-size="13" fill="#94a3b8">🔍 Rechercher : mots-clés, appareil, titre…</text>
       <text x="210" y="84" font-size="13" fill="#94a3b8">Filtres : année, appareil, format, note, disponibilité, variantes</text>
       <text x="210" y="108" font-size="13" fill="#94a3b8">▸ Recherche avancée</text>
@@ -289,7 +289,7 @@
     <tr><td>💾 <b>Supports</b></td><td>Déclarer vos disques, clés et cartes, savoir lesquels sont branchés.</td></tr>
     <tr><td>🏷️ <b>Mots-clés</b> · 🗂️ <b>Collections</b></td><td>Organiser : vocabulaire de classement, sélections et recherches enregistrées.</td></tr>
     <tr><td>📖 <b>Albums</b></td><td>Mettre en page des albums photo, les vérifier et les exporter en PDF.</td></tr>
-    <tr><td>🧬 <b>Doublons</b> · 📊 <b>Statistiques</b> · 📋 <b>Rapports</b></td><td>Analyser votre fonds : copies, répartition, contrôles.</td></tr>
+    <tr><td>🧬 <b>Doublons</b> · 📊 <b>Tableau de bord</b> · 📋 <b>Rapports</b></td><td>Analyser votre fonds : copies, répartition, manques, volumes, contrôles.</td></tr>
     <tr><td>⚙️ <b>Administration</b> · 🛠️ <b>Paramètres</b></td><td>Sauvegardes, base de données, réglages de l’indexation.</td></tr>
     <tr><td>❓ <b>Aide</b></td><td>Ce guide.</td></tr>
   </table>
@@ -612,10 +612,15 @@
     <div class="card"><div class="ico">💾</div><b>Inventaire par support</b><p>Pour chaque disque : identité, capacité, emplacement, dossiers, nombre de fichiers et volume.</p></div>
     <div class="card"><div class="ico">🔎</div><b>Fichiers manquants</b><p>Vérifie la présence réelle de chaque fichier ; indique s’il en existe une autre copie, et quel disque rebrancher.</p></div>
     <div class="card"><div class="ico">🩺</div><b>Rapport d’intégrité</b><p>Contrôle de la base, puis des fichiers : rapide (présence, taille) ou complet (empreinte recalculée, détecte une altération).</p></div>
-    <div class="card"><div class="ico">🛟</div><b>Rapport de sauvegardes</b><p>Liste et vérification des sauvegardes, programmation, ancienneté de la dernière.</p></div>
+    <div class="card"><div class="ico">🛟</div><b>Rapport de sauvegardes</b><p>Liste et vérification des sauvegardes, tests de restauration, destinations, journal des opérations.</p></div>
+    <div class="card"><div class="ico">🧭</div><b>Originaux non couverts</b><p>Photos dont aucun fichier n’est sur un disque de sauvegarde ou d’archive : la liste de ce qu’il reste à copier.</p></div>
   </div>
   <div class="note key"><b>Un rapport ne change rien.</b> Il observe et rend compte ; il ne modifie ni le catalogue ni vos fichiers. Lancez le contrôle complet de temps en temps, par exemple après avoir recopié vos photos sur un nouveau disque.</div>
-  <figure><img src="img/statistiques.jpg" alt="La vue Statistiques"><figcaption>Les Statistiques : chiffres clés, répartition par année, appareils et formats.</figcaption></figure>
+  <h3>Le tableau de bord</h3>
+  <p>Le menu <b>Tableau de bord</b> résume tout le fonds : nombre de photos et de fichiers, volume référencé, fichiers indisponibles, supports absents, état général du catalogue, couverture des originaux par une sauvegarde, doublons. Les <b>manques documentaires</b> (photos sans mot-clé, sans légende, sans titre, sans date, sans GPS, sans note) et les répartitions par <b>année</b>, <b>mois</b>, <b>format</b>, <b>appareil</b>, <b>objectif</b>, <b>note</b> et <b>support</b> sont dessinés en barres : <b>cliquez une barre</b> pour ouvrir la Photothèque sur ces photos.</p>
+  <p>Les <b>volumes</b> sont séparés : originaux et copies sur vos supports, aperçus (cache régénérable), exports, sauvegardes, XMP, documents, catalogue, photos copiées par l’importation. Les filtres (année, support, format) restreignent les chiffres ; <span class="ui">PDF</span> et <span class="ui">CSV</span> exportent ce qui est affiché. Les calculs sont faits à l’ouverture puis gardés quelques minutes : <span class="ui">↻ Actualiser</span> les refait.</p>
+  <figure><img src="img/statistiques.jpg" alt="Le tableau de bord"><figcaption>Le tableau de bord : chiffres clés, état général, manques, volumes, sauvegardes.</figcaption></figure>
+  <figure><img src="img/tableau-graphiques.jpg" alt="Répartitions du tableau de bord"><figcaption>Répartitions par année, par mois, par format, appareil, objectif : chaque barre ouvre les photos correspondantes.</figcaption></figure>
 </section>
 
 <!-- ============================================================ 12. protéger -->
