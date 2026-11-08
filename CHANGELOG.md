@@ -4,6 +4,33 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.29.0] — 2026-11-08
+
+### Ajouté
+
+- **Assistant IA facultatif et local** (menu « Assistant IA », désactivé par défaut) :
+  - moteur intégré sans modèle ni téléchargement : descripteurs visuels calculés sur
+    les vignettes (couleurs, composition, textures), couleurs dominantes et indices
+    de scène (ciel, végétation, nuit, coucher de soleil, noir et blanc) ;
+  - **suggestions** de mots-clés (photos semblables déjà décrites, même séance de
+    prise de vue, scènes, moteurs externes) et de **lieux** (photo voisine par GPS,
+    même séance), avec source et confiance ; acceptation par lots de métadonnées
+    annulables, refus mémorisés, acceptation automatique seulement sur préférence
+    explicite au-delà d’un seuil ;
+  - **recherche par description** (couleurs, scènes, lumière, texte des fiches et des
+    moteurs), **photos visuellement proches** (aussi depuis la visionneuse),
+    **regroupement** d’images semblables et **séances / événements**, transformables
+    en collections ;
+  - **moteurs externes** installés séparément : programme local (réponse JSON) ou
+    serveur Ollama avec un modèle de vision ; licence déclarée et acceptée avant
+    activation, essai sans enregistrement, liste des modèles installés, détection de
+    visages si le moteur la fournit ;
+  - chaque fonction se désactive ; pause entre deux photos, priorité basse, carte
+    graphique sur autorisation ; envoi à un serveur distant refusé sans consentement
+    explicite ; analyse en arrière-plan avec pause, reprise et arrêt.
+- Extension retirable : ses tables (`ai_features`, `ai_results`, `ai_suggestions`),
+  ses réglages (`ai.settings`) et ses routes (`/api/ai/*`) sont dans `lib/ai.mjs`.
+
 ## [0.28.0] — 2026-11-07
 
 ### Ajouté

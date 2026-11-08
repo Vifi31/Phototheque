@@ -64,6 +64,7 @@ const App = (() => {
     { id: 'duplicates', label: 'Doublons', icon: '🧬' },
     { id: 'stats', label: 'Tableau de bord', icon: '📊' },
     { id: 'reports', label: 'Rapports', icon: '📋' },
+    { id: 'ia', label: 'Assistant IA', icon: '🤖' },
     { group: 'Administration' },
     { id: 'admin', label: 'Administration', icon: '⚙️' },
     { id: 'settings', label: 'Paramètres', icon: '🛠️' },
@@ -105,6 +106,7 @@ const App = (() => {
       else if (view === 'duplicates') await viewDuplicates(v);
       else if (view === 'stats') await viewStats(v);
       else if (view === 'reports') await viewReports(v);
+      else if (view === 'ia') { if (typeof IA === 'undefined') throw new Error('Extension IA absente'); await IA.view(v); }
       else if (view === 'settings') await viewSettings(v);
       else if (view === 'admin') await Admin.view(v, 'backups', nav => (state._adminNav = nav));
       else if (view.startsWith('admin-')) await Admin.view(v, view.slice(6));
@@ -241,7 +243,8 @@ const App = (() => {
       lightboxOpen(state.rows, i, n => pushRecent(state.rows[n]?.id), p => [
         h('button.small', { onclick: () => { lightboxClose(); openRetouche(p.id); } }, '✎ Retoucher'),
         h('button.small.ghost', { onclick: () => { lightboxClose(); exportDialog([p.id]); } }, 'Exporter…'),
-        state.selection.size >= 2 && state.selection.size <= 4 ? h('button.small.ghost', { onclick: () => { lightboxClose(); compareView([...state.selection]); } }, 'Comparer la sélection') : null].filter(Boolean),
+        state.selection.size >= 2 && state.selection.size <= 4 ? h('button.small.ghost', { onclick: () => { lightboxClose(); compareView([...state.selection]); } }, 'Comparer la sélection') : null,
+        state.aiEnabled && typeof IA !== 'undefined' ? h('button.small.ghost', { title: 'Assistant IA : photos visuellement proches et suggestions', onclick: () => { lightboxClose(); IA.open('search', p.id); } }, '🤖 Photos proches') : null].filter(Boolean),
         viewerOpts({ onChange: () => { changed = true; }, onClose: () => { if (changed) refresh(); } }));
     }
 
@@ -2382,7 +2385,7 @@ const App = (() => {
     // thème sombre par défaut
     document.documentElement.setAttribute('data-theme', 'dark');
     const st = await api('/state');
-    state.version = st.version; state.scan = st.scan; state.import = st.import; state.stats = st.stats;
+    state.version = st.version; state.scan = st.scan; state.import = st.import; state.stats = st.stats; state.aiEnabled = !!st.ai?.enabled;
     supKinds = st.supportKinds; supRoles = st.supportRoles;
     document.getElementById('sidebarFoot').appendChild(h('small', `v${st.version}`));
     // recherche

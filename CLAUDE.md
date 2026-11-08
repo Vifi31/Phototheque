@@ -178,7 +178,9 @@ bibliothèque).
    restauration, restauration sélective, alertes, originaux non couverts,
    verrouillage) — **livré en v0.27.0** (§24). Tableau de bord (répartitions,
    manques, volumes, barres cliquables, PDF / CSV, cache) — **livré en v0.28.0**
-   (§25). Restent : IA locale (facultative), livrables (installateur, versions signées).
+   (§25). IA facultative et locale (moteur intégré, moteurs externes, suggestions à valider,
+   recherche par description, photos proches, regroupements) — **livré en v0.29.0** (§26),
+   extension retirable `lib/ai.mjs` + `public/ia.js`. Reste : livrables (installateur, versions signées).
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

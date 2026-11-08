@@ -317,6 +317,11 @@ export const SHOTS = ctx => [
   { name: 'doublons', js: `await App.go('duplicates');` },
   { name: 'statistiques', h: 1300, js: `await App.go('stats');` },
   { name: 'tableau-graphiques', h: 1100, js: `await App.go('stats'); await new Promise(r => setTimeout(r, 500)); document.querySelectorAll('.vbars')[0]?.closest('.card')?.scrollIntoView();` },
+  { name: 'ia-suggestions', h: 1000, js: `await fetch('/api/ai/settings', { method: 'PUT', body: JSON.stringify({ enabled: true, pauseMs: 0 }) }); await fetch('/api/ai/analyse', { method: 'POST', body: '{}' });
+    for (let i = 0; i < 100; i++) { const j = (await (await fetch('/api/ai/analyse')).json()).job; if (j && j.status === 'done') break; await new Promise(r => setTimeout(r, 300)); }
+    await App.go('ia');` },
+  { name: 'ia-recherche', h: 900, js: `await App.go('ia'); [...document.querySelectorAll('.tabs button')].find(b => /Recherche/.test(b.textContent)).click(); await new Promise(r => setTimeout(r, 600));
+    const i = document.querySelector('#view input[type=search]'); i.value = 'ciel bleu'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); await new Promise(r => setTimeout(r, 900));` },
   { name: 'rapports', js: `await App.go('reports');` },
   { name: 'administration', js: `await App.go('admin');` },
   { name: 'sauvegardes-destinations', h: 1100, js: `await App.go('admin-backups'); await new Promise(r => setTimeout(r, 600)); document.querySelector('.two-cards')?.scrollIntoView();` },

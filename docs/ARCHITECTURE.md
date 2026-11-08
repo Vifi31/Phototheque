@@ -780,3 +780,37 @@ les confirmations se font par un second clic sur le bouton, pas par
   `camera`, `lens`, `rating`, `supportId`, `noKeyword`, `noCaption`, `noDate`,
   `hasGps=0`) et ouvre la Photothèque filtrée.
 * Nouveau critère de recherche `noDate` (`p.captured_at IS NULL`).
+
+## 26. Assistant IA facultatif et local (v0.29.0)
+
+* **Extension retirable** : `lib/ai.mjs` (logique + `aiRoutes`), `public/ia.js` (vue), une
+  ligne de création et une ligne de routage dans `server.mjs`, une entrée de menu dans
+  `public/app.js`. Le module crée ses tables (`ai_features` : descripteur 128 octets en base64
+  + couleurs, lumière, scènes ; `ai_results` : réponse de chaque moteur externe ;
+  `ai_suggestions` : `pending` / `accepted` / `rejected`, unique par photo, type, valeur),
+  toutes en `ON DELETE CASCADE` sur `photos`. Réglages dans la clé `ai.settings` de
+  `config` (clé de module).
+* **Descripteur** (`imageFeatures`, sharp, image 64 × 64) : histogramme RGB 4×4×4 en racines
+  carrées (64 octets), couleurs moyennes d'une grille 4×4 (48), textures d'une grille 4×4 (16).
+  `similarity` = 0,4 coefficient de Bhattacharyya + 0,45 composition + 0,15 textures ; seuil
+  « proche » réglable (0,82 par défaut).
+* **Suggestions** (`refreshSuggestions`) : les `pending` sont recalculées ; acceptées et
+  refusées sont gardées (un refus bloque la réinsertion). Sources : `scene`, `similar`
+  (vote pondéré des 8 voisins), `session` (séances coupées à `sessionHours`), `gps`
+  (photo située à moins de 2 km), `engine:<id>`, `faces`. Un mot déjà porté (nom, parent,
+  synonyme) n'est pas proposé.
+* **Acceptation** : `metadata.applyEdit` (lots annulables ; lieu en mode « remplir si vide ») ;
+  `undoAccept` annule les lots et remet en attente. `autoAccept` ne s'applique qu'au-delà
+  de `autoThreshold` et est tracé dans l'historique.
+* **Moteurs externes** : fiches `data/ia/moteurs/<id>.json` (`cleanEngine`) ; `command`
+  (arguments `{image}`, `{lang}`, `{gpu}`, réponse JSON lue après d'éventuelles lignes de
+  journal, priorité basse via `os.setPriority`) ou `ollama` (`/api/generate`, `format: json`,
+  `num_gpu: 0` sans autorisation). Activation impossible sans licence déclarée et acceptée
+  (`engineIssues`) ; adresse non locale refusée sans `allowRemote` (consentement daté).
+  Modifier une fiche retire l'acceptation de la licence.
+* **Analyse** : un travail à la fois (`startAnalysis`, `control` pause / reprise / arrêt),
+  une photo à la fois, pause `pauseMs` ; image transmise aux moteurs réduite à `maxSide`
+  (fichier temporaire supprimé). Les originaux ne sont lus qu'en lecture.
+* Routes `/api/ai` (état), `/settings`, `/engines` (+ `/<id>/test`), `/ollama/models`,
+  `/analyse` (+ `/control`), `/suggestions` (+ `accept`, `reject`, `undo`, `forget`,
+  `refresh`), `/similar`, `/groups`, `/events`, `/collection`, `/describe`, `/photo`, `/clear`.

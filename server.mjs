@@ -35,6 +35,7 @@ import { renderTableDoc } from './lib/reportdoc.mjs';
 import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as META_MODES, MAX_BATCH as META_MAX } from './lib/metadata.mjs';
 import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
 import { XMP_DIR } from './lib/paths.mjs';
+import { createAi, aiRoutes } from './lib/ai.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -55,6 +56,8 @@ const duplicates = createDuplicates(db, library);
 const contactSheets = createContactSheets(db, library, edits);
 const catalog = createCatalog(db);
 const metadata = createMetadata(db, { keywords, library, settings: () => store.metadata, version: currentVersion() });
+// IA facultative et locale (lib/ai.mjs) : extension retirable, avec ses propres tables, réglages et routes
+const ai = createAi(db, { keywords, library, metadata, collections, enginesDir: path.join(DATA_DIR, 'ia', 'moteurs') });
 
 const reloadStore = () => { /* la base est la référence ; le miroir JSON est déjà réécrit par saveStore */ };
 const getStats = () => { const s = library.stats(); return { photos: s.photos, supports: s.supports?.total ?? 0, keywords: s.keywords, albums: s.albums }; };
@@ -78,6 +81,7 @@ const buildState = () => ({
   license: licenseBrief(store), menu: store.menu ?? null, version: currentVersion(), installed: INSTALLED,
   scan: store.scan, import: store.import, stats: getStats(),
   supportKinds: SUPPORT_KINDS, supportRoles: SUPPORT_ROLES,
+  ai: (() => { try { return { enabled: ai.settings().enabled }; } catch { return { enabled: false }; } })(),
   backupAlerts: (() => { try { return extra.backups.alerts().filter(x => x.level !== 'info').length; } catch { return 0; } })(),
 });
 
@@ -86,6 +90,10 @@ const readBody = req => new Promise((resolve, reject) => {
   let s = ''; req.on('data', c => { s += c; if (s.length > 4e6) req.destroy(); });
   req.on('end', () => { try { resolve(s ? JSON.parse(s) : {}); } catch (e) { reject(e); } });
 });
+
+// vignettes de photos dans l'ordre demandé (réponses de l'IA)
+const cardsOf = ids => { const order = [...new Set(ids.filter(Boolean))].slice(0, 300); if (!order.length) return []; const m = new Map(library.search({ ids: order }, { limit: 300 }).rows.map(c => [c.id, c])); return order.map(i => m.get(i)).filter(Boolean); };
+const aiHandle = aiRoutes(ai, { json, readBody, cards: cardsOf });
 
 /** Critères de recherche lus dans des paramètres d'URL (Photothèque, planche-contact : mêmes clés que lib/search.mjs). */
 function filtersFrom(sp) {
@@ -197,6 +205,9 @@ async function api(req, res, url) {
     if (b.menu) store.menu = sanitize(b.menu);
     saveStore(db, store); return json(res, 200, buildState());
   }
+
+  // ---- IA facultative (lib/ai.mjs) ----
+  if (p.startsWith('/api/ai') && await aiHandle(req, res, p, m, url)) return;
 
   // ---- Supports ----
   if (p === '/api/supports' && m === 'GET') { supports.refresh(); return json(res, 200, { list: supports.list(), stats: supports.stats(), kinds: SUPPORT_KINDS, roles: SUPPORT_ROLES }); }

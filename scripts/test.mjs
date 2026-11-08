@@ -1919,6 +1919,189 @@ group('Tableau de bord : chiffres, répartitions, manques, volumes, cache, expor
   check('recherche : critère sans date', LIB.search(Search.cleanFilters({ noDate: true }), { limit: 1 }).total, d.gaps.noDate);
 }
 
+// ===================================================================
+group('IA facultative et locale : descripteurs, moteurs, suggestions, recherche, regroupements');
+// ===================================================================
+{
+  const AI = await import('../lib/ai.mjs');
+  const http = await import('http');
+  // réglages
+  const d0 = AI.cleanAiSettings({});
+  check('désactivée par défaut', d0.enabled, false, 0);
+  check('envoi distant refusé sans consentement explicite', AI.cleanAiSettings({ allowRemote: true }).allowRemote, false, 0);
+  check('envoi distant accepté avec consentement', AI.cleanAiSettings({ allowRemote: true, remoteConsent: true }).allowRemote, true, 0);
+  check('moteur non activable sans licence acceptée', AI.cleanAiSettings({ engines: { x: { enabled: true } } }).engines.x.enabled, false, 0);
+  check('pause bornée', AI.cleanAiSettings({ pauseMs: 999999 }).pauseMs, 5000);
+  check('chaque fonction se désactive', AI.cleanAiSettings({ features: { faces: true, groups: false } }).features.groups, false, 0);
+  // fiches de moteurs
+  let err = ''; try { AI.cleanEngine({ id: 'x', kind: 'cloud' }); } catch (e) { err = e.message; }
+  check('type de moteur inconnu refusé', /inconnu/.test(err), true, 0);
+  err = ''; try { AI.cleanEngine({ id: 'x', kind: 'ollama' }); } catch (e) { err = e.message; }
+  check('Ollama : modèle obligatoire', /Modèle/.test(err), true, 0);
+  const eNoLic = AI.cleanEngine({ id: 'Mon Moteur!', kind: 'command', command: 'outil' });
+  check('identifiant nettoyé', eNoLic.id, 'mon-moteur', 0);
+  check('licence manquante signalée', AI.engineIssues(eNoLic).some(x => /Licence/.test(x)), true, 0);
+  check('adresse locale reconnue', AI.isLocalUrl('http://127.0.0.1:11434') && AI.isLocalUrl('http://localhost:1') && !AI.isLocalUrl('https://exemple.com'), true, 0);
+  check('serveur distant refusé sans consentement', AI.engineIssues(AI.cleanEngine({ id: 'd', kind: 'ollama', model: 'm', url: 'https://ia.exemple.com', license: 'MIT' })).some(x => /consentement/.test(x)), true, 0);
+  // réponses des moteurs
+  const out = AI.cleanEngineOutput({ motsCles: ['Mer', 'mer', { name: 'Plage', score: 0.9 }, ''], description: 'Une plage', faces: [{ x: 2, y: 0.1, w: 0.2, h: 0.2 }] });
+  check('réponse : mots-clés dédoublonnés, score par défaut', out.labels.map(l => `${l.name}:${l.score}`).join(','), 'Mer:0.7,Plage:0.9');
+  check('réponse : visage borné', out.faces[0].x, 1);
+  check('réponse : JSON après des lignes de journal', AI.lastJson('chargement du modèle…\n{"labels":["a"]}').labels[0], 'a');
+
+  // images de synthèse
+  const dir = path.join(TMP, 'ia-photos'); fs.mkdirSync(dir, { recursive: true });
+  const W = 240, H = 180;
+  async function raw(file, fn) {
+    const b = Buffer.alloc(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const [r, g, bl] = fn(x, y); const i = (y * W + x) * 3; b[i] = r; b[i + 1] = g; b[i + 2] = bl; }
+    await sharp(b, { raw: { width: W, height: H, channels: 3 } }).jpeg({ quality: 92 }).toFile(path.join(dir, file));
+    return path.join(dir, file);
+  }
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const landscape = (light = 0) => (x, y) => y < H * 0.55 ? [70 + light, 140 + light + y / 6, 235] : [40 + rnd() * 50, 110 + rnd() * 90 + light, 30 + rnd() * 30];
+  const files = {
+    sky1: await raw('ciel-1.jpg', landscape(0)),
+    sky2: await raw('ciel-2.jpg', landscape(12)),
+    red: await raw('rouge.jpg', () => [205, 25, 30]),
+    bw: await raw('nb.jpg', (x, y) => { const v = ((x >> 4) + (y >> 4)) % 2 ? 30 : 220; return [v, v, v]; }),
+    white: await raw('blanc.jpg', () => [250, 250, 250]),
+    night: await raw('nuit.jpg', (x, y) => (x % 37 === 0 && y % 23 === 0 ? [255, 230, 150] : [8, 10, 22])),
+  };
+  const fsky = await AI.imageFeatures(files.sky1), fnb = await AI.imageFeatures(files.bw), fw = await AI.imageFeatures(files.white), fn = await AI.imageFeatures(files.night), fred = await AI.imageFeatures(files.red);
+  check('descripteur : 128 octets', Buffer.from(fsky.vec, 'base64').length, 128, 0);
+  check('scène : ciel', fsky.scenes.some(s => s.name === 'Ciel'), true, 0);
+  check('scène : végétation', fsky.scenes.some(s => s.name === 'Végétation'), true, 0);
+  check('scène : noir et blanc', fnb.scenes.some(s => s.name === 'Noir et blanc'), true, 0);
+  check('aplat blanc : pas « noir et blanc »', fw.scenes.some(s => s.name === 'Noir et blanc'), false, 0);
+  check('scène : nuit', fn.scenes.some(s => s.name === 'Nuit'), true, 0);
+  check('couleur dominante : rouge', Object.entries(fred.colours).sort((a, b) => b[1] - a[1])[0][0], 'rouge', 0);
+  const dec = b => new Uint8Array(Buffer.from(b, 'base64'));
+  const fsky2 = await AI.imageFeatures(files.sky2);
+  check('ressemblance : identique = 1', AI.similarity(dec(fsky.vec), dec(fsky.vec)), 1, 0.001);
+  check('ressemblance : variante éclaircie > 0,9', AI.similarity(dec(fsky.vec), dec(fsky2.vec)) > 0.9, true, 0);
+  check('ressemblance : images différentes < 0,6', AI.similarity(dec(fsky.vec), dec(fred.vec)) < 0.6, true, 0);
+
+  // service sur une base à part
+  const { createSupports: CS } = await import('../lib/supports.mjs');
+  const { createMetadata } = await import('../lib/metadata.mjs');
+  const db = openDb(path.join(TMP, 'ia.db'));
+  const kw = createKeywords(db), sup = CS(db), lib = createLibrary(db, STORE, sup, kw), md = createMetadata(db, { keywords: kw, library: lib, settings: () => ({}), version: 'test' }), col = createCollections(db, lib);
+  for (const f of Object.values(files)) await lib.indexFile(f, {});
+  const idOf = f => db.prepare('SELECT photo_id FROM files WHERE path = ?').get(f).photo_id;
+  const P = Object.fromEntries(Object.entries(files).map(([k, f]) => [k, idOf(f)]));
+  const at = (id, iso, lat = null, lon = null) => db.prepare('UPDATE photos SET captured_at = ?, gps_lat = ?, gps_lon = ? WHERE id = ?').run(iso, lat, lon, id);
+  at(P.sky1, '2025-06-01T10:00:00', 45.9, 6.1); at(P.sky2, '2025-06-01T10:20:00', 45.905, 6.105); at(P.red, '2025-06-01T11:00:00');
+  at(P.bw, '2025-08-10T09:00:00'); at(P.white, '2025-08-12T09:00:00'); at(P.night, '2025-09-01T22:00:00');
+  md.applyEdit([P.sky1, P.red], { keywordsAdd: ['Montagne'] });
+  md.applyEdit([P.sky1], { city: { mode: 'set', value: 'Annecy' }, country: { mode: 'set', value: 'France' } });
+
+  // moteur externe « programme local » (script Node d'essai) et serveur Ollama simulé
+  const engDir = path.join(TMP, 'ia-moteurs');
+  const script = path.join(TMP, 'moteur-essai.mjs');
+  fs.writeFileSync(script, "import fs from 'fs'; const n = fs.statSync(process.argv[2]).size; console.log('journal'); console.log(JSON.stringify({ description: 'Image ' + (n > 0 ? 'lue' : 'vide') + ' en ' + process.argv[3], labels: ['Essai', { name: 'Paysage', score: 0.95 }], faces: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, score: 0.88 }] }));");
+  let ollamaReq = null;
+  const srv = http.createServer((req, res) => { if (req.url === '/api/tags') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ models: [{ name: 'llama3.2:3b', capabilities: ['completion'] }, { name: 'llava', capabilities: ['completion', 'vision'] }] })); } let s = ''; req.on('data', c => { s += c; }); req.on('end', () => { ollamaReq = JSON.parse(s); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ response: JSON.stringify({ description: 'Un lac de montagne', motsCles: ['Lac', 'Montagne'] }) })); }); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const ai = AI.createAi(db, { keywords: kw, library: lib, metadata: md, collections: col, enginesDir: engDir });
+  err = ''; try { ai.startAnalysis(); } catch (e) { err = e.message; }
+  check('désactivée : aucune analyse', /désactivée/.test(err), true, 0);
+  ai.saveSettings({ enabled: true, pauseMs: 0 });
+  ai.saveEngine({ id: 'essai', name: 'Essai', kind: 'command', command: process.execPath, args: [script, '{image}', '{lang}'], license: 'MIT', provides: ['labels', 'description', 'faces'] });
+  ai.saveEngine({ id: 'lac', name: 'Ollama simulé', kind: 'ollama', model: 'llava', url: `http://127.0.0.1:${srv.address().port}`, license: 'Apache-2.0', provides: ['labels', 'description'] });
+  err = ''; try { ai.saveSettings({ engines: { essai: { enabled: true } } }); } catch (e) { err = e.message; }
+  check('activation refusée tant que la licence n’est pas acceptée', /licence/.test(err), true, 0);
+  ai.saveSettings({ engines: { essai: { enabled: true, licenseAccepted: true }, lac: { enabled: true, licenseAccepted: true } } });
+  check('moteurs actifs', ai.status().engines.filter(e => e.active).length, 3, 0);
+  check('visages disponibles avec un moteur qui les fournit', ai.status().available.faces, true, 0);
+  const t = await ai.testEngine('essai', P.sky1);
+  check('essai d’un moteur : réponse lue (JSON après journal)', `${t.description}|${t.labels.map(l => l.name).join(',')}`, 'Image lue en fr|Essai,Paysage');
+  const om = await ai.ollamaModels(`http://127.0.0.1:${srv.address().port}`);
+  check('Ollama : modèles de vision en premier', om.map(m => m.name + (m.vision ? '*' : '')).join(), 'llava*,llama3.2:3b');
+  check('Ollama : essai d’un modèle de vision', (await ai.testEngine('lac', P.sky1)).description, 'Un lac de montagne');
+  ai.saveEngine({ id: 'texte', name: 'Texte', kind: 'ollama', model: 'llama3.2:3b', url: `http://127.0.0.1:${srv.address().port}`, license: 'Llama' });
+  ai.saveSettings({ engines: { texte: { enabled: false, licenseAccepted: true } } });
+  err = ''; try { await ai.testEngine('texte', P.sky1); } catch (e) { err = e.message; }
+  check('Ollama : modèle sans vision signalé', /ne lit pas les images/.test(err), true, 0);
+  ai.removeEngine('texte');
+  check('essai : rien n’est enregistré', db.prepare('SELECT COUNT(*) n FROM ai_results').get().n, 0, 0);
+
+  ai.startAnalysis(); const j = await ai.waitJob();
+  check('analyse terminée', j.status, 'done', 0);
+  check('analyse : toutes les photos décrites', db.prepare('SELECT COUNT(*) n FROM ai_features').get().n, 6, 0);
+  check('analyse : résultats des deux moteurs', db.prepare('SELECT COUNT(*) n FROM ai_results WHERE error IS NULL').get().n, 12, 0);
+  check('Ollama : image envoyée, carte graphique non autorisée', !!ollamaReq?.images?.[0] && ollamaReq.options?.num_gpu === 0 && ollamaReq.model === 'llava', true, 0);
+  check('originaux intacts', fs.statSync(files.sky1).size === fs.readFileSync(files.sky1).length && !fs.readdirSync(dir).some(f => /xmp$/i.test(f)), true, 0);
+  const sug = (id, value, kind = 'keyword') => db.prepare("SELECT * FROM ai_suggestions WHERE photo_id = ? AND kind = ? AND value = ?").get(id, kind, value);
+  check('suggestion : scène « Ciel »', sug(P.sky1, 'Ciel')?.source, 'scene');
+  check('suggestion : même séance (Montagne)', ['session', 'similar'].includes(sug(P.sky2, 'Montagne')?.source), true, 0);
+  check('suggestion : lieu d’une photo voisine (GPS)', sug(P.sky2, '|Annecy||France', 'place')?.source, 'gps');
+  check('suggestion : mot-clé d’un moteur externe', sug(P.red, 'Paysage')?.source, 'engine:essai');
+  check('suggestion : déjà porté → non proposé', sug(P.sky1, 'Montagne'), undefined, 0);
+  check('visages : désactivé par défaut', sug(P.red, 'Portrait'), undefined, 0);
+  check('tout est « en attente » (rien d’attribué)', db.prepare("SELECT COUNT(*) n FROM ai_suggestions WHERE status <> 'pending'").get().n, 0, 0);
+  check('aucun mot-clé ajouté sans validation', md.docOf(P.sky2).keywords.includes('Montagne'), false, 0);
+  ai.saveSettings({ features: { faces: true } }); ai.refreshSuggestions();
+  check('visages activés : suggestion « Portrait »', sug(P.red, 'Portrait')?.source, 'faces');
+
+  // accepter, annuler, refuser
+  const a = ai.accept([sug(P.sky2, 'Montagne').id, sug(P.sky2, '|Annecy||France', 'place').id]);
+  check('accepter : mot-clé ajouté', md.docOf(P.sky2).keywords.includes('Montagne'), true, 0);
+  check('accepter : lieu rempli', `${md.docOf(P.sky2).city}|${md.docOf(P.sky2).country}`, 'Annecy|France');
+  check('accepter : lots de métadonnées', a.batches.length === 2 && a.batches.every(b => b.batchId), true, 0);
+  ai.refreshSuggestions();
+  check('acceptée : gardée après recalcul', sug(P.sky2, 'Montagne').status, 'accepted');
+  const u = ai.undoAccept(a.ids, a.batches.map(b => b.batchId));
+  check('annuler : valeurs rétablies', !md.docOf(P.sky2).keywords.includes('Montagne') && !md.docOf(P.sky2).city && u.restored >= 2, true, 0);
+  check('annuler : suggestion de nouveau en attente', sug(P.sky2, 'Montagne').status, 'pending');
+  ai.reject([sug(P.red, 'Essai').id]); ai.refreshSuggestions();
+  check('refus : jamais reproposé', sug(P.red, 'Essai').status, 'rejected');
+  ai.forgetRejected(); ai.refreshSuggestions();
+  check('refus oubliés : reproposé', sug(P.red, 'Essai').status, 'pending');
+  const list = ai.suggestions({ value: 'Essai' });
+  check('liste par valeur', list.total, 6, 0);
+  check('liste : source lisible', list.rows[0].sourceLabel, 'Moteur : Essai');
+  // préférence explicite : acceptation automatique au-delà du seuil
+  ai.saveSettings({ autoAccept: true, autoThreshold: 0.94 });
+  const r = ai.refreshSuggestions();
+  check('acceptation automatique au-delà du seuil seulement', r.auto?.accepted > 0 && db.prepare("SELECT COUNT(*) n FROM ai_suggestions WHERE status = 'accepted' AND score < 0.94").get().n === 0, true, 0);
+  check('acceptation automatique tracée', db.prepare("SELECT COUNT(*) n FROM history WHERE kind = 'ai.accept' AND detail LIKE '%automatiquement%'").get().n, 1, 0);
+  ai.saveSettings({ autoAccept: false });
+
+  // recherche visuelle, regroupements, événements, description
+  const sim = ai.similar(P.sky1);
+  check('photos proches : la variante en premier', sim.rows[0]?.id, P.sky2);
+  check('photos proches : l’aplat rouge écarté', sim.rows.some(x => x.id === P.red), false, 0);
+  check('regroupement : ciel 1 et 2 ensemble', ai.groups({ minSize: 2 }).groups.some(g => g.ids.includes(P.sky1) && g.ids.includes(P.sky2)), true, 0);
+  const ev = ai.events();
+  check('événement : la séance de 3 photos', ev.events.length === 1 && ev.events[0].count === 3 && ev.events[0].place === 'Annecy, France', true, 0);
+  check('événement : nom proposé', ev.events[0].name, '01/06/2025 · Annecy, France');
+  const c = ai.makeCollection(ev.events[0].name, ev.events[0].ids);
+  check('événement → collection', col.get(c.id).count ?? db.prepare('SELECT COUNT(*) n FROM collection_photos WHERE collection_id = ?').get(c.id).n, 3, 0);
+  const q1 = ai.describe('ciel bleu');
+  check('description « ciel bleu » : les paysages', q1.rows.slice(0, 2).map(x => x.id).sort().join(), [P.sky1, P.sky2].sort().join());
+  check('description : mots compris', q1.terms.map(x => x.type).join(), 'scene,colour');
+  check('description « rouge »', ai.describe('photo rouge').rows[0]?.id, P.red);
+  check('description « noir et blanc » : pas l’aplat blanc', ai.describe('noir et blanc').rows.map(x => x.id).join(), P.bw);
+  check('description : texte des moteurs (« lac »)', ai.describe('lac').total, 6, 0);
+  check('fiche IA d’une photo', ai.photo(P.sky1).results.length === 2 && ai.photo(P.sky1).scenes.length > 0, true, 0);
+  ai.saveSettings({ features: { similar: false } });
+  err = ''; try { ai.similar(P.sky1); } catch (e) { err = e.message; }
+  check('fonction désactivée : refusée', /désactivée/.test(err), true, 0);
+  // serveur distant : refusé sans consentement
+  ai.saveEngine({ id: 'loin', name: 'Distant', kind: 'ollama', model: 'm', url: 'https://ia.exemple.invalid', license: 'MIT' });
+  err = ''; try { ai.saveSettings({ engines: { loin: { enabled: true, licenseAccepted: true } } }); } catch (e) { err = e.message; }
+  check('moteur distant : activation refusée sans consentement', /consentement/.test(err), true, 0);
+  ai.removeEngine('loin');
+  check('retirer un moteur : fiche seule supprimée', fs.existsSync(path.join(engDir, 'loin.json')) === false && fs.existsSync(script), true, 0);
+  // suppression d'une photo : ses résultats partent avec elle
+  db.prepare('DELETE FROM photos WHERE id = ?').run(P.night);
+  check('photo retirée : résultats IA supprimés', db.prepare('SELECT COUNT(*) n FROM ai_features WHERE photo_id = ?').get(P.night).n + db.prepare('SELECT COUNT(*) n FROM ai_suggestions WHERE photo_id = ?').get(P.night).n, 0, 0);
+  const cl = ai.clearResults();
+  check('effacer les résultats : mots-clés acceptés gardés', cl.features === 5 && db.prepare("SELECT COUNT(*) n FROM ai_suggestions WHERE status = 'accepted'").get().n > 0, true, 0);
+  srv.close(); db.close();
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }
