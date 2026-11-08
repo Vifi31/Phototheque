@@ -2102,6 +2102,67 @@ group('IA facultative et locale : descripteurs, moteurs, suggestions, recherche,
   srv.close(); db.close();
 }
 
+// ===================================================================
+group('Distribution : empreintes, signature, vérification, construction');
+// ===================================================================
+{
+  const D = await import('../lib/dist.mjs');
+  const { spawnSync } = await import('child_process');
+  const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), '..');
+  const src = D.distSources(ROOT).map(f => path.relative(ROOT, f).split(path.sep).join('/'));
+  check('livré : serveur, lib, interface, lanceur, installateur', ['server.mjs', 'lib/ai.mjs', 'public/index.html', 'scripts/lancer.mjs', 'distribution/installer.ps1', 'distribution/desinstaller.ps1', 'distribution/Phototheque.cmd'].every(f => src.includes(f)), true, 0);
+  check('jamais livrés : données, sauvegardes, versions, tests, .env', src.some(f => /^(data|Sauvegardes|Versions|Exports|Rapports)\//.test(f) || f === '.env' || f === 'scripts/test.mjs'), false, 0);
+  check('dépendances livrées', src.some(f => f.startsWith('node_modules/sharp/')) && src.some(f => f.startsWith('node_modules/exifr/')), true, 0);
+
+  const dir = path.join(TMP, 'distrib'); fs.mkdirSync(path.join(dir, 'lib'), { recursive: true }); fs.mkdirSync(path.join(dir, 'distribution'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'server.mjs'), 'console.log(1)'); fs.writeFileSync(path.join(dir, 'lib', 'a.mjs'), 'export const a = 1;');
+  const keys = D.generateKeys(), other = D.generateKeys();
+  fs.writeFileSync(path.join(dir, 'distribution', 'cle-publique.pem'), keys.publicPem);
+  const sums = D.makeSums(dir);
+  check('SHA256SUMS : une ligne par fichier', sums.trim().split('\n').length, 3, 0);
+  check('SHA256SUMS : format sha256sum', /^[0-9a-f]{64} \*lib\/a\.mjs$/m.test(sums), true, 0);
+  fs.writeFileSync(path.join(dir, D.SUMS_FILE), sums);
+  check('non signée : intègre, acceptée', D.verifyDist(dir).ok && !D.verifyDist(dir).signed, true, 0);
+  check('non signée : refusée si signature exigée', D.verifyDist(dir, { requireSignature: true }).ok, false, 0);
+  fs.writeFileSync(path.join(dir, D.SIG_FILE), D.signText(sums, keys.privatePem));
+  const v = D.verifyDist(dir, { requireSignature: true });
+  check('signée : signature valide', v.ok && v.signed && v.keyId === D.keyId(keys.publicPem), true, 0);
+  check('clé d’une autre installation : refusée', D.verifyDist(dir, { publicPem: other.publicPem }).ok, false, 0);
+  fs.writeFileSync(path.join(dir, D.INSTALL_INFO_FILE), '{}'); fs.writeFileSync(path.join(dir, '.env'), 'X=1');
+  check('installation.json et .env ignorés', D.verifyDist(dir).ok, true, 0);
+  fs.appendFileSync(path.join(dir, 'lib', 'a.mjs'), '//');
+  const vm = D.verifyDist(dir);
+  check('fichier modifié détecté', !vm.ok && vm.modified.join() === 'lib/a.mjs', true, 0);
+  fs.writeFileSync(path.join(dir, 'lib', 'a.mjs'), 'export const a = 1;');
+  fs.writeFileSync(path.join(dir, 'lib', 'intrus.mjs'), 'x');
+  check('fichier ajouté détecté', D.verifyDist(dir).added.join(), 'lib/intrus.mjs');
+  fs.rmSync(path.join(dir, 'lib', 'intrus.mjs')); fs.rmSync(path.join(dir, 'server.mjs'));
+  check('fichier manquant détecté', D.verifyDist(dir).missing.join(), 'server.mjs');
+  fs.writeFileSync(path.join(dir, 'server.mjs'), 'console.log(1)');
+  // une signature recalculée avec une autre clé (et la clé publique remplacée) ne passe pas avec la clé installée
+  const forged = D.makeSums(dir); fs.writeFileSync(path.join(dir, D.SUMS_FILE), forged); fs.writeFileSync(path.join(dir, D.SIG_FILE), D.signText(forged, other.privatePem));
+  check('signature d’une autre clé : refusée par la clé installée', D.verifyDist(dir, { publicPem: keys.publicPem }).ok, false, 0);
+  check('vérificateur en ligne de commande : code 1 si refus', spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'verifier.mjs'), dir, '--json', '--signature-obligatoire', '--cle', path.join(dir, 'distribution', 'cle-publique.pem')]).status, 1, 0);
+  check('installation.json lu', JSON.stringify(D.installInfo(dir)), '{}');
+
+  // construction réelle (sans Node.js livré ni installateur, pour rester rapide), non signée
+  const out = path.join(TMP, 'dist');
+  const b = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'build.mjs'), '--sortie', out, '--sans-exe', '--sans-node'], { encoding: 'utf8', env: { ...process.env, PHOTOTHEQUE_SIGN_KEY: path.join(TMP, 'aucune-cle.pem'), PHOTOTHEQUE_CERT_PFX: '', PHOTOTHEQUE_CERT_THUMBPRINT: '' } });
+  check('construction : terminée', b.status, 0, 0);
+  if (b.status !== 0) console.error(b.stdout, b.stderr);
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const zipf = path.join(out, `Phototheque-${pkg.version}-windows-x64.zip`);
+  check('construction : paquet Windows et multiplateforme', fs.existsSync(zipf) && fs.existsSync(path.join(out, `Phototheque-${pkg.version}-multiplateforme.zip`)), true, 0);
+  const entries = readZip(fs.readFileSync(zipf)).map(e => e.name);
+  check('paquet : SHA256SUMS et manifeste', entries.includes('SHA256SUMS') && entries.includes('MANIFEST.json'), true, 0);
+  check('paquet : aucune donnée personnelle', entries.some(n => /^(data|Sauvegardes|Versions|Exports)\//.test(n) || n === '.env'), false, 0);
+  // le paquet extrait se vérifie
+  const ex = path.join(TMP, 'extrait');
+  for (const e of readZip(fs.readFileSync(zipf))) { const f = path.join(ex, ...e.name.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, e.read()); }
+  check('paquet extrait : conforme', D.verifyDist(ex).ok, true, 0);
+  check('empreintes des livrables', fs.readFileSync(path.join(out, 'SHA256SUMS'), 'utf8').includes(path.basename(zipf)), true, 0);
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

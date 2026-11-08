@@ -36,6 +36,7 @@ import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as 
 import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
 import { XMP_DIR } from './lib/paths.mjs';
 import { createAi, aiRoutes } from './lib/ai.mjs';
+import { installInfo, verifyDist, keyId, PUBLIC_KEY_FILE, SUMS_FILE, SIG_FILE } from './lib/dist.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -204,6 +205,18 @@ async function api(req, res, url) {
     if (b.import) store.import = { ...store.import, ...sanitize(b.import) };
     if (b.menu) store.menu = sanitize(b.menu);
     saveStore(db, store); return json(res, 200, buildState());
+  }
+
+  // ---- installation (lib/dist.mjs) : version installée, dossiers, vérification des empreintes et de la signature
+  if (p === '/api/install' && m === 'GET') {
+    const pub = path.join(ROOT, ...PUBLIC_KEY_FILE.split('/'));
+    return json(res, 200, { installed: INSTALLED, info: installInfo(ROOT), program: ROOT, data: path.dirname(DATA_DIR), version: currentVersion(), node: process.version,
+      distributable: fs.existsSync(path.join(ROOT, SUMS_FILE)), signedFile: fs.existsSync(path.join(ROOT, SIG_FILE)), keyId: fs.existsSync(pub) ? keyId(fs.readFileSync(pub, 'utf8')) : null });
+  }
+  if (p === '/api/install/verify' && m === 'POST') {
+    if (!fs.existsSync(path.join(ROOT, SUMS_FILE))) return json(res, 200, { ok: false, dev: true, error: 'Version de développement : aucune empreinte de distribution à vérifier (voir Manifeste).' });
+    const r = verifyDist(ROOT); logHistory(db, 'install.verify', `Vérification de l’installation : ${r.ok ? 'conforme' : r.error}`, { ok: r.ok, signed: r.signed });
+    return json(res, 200, r);
   }
 
   // ---- IA facultative (lib/ai.mjs) ----

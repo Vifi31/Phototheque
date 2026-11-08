@@ -17,3 +17,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Distributions construites (scripts/build.mjs)
+dist/

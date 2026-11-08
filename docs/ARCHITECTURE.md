@@ -814,3 +814,33 @@ les confirmations se font par un second clic sur le bouton, pas par
 * Routes `/api/ai` (état), `/settings`, `/engines` (+ `/<id>/test`), `/ollama/models`,
   `/analyse` (+ `/control`), `/suggestions` (+ `accept`, `reject`, `undo`, `forget`,
   `refresh`), `/similar`, `/groups`, `/events`, `/collection`, `/describe`, `/photo`, `/clear`.
+
+## 27. Distribution, signature, installation (v0.30.0)
+
+* `lib/dist.mjs` : liste des fichiers livrés (`DIST_FILES`, `DIST_DIRS`, `DIST_SCRIPTS` —
+  jamais data/, Sauvegardes/, Versions/, Exports/, .env, tests), `makeSums` (format
+  sha256sum), signature Ed25519 (`signText` / `checkSignature`, `node:crypto`),
+  `verifyDist` (modifiés, manquants, ajoutés, signature ; `installation.json`, `.env`,
+  `MANIFEST.json` exclus des empreintes car écrits après coup).
+* `scripts/build.mjs` : copie dans `dist/Phototheque-<v>/`, Node.js livré (`node/node.exe`,
+  signé Authenticode par l'OpenJS Foundation), `MANIFEST.json`, `SHA256SUMS` (+ `.sig` si la
+  clé privée est présente), ZIP (`lib/zip.mjs`), installateur IExpress (fichier SED en
+  latin1 : `installer.ps1`, le paquet, `paquet.sha256` ; commande
+  `powershell -ExecutionPolicy Bypass -File installer.ps1`), paquet multiplateforme,
+  `SHA256SUMS` des livrables. Authenticode : `PHOTOTHEQUE_CERT_PFX` /
+  `PHOTOTHEQUE_CERT_THUMBPRINT` → signtool (scripts .ps1 avant les empreintes, .exe après).
+* Clés : `scripts/cles.mjs` ; privée dans `%USERPROFILE%\.phototheque\signature\` (ou
+  `PHOTOTHEQUE_SIGN_KEY`), publique livrée dans `distribution/cle-publique.pem`.
+* `distribution/installer.ps1` (PowerShell 5.1, **UTF-8 avec BOM** sinon les accents sont
+  lus en ANSI) : empreinte du paquet, extraction (.NET ZipFile) dans %TEMP%, vérification par
+  `node\node.exe scripts\verifier.mjs` — avec `--cle <clé installée> --signature-obligatoire`
+  si la version installée était signée —, refus si l'application répond sur son port,
+  `programme` → `programme.precedent`, `.env` (PHOTOTHEQUE_HOME, PHOTOTHEQUE_PORT) et
+  `installation.json`, raccourcis (WScript.Shell), clé
+  `HKCU\…\Uninstall\Phototheque`. Options `-SansRaccourcis -SansRegistre -NePasLancer -Silencieux`.
+* `distribution/desinstaller.ps1` : se relance depuis une copie temporaire, retire
+  raccourcis (seulement s'ils pointent vers ce programme), inscription, `programme` et
+  `programme.precedent` ; jamais le dossier des données.
+* `distribution/Phototheque.cmd` → `scripts/lancer.mjs` : ouvre le navigateur si le serveur
+  répond déjà, sinon importe `server.mjs` puis ouvre le navigateur.
+* Routes `GET /api/install` (installé, dossiers, signature) et `POST /api/install/verify`.

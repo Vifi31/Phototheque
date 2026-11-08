@@ -4,6 +4,42 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.30.0] — 2026-11-08
+
+### Ajouté
+
+- **Livrables** (`node scripts/build.mjs` → `dist/`) :
+  - **installateur Windows** `Phototheque-<v>-installation.exe` (IExpress, fourni
+    avec Windows ; sans droits d'administrateur) : contrôle du paquet, choix des
+    dossiers du programme et des données, raccourcis menu Démarrer et Bureau,
+    inscription dans « Applications installées », installation silencieuse (`/Q`) ;
+  - **version portable** `Phototheque-<v>-windows-x64.zip` avec Node.js livré ;
+  - **paquet multiplateforme** (macOS / Linux, Node.js 24 requis, non essayé sur ces
+    systèmes) ;
+  - icône de l'application.
+- **Signature et vérification des distributions** : empreintes SHA-256 de chaque
+  fichier (`SHA256SUMS`) signées en Ed25519 par la clé de l'éditeur
+  (`node scripts/cles.mjs`, clé privée hors du dépôt) ; vérification à
+  l'installation, **mise à jour vérifiée avec la clé de la version installée** (un
+  paquet modifié et re-signé avec une autre clé est refusé) ;
+  `scripts/verifier.mjs` ; signature Authenticode (signtool) si un certificat de
+  signature de code est fourni.
+- **Mise à jour** : refusée tant que l'application est ouverte, dossiers et port
+  repris, version précédente gardée (`programme.precedent`) ; **désinstallation**
+  qui ne touche jamais aux données.
+- Administration → Manifeste : carte **Installation** (version, dossiers, signature,
+  « Vérifier l'installation »).
+- Administration → Sauvegardes : **Importer une archive…** (archive d'un autre
+  ordinateur ou d'un disque externe), annoncé par le guide mais absent de l'interface.
+- Documentation : `docs/INSTALLATION.md`, `docs/SAUVEGARDE.md` (sauvegarde,
+  restauration, récupération après incident, migration), `docs/FONCTIONNALITES.md`
+  (fonctionnalités terminées, limitations connues), `docs/DEPENDANCES.md` ; guide de
+  l'utilisateur : installer, mettre à jour, vérifier l'installation.
+
+### Corrigé
+
+- README : Node.js 24 requis (et non 18 : `node:sqlite`).
+
 ## [0.29.0] — 2026-11-08
 
 ### Ajouté

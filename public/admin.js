@@ -100,7 +100,19 @@ const Admin = (() => {
       wrap.appendChild(h('div.sect', 'Sauvegardes disponibles', h('div.spacer'),
         h('button.small', { onclick: () => create('data') }, 'Sauvegarder les données'),
         h('button.small.ghost', { onclick: () => create('program') }, 'Programme'),
-        h('button.small.ghost', { onclick: () => create('full') }, 'Complète')));
+        h('button.small.ghost', { onclick: () => create('full') }, 'Complète'),
+        h('button.small.ghost', { title: 'Ajoute une archive .zip ou .enc (autre ordinateur, disque externe) à la liste, pour la tester ou la restaurer', onclick: () => {
+          const inp = h('input', { type: 'file', accept: '.zip,.enc', style: { display: 'none' }, onchange: async () => {
+            const f = inp.files[0]; inp.remove(); if (!f) return;
+            toast('Import de ' + f.name + '…');
+            try {
+              const r = await fetch('/api/backups/import?name=' + encodeURIComponent(f.name), { method: 'POST', body: f });
+              const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Import impossible');
+              toast(`Archive importée : ${j.imported}. Testez-la, puis restaurez-la si besoin.`); refresh();
+            } catch (e) { toast(e.message, 'bad'); }
+          } });
+          document.body.appendChild(inp); inp.click();
+        } }, 'Importer une archive…')));
       const rows = o.list.map(b => ({ ...b, _date: b.manifest?.createdAt ?? b.mtime }));
       if (!rows.length) wrap.appendChild(h('p.dim', 'Aucune sauvegarde.'));
       else wrap.appendChild(table({ columns: [
@@ -340,7 +352,21 @@ const Admin = (() => {
   // ---------- Manifeste ----------
   async function manifest(body) {
     const d = await api('/manifest');
+    const inst = await api('/install');
     const wrap = h('div');
+    const vOut = h('div');
+    wrap.appendChild(card(h('div.sect', 'Installation'),
+      h('p', inst.installed ? `Version ${inst.version} installée${inst.info?.installedAt ? ' le ' + fmtDateTime(inst.info.installedAt) : ''}${inst.info?.previous ? ` (mise à jour depuis la ${inst.info.previous})` : ''}.` : `Version ${inst.version} lancée depuis son dossier de développement.`),
+      table({ columns: [{ label: '', key: 'k' }, { label: '', format: r => h('span', { style: { wordBreak: 'break-all' } }, r.v) }], rows: [
+        { k: 'Programme', v: inst.program }, { k: 'Données', v: inst.data }, { k: 'Node.js', v: inst.node },
+        { k: 'Signature', v: inst.distributable ? (inst.signedFile ? `distribution signée (clé de l’éditeur ${inst.keyId ?? '?'})` : 'distribution non signée') : 'sans objet (développement)' }] }),
+      h('div.row', h('button', { disabled: !inst.distributable, title: inst.distributable ? 'Recalcule l’empreinte de chaque fichier du programme et contrôle la signature' : 'Disponible sur une version installée', onclick: async e => {
+        e.target.disabled = true; mount(vOut, h('p.dim', 'Vérification…'));
+        try { const r = await api('/install/verify', 'POST'); mount(vOut, h('p', h(r.ok ? 'span.ok' : 'span.bad', r.ok ? `✓ ${fmtNum(r.files)} fichiers conformes${r.signed ? `, signature valide (clé ${r.keyId})` : ', distribution non signée'}.` : '✗ ' + r.error)),
+          ...['modified', 'missing', 'added'].flatMap(k => (r[k] ?? []).slice(0, 10).map(f => h('div', h('small.dim', `${{ modified: 'modifié', missing: 'manquant', added: 'ajouté' }[k]} : ${f}`))))); }
+        catch (x) { mount(vOut, h('p.bad', x.message)); } finally { e.target.disabled = false; }
+      } }, 'Vérifier l’installation')), vOut,
+      h('p.dim', 'Mettre à jour : lancez l’installateur de la nouvelle version (Photothèque fermée). Ses fichiers sont vérifiés avec la clé de la version installée ; vos données ne sont pas touchées, et la version précédente est gardée jusqu’à la mise à jour suivante.')));
     wrap.appendChild(h('div.kpis', kpi('Fichiers', d.manifest.summary.files), kpi('Taille', fmtBytes(d.manifest.summary.bytes)),
       kpi('Intégrité', d.manifest.integrity.slice(0, 12) + '…'), kpi('Enregistré', d.saved ? (d.saved.matches ? 'conforme' : 'différent') : 'aucun', { tone: d.saved ? (d.saved.matches ? 'ok' : 'warn') : '' })));
     wrap.appendChild(card(h('div.sect', 'Manifeste du programme'),

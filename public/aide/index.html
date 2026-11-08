@@ -170,7 +170,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version <span id="appVersion">0.29.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.30.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -251,9 +251,13 @@
   <h2 class="ch"><span class="n">2</span>Prise en main</h2>
   <p class="sub">Lancer l’application et se repérer dans la fenêtre.</p>
 
+  <h3>Installer</h3>
+  <p>Double-cliquez sur <b>Phototheque-<i>version</i>-installation.exe</b>. L’installateur vérifie le paquet (empreintes et signature de l’éditeur), propose le dossier du programme et celui de vos <b>données</b> (par défaut <i>Documents\Photothèque</i>), crée les raccourcis <b>Photothèque</b> du menu Démarrer et du Bureau, puis lance l’application. Aucun droit d’administrateur n’est demandé. Si Windows affiche « Windows a protégé votre ordinateur », l’installateur n’a pas de signature Authenticode : <span class="ui">Informations complémentaires</span> puis <span class="ui">Exécuter quand même</span>.</p>
+  <p><b>Mettre à jour</b> : fermez Photothèque, lancez l’installateur de la nouvelle version ; il reprend vos dossiers, vérifie la nouvelle version avec la clé de celle déjà installée et garde la précédente. <b>Désinstaller</b> : <i>Paramètres Windows → Applications installées</i> ; vos données ne sont jamais effacées. Le détail est dans <i>docs/INSTALLATION.md</i>.</p>
+
   <h3>Démarrer</h3>
   <ol class="steps">
-    <li>Double-cliquez sur <b>Phototheque.bat</b> dans le dossier de l’application. Une petite fenêtre noire s’ouvre : c’est le moteur de la Photothèque. <b>Laissez-la ouverte</b> pendant que vous travaillez.</li>
+    <li>Cliquez le raccourci <b>Photothèque</b> (menu Démarrer ou Bureau) — ou, dans un dossier de développement, <b>Phototheque.bat</b>. Une petite fenêtre noire s’ouvre : c’est le moteur de la Photothèque. <b>Laissez-la ouverte</b> pendant que vous travaillez.</li>
     <li>Votre navigateur s’ouvre tout seul sur l’adresse <span class="k">http://localhost:3212</span>. Si ce n’est pas le cas, tapez cette adresse vous-même.</li>
     <li>Pour quitter, fermez l’onglet puis la fenêtre noire.</li>
   </ol>
@@ -715,9 +719,11 @@
   <h4>Le PDF d’un album affiche des alertes de résolution.</h4>
   <p>La photo est trop petite pour la taille de son cadre : choisissez un gabarit avec des cadres plus petits ou une photo de meilleure définition.</p>
   <h4>Comment transférer la Photothèque sur un nouvel ordinateur ?</h4>
-  <p>Faites une sauvegarde <b>Données</b>, installez l’application sur le nouvel ordinateur, importez l’archive (<span class="ui">Télécharger</span> puis importer, ou depuis une destination), puis <span class="ui">Restaurer…</span> dans <b>Administration → Sauvegardes</b>. Rebranchez vos supports : ils seront reconnus par leur empreinte, et les chemins devenus invalides apparaissent dans le rapport <b>Fichiers manquants</b>.</p>
+  <p>Faites une sauvegarde <b>Données</b>, installez l’application sur le nouvel ordinateur, copiez l’archive sur le nouvel ordinateur (<span class="ui">Télécharger</span>, ou depuis une destination), ajoutez-la par <span class="ui">Importer une archive…</span> puis <span class="ui">Restaurer…</span> dans <b>Administration → Sauvegardes</b>. Rebranchez vos supports : ils seront reconnus par leur empreinte, et les chemins devenus invalides apparaissent dans le rapport <b>Fichiers manquants</b>.</p>
   <h4>L’assistant IA envoie-t-il mes photos sur Internet ?</h4>
   <p>Non. Le moteur intégré travaille sur les vignettes, sur cet ordinateur. Un moteur externe n’est utilisé que si vous l’avez déclaré, avez accepté sa licence et l’avez activé ; s’il est sur un autre ordinateur, il faut en plus votre consentement explicite.</p>
+  <h4>Comment vérifier que mon installation n’a pas été modifiée ?</h4>
+  <p><b>Administration → Manifeste</b>, carte <b>Installation</b> : <span class="ui">Vérifier l’installation</span> recalcule l’empreinte de chaque fichier du programme et contrôle la signature de l’éditeur. Un fichier modifié, manquant ou ajouté est signalé ; relancez alors l’installateur de la même version.</p>
   <h4>J’ai supprimé un album par erreur.</h4>
   <p><b>Administration → Sauvegardes</b>, <span class="ui">Contenu…</span> d’une sauvegarde antérieure, cochez l’album, <span class="ui">Restaurer la sélection</span>. Il revient sous le nom « … (restauré) », sans toucher au reste.</p>
 </section>

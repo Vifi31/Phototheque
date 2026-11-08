@@ -18,6 +18,9 @@ npm start            # démarre le serveur → http://localhost:3212
 npm test             # lance scripts/test.mjs (tests automatisés)
 node scripts/journal.mjs "texte du prompt" [statut] [version]
 node scripts/guide.mjs   # guide utilisateur : captures + PDF (public/aide/)
+node scripts/cles.mjs    # une fois : clés de signature (privée hors dépôt)
+node scripts/build.mjs   # livrables → dist/ (installateur, portable, multiplateforme, SHA256SUMS)
+node scripts/verifier.mjs <dossier>   # empreintes + signature d'une distribution / installation
 ```
 
 Sous Windows, `.\Phototheque.bat` installe les dépendances si besoin, ouvre le
@@ -180,7 +183,11 @@ bibliothèque).
    manques, volumes, barres cliquables, PDF / CSV, cache) — **livré en v0.28.0**
    (§25). IA facultative et locale (moteur intégré, moteurs externes, suggestions à valider,
    recherche par description, photos proches, regroupements) — **livré en v0.29.0** (§26),
-   extension retirable `lib/ai.mjs` + `public/ia.js`. Reste : livrables (installateur, versions signées).
+   extension retirable `lib/ai.mjs` + `public/ia.js`. Livrables (installateur IExpress, portable,
+   multiplateforme, empreintes + signature Ed25519, mise à jour vérifiée avec la clé installée,
+   docs INSTALLATION / SAUVEGARDE / FONCTIONNALITES / DEPENDANCES) — **livré en v0.30.0** (§27).
+   Piège : les .ps1 de `distribution/` doivent rester en UTF-8 **avec BOM** (PowerShell 5.1).
+   Tout le cahier des charges a une première version ; limites dans `docs/FONCTIONNALITES.md`.
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

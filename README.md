@@ -12,9 +12,25 @@ sauvegardes. Aucune connexion permanente à Internet n'est requise.
 
 ---
 
-## Démarrage rapide
+## Installation
 
-Prérequis : [Node.js](https://nodejs.org/) 18 ou plus récent.
+Utilisateurs Windows : lancez `Phototheque-<version>-installation.exe` (aucun droit
+d'administrateur, Node.js livré). Installation, mise à jour, vérification de la
+signature et désinstallation : [docs/INSTALLATION.md](docs/INSTALLATION.md).
+
+| Document | Contenu |
+| --- | --- |
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Installation, mise à jour, désinstallation, vérification, construction des livrables |
+| [docs/SAUVEGARDE.md](docs/SAUVEGARDE.md) | Sauvegarde, restauration, récupération après incident, migration |
+| [docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md) | Fonctionnalités terminées et limitations connues |
+| [docs/DEPENDANCES.md](docs/DEPENDANCES.md) | Dépendances et licences |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, schéma de données, formats de projets |
+| [CHANGELOG.md](CHANGELOG.md) | Journal des versions |
+| Menu **Aide** (`public/aide/`) | Guide de l'utilisateur (HTML et PDF) |
+
+## Démarrage rapide (développement)
+
+Prérequis : [Node.js](https://nodejs.org/) 24 ou plus récent (`node:sqlite`).
 
 ```powershell
 # 1. Installer les dépendances (sharp + exifr)
