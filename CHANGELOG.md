@@ -4,6 +4,44 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.31.0] — 2026-11-14
+
+### Ajouté
+
+- **Filtre « Mots-clés » dans la barre de filtres de la Photothèque** :
+  - **Sans mot-clé** : les photos à classer ;
+  - **Avec au moins un mot-clé** ;
+  - **un mot-clé précis**, listé comme dans l'arborescence ; la recherche inclut les
+    sous-mots-clés ;
+  - le nombre de photos est indiqué à côté de chaque choix (photos distinctes d'une
+    branche : une photo marquée du parent et d'un enfant n'est comptée qu'une fois).
+- **Propositions de mots-clés pendant la frappe** quand on affecte un mot-clé (visionneuse,
+  « Mot-clé… » sur une sélection, modification en masse des métadonnées) :
+  - insensible aux accents, à la casse, aux tirets et aux apostrophes ;
+  - trouve aussi les **synonymes** (« synonyme : congés ») et affiche le chemin du parent ;
+  - saisie « a, b, c » : la proposition suit le mot en cours, sans reproposer les mots déjà saisis ;
+  - ↑ ↓ pour choisir, Entrée ou Tab pour valider, Échap pour fermer (sans fermer la fenêtre
+    ni la visionneuse) ; clic possible ;
+  - un mot inconnu est signalé comme **nouveau mot-clé** ; un mot-clé de même nom qu'un autre
+    est inséré avec son chemin (« Lieux|Paris ») pour désigner le bon.
+- Mots-clés : bouton **« Voir les N photo(s) sans mot-clé »** qui ouvre la Photothèque ainsi
+  filtrée.
+- `GET /api/facets` renvoie `keywords` : `none`, `any`, `counts` (par mot-clé) et `branch`
+  (par mot-clé qui a des enfants), comptés en direct.
+
+### Corrigé
+
+- Le résumé d'une recherche enregistrée affichait « sans mot-clé « true » » pour les critères
+  posés depuis la recherche avancée (valeur `'true'` en texte).
+
+### Notes
+
+- Le filtre de la barre et la liste **Présence** de la recherche avancée écrivent les mêmes
+  critères (`noKeyword`, `hasKeyword`, `keywordId`) et restent synchronisés.
+- La colonne `keywords.photo_count` n'est recalculée que par `recount()` : elle peut être en
+  retard (constaté : 0 pour un mot-clé porté par une photo). Le nouveau filtre ne s'en sert pas ;
+  les écrans qui l'affichent (arborescence, « Les plus utilisés ») ne sont pas corrigés ici.
+
 ## [0.30.0] — 2026-11-08
 
 ### Ajouté

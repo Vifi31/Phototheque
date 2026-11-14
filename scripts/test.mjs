@@ -227,6 +227,46 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   // --- critères avancés (§9) ---
   const n = f => LIB.search(f, { limit: 50 }).total;
   check('critère : sans étiquette', n({ noKeyword: true }) >= n({ hasKeyword: true }), true, 0);
+  // filtre « Mots-clés » de la barre de la Photothèque : sans / avec / un mot-clé précis (branche comprise)
+  {
+    const total = LIB.stats().photos, kf0 = LIB.keywordFacets();
+    check('filtre mots-clés : sans + avec = toute la photothèque', kf0.none + kf0.any, total, 0);
+    check('filtre mots-clés : compteur « sans » = critère noKeyword', kf0.none, n({ noKeyword: true }), 0);
+    check('filtre mots-clés : compteur « avec » = critère hasKeyword', kf0.any, n({ hasKeyword: true }), 0);
+    check('filtre mots-clés : sans et avec sont disjoints et complets', n({ noKeyword: true }) + n({ hasKeyword: true }), total, 0);
+    const [pa, pb] = DB.prepare('SELECT id FROM photos ORDER BY id LIMIT 2').all().map(r => r.id);
+    const par = KW.ensure('Facette parent'), enf = KW.ensure('Facette enfant', par.id);
+    KW.attach(pa, par.id); KW.attach(pa, enf.id); KW.attach(pb, enf.id); KW.recount();
+    const kf = LIB.keywordFacets();
+    check('filtre mots-clés : branche = photos distinctes (pas d\'affectations doublées)', kf.branch[par.id], 2, 0);
+    check('filtre mots-clés : un mot-clé sans enfant n\'a pas d\'entrée de branche', kf.branch[enf.id], undefined, 0);
+    check('filtre mots-clés : effectif direct du parent et de l\'enfant', [kf.counts[par.id], kf.counts[enf.id]].join('/'), '1/2', 0);
+    check('filtre mots-clés : recherche par le parent inclut l\'enfant', n({ keywordId: par.id }), 2, 0);
+    check('filtre mots-clés : recherche par l\'enfant', n({ keywordId: enf.id }), 2, 0);
+    check('filtre mots-clés : « sans » exclut les photos marquées', LIB.search({ noKeyword: true }, { limit: 500 }).rows.every(r => r.id !== pa && r.id !== pb), true, 0);
+    check('filtre mots-clés : « avec » inclut les photos marquées', LIB.search({ hasKeyword: true }, { limit: 500 }).rows.some(r => r.id === pa), true, 0);
+    KW.remove(enf.id); KW.remove(par.id);
+    const kf2 = LIB.keywordFacets();
+    check('filtre mots-clés : retour à l\'état initial après nettoyage', kf2.none === kf0.none && kf2.any === kf0.any, true, 0);
+  }
+  // propositions de mots-clés pendant la saisie (public/ui.js, UI.keywordMatches : fonction pure, chargée hors navigateur)
+  {
+    const vm = await import('node:vm');
+    const ctx = vm.createContext({ document: { addEventListener() {}, getElementById() { return null; } }, addEventListener() {}, console });
+    const UI = vm.runInContext(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..', 'public', 'ui.js'), 'utf8') + ';UI', ctx);
+    const L = [{ id: 1, name: 'Été 2024', parent_id: null, data: {} }, { id: 2, name: 'Vacances', parent_id: null, data: { synonyms: ['congés'] } },
+      { id: 3, name: 'France', parent_id: null, data: {} }, { id: 4, name: 'Paris', parent_id: 3, data: {} }, { id: 5, name: 'Aéroport de Paris', parent_id: null, data: {} },
+      { id: 6, name: "Fête de l'été", parent_id: null, data: {} }];
+    const names = (t, o) => UI.keywordMatches(L, t, o).map(m => m.k.name).join(' | ');
+    check('saisie : insensible aux accents et à la casse', names('ETE'), 'Été 2024 | Fête de l\'été', 0);
+    check('saisie : début de mot avant « contient »', names('pari'), 'Paris | Aéroport de Paris', 0);
+    check('saisie : trouve par synonyme', names('cong'), 'Vacances', 0);
+    check('saisie : indique le synonyme trouvé', UI.keywordMatches(L, 'cong')[0].via, 'congés', 0);
+    check('saisie : chemin du parent', UI.keywordMatches(L, 'paris')[0].path, 'France', 0);
+    check('saisie : rien à proposer pour une saisie vide ou inconnue', names('') + '/' + names('zzz'), '/', 0);
+    check('saisie : mots déjà saisis écartés', names('par', { exclude: new Set(['paris']) }), 'Aéroport de Paris', 0);
+    check('saisie : nombre de propositions borné', UI.keywordMatches(L, 'e', { limit: 2 }).length, 2, 0);
+  }
   check('critère : légendée / sans légende', n({ hasCaption: true }) + n({ noCaption: true }), LIB.stats().photos, 0);
   check('critère : orientation portrait', n({ orientation: 'portrait' }) >= 0, true, 0);
   check('critère : orientation carré', n({ orientation: 'square' }) >= 0, true, 0);

@@ -1,7 +1,7 @@
 // Contrôleur principal de l'interface Photothèque. Scripts classiques (globaux), aucune dépendance.
 // La logique métier vit côté serveur (lib/*.mjs) ; ici on appelle l'API /api/* et on affiche.
 'use strict';
-const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate } = UI;
+const { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate, keywordInput } = UI;
 
 const App = (() => {
   const state = {
@@ -25,6 +25,10 @@ const App = (() => {
     if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
     return j;
   };
+  // liste des mots-clés pour les propositions de saisie (relue à chaque prise de focus : un mot créé entre-temps y figure)
+  const kwSource = async () => (state.keywords = (await api('/keywords')).list);
+  // champ de saisie d'un ou plusieurs mots-clés avec propositions au fil de la frappe (UI.keywordInput)
+  const kwField = (input, multi = true) => keywordInput(input, { source: kwSource, multi });
 
   // ---------- verrouillage ----------
   let lockWait = null;
@@ -155,7 +159,35 @@ const App = (() => {
       ...[['', 'Toutes disponibilités'], ['0', 'Présentes'], ['1', 'Indisponibles']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.missing === v2 }, l)));
 
     // recherche avancée : critères ET / OU / NON et filtres fins (mêmes clés que lib/search.mjs)
-    const advanced = advancedPanel(() => { state.page = 0; refresh(); });
+    const advanced = advancedPanel(() => { kwFilterSel.value = kwCurrent(); state.page = 0; refresh(); });
+
+    // filtre « Mots-clés » : sans mot-clé, avec au moins un, ou un mot-clé précis (la recherche inclut ceux rangés dessous).
+    // Mêmes clés que la recherche avancée (noKeyword, hasKeyword, keywordId) : les deux contrôles restent synchronisés.
+    const kwFacet = facets.keywords ?? { none: 0, any: 0, branch: {} };
+    const kwById = new Map(state.keywords.map(k => [k.id, k]));
+    const kwKids = new Map();
+    for (const k of state.keywords) { const p = kwById.has(k.parent_id) ? k.parent_id : null; kwKids.set(p, [...(kwKids.get(p) ?? []), k]); }
+    const kwByName = (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+    const kwOptions = [];
+    const kwWalk = (k, depth) => {
+      if (depth > 31) return;
+      kwOptions.push(h('option', { value: 'id:' + k.id }, `${'  '.repeat(depth)}${depth ? '› ' : ''}${k.name} (${fmtNum(kwFacet.branch?.[k.id] ?? kwFacet.counts?.[k.id] ?? 0)})`));
+      for (const c of (kwKids.get(k.id) ?? []).sort(kwByName)) kwWalk(c, depth + 1);
+    };
+    for (const k of (kwKids.get(null) ?? []).sort(kwByName)) kwWalk(k, 0);
+    const kwCurrent = () => state.facet.noKeyword ? 'none' : state.facet.hasKeyword ? 'any' : state.facet.keywordId ? 'id:' + state.facet.keywordId : '';
+    const kwFilterSel = h('select', { title: 'Filtrer par mot-clé : sans mot-clé, avec au moins un, ou un mot-clé précis (avec ceux rangés dessous)', onchange: () => {
+      const val = kwFilterSel.value;
+      delete state.facet.noKeyword; delete state.facet.hasKeyword; delete state.facet.keywordId;
+      if (val === 'none') state.facet.noKeyword = 'true';
+      else if (val === 'any') state.facet.hasKeyword = 'true';
+      else if (val.startsWith('id:')) state.facet.keywordId = val.slice(3);
+      advanced.syncKeyword(); state.page = 0; refresh(); } },
+      h('option', { value: '' }, 'Tous les mots-clés'),
+      h('option', { value: 'none' }, `Sans mot-clé (${fmtNum(kwFacet.none)})`),
+      h('option', { value: 'any' }, `Avec au moins un mot-clé (${fmtNum(kwFacet.any)})`),
+      ...(kwOptions.length ? [h('optgroup', { label: 'Un mot-clé' }, ...kwOptions)] : []));
+    kwFilterSel.value = kwCurrent();
 
     // variantes (outil Doublons) : préférence d'affichage, hors critères enregistrés ; sans effet dans une collection
     // (une sélection montre ce qu'on y a mis) ni pendant « référence et variantes »
@@ -164,7 +196,7 @@ const App = (() => {
       state.page = 0; refresh(); } },
       ...[['hide', 'Masquer les variantes'], ['show', 'Afficher les variantes'], ['only', 'Seulement les variantes']].map(([v2, l]) => h('option', { value: v2, selected: state.variants === v2 }, l)));
     varSel.hidden = !!coll;
-    mount(filterBar, yearSel, camSel, fmtSel, ratingSel, missSel, varSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
+    mount(filterBar, yearSel, camSel, fmtSel, kwFilterSel, ratingSel, missSel, varSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
 
     // sélection multiple
     const selInfo = h('span.sel-count');
@@ -287,7 +319,7 @@ const App = (() => {
     }
     async function batchKeyword() {
       const input = h('input', { type: 'text', placeholder: 'Mot-clé (ex: Vacances)' });
-      modal({ title: 'Ajouter un mot-clé à la sélection', body: field('Mot-clé', input), actions: [
+      modal({ title: 'Ajouter un mot-clé à la sélection', body: field('Mot-clé', kwField(input, false), 'Les mots-clés existants sont proposés pendant la frappe.'), actions: [
         h('button.ghost', { onclick: () => document.getElementById('modalRoot').replaceChildren() }, 'Annuler'),
         h('button', { onclick: async () => { const kw = input.value.trim(); if (!kw) return; for (const id of state.selection) { const d = await api('/photos/' + id); const names = [...(d.photo.keywords || []).map(k => k.name), kw]; await api('/photos', 'PUT', { id, keywords: names }); } document.getElementById('modalRoot').replaceChildren(); toast('Mot-clé ajouté'); state.selection.clear(); refresh(); } }, 'Appliquer'),
       ] });
@@ -434,7 +466,7 @@ const App = (() => {
     showCount();
 
     const group = (label, ...fields) => h('div.adv-group', h('div.adv-label', label), h('div.form', ...fields));
-    return h('details.card.adv', { open: state.advOpen || null, ontoggle: e => { state.advOpen = e.target.open; } },
+    const panel = h('details.card.adv', { open: state.advOpen || null, ontoggle: e => { state.advOpen = e.target.open; } },
       h('summary', 'Recherche avancée ', count),
       group('Texte (titre, légende, notes, mots-clés, appareil)',
         field('Au moins un de ces mots', byKey.anyText), field('Aucun de ces mots', byKey.excludeText)),
@@ -451,6 +483,9 @@ const App = (() => {
         field('Légende', capSel), field('GPS', gpsSel), field('Fichiers en double', dupSel, 'même contenu à plusieurs endroits')),
       h('div.row', h('div.spacer'), h('button.ghost.small', { onclick: reset }, 'Effacer ces critères'), h('button.small', { onclick: apply }, 'Rechercher')),
       h('p.dim.adv-hint', 'Le texte de la barre du haut exige tous ses mots ; il se combine avec ces critères. Les listes se séparent par des virgules. Un mot-clé inclut ses synonymes et les mots-clés rangés dessous.'));
+    // le filtre « Mots-clés » de la barre du haut écrit les mêmes clés : il resynchronise la liste « Présence »
+    panel.syncKeyword = () => { kwSel.value = f.hasKeyword ? 'hasKeyword' : f.noKeyword ? 'noKeyword' : ''; showCount(); };
+    return panel;
   }
 
   // ---------- vue Importation ----------
@@ -680,6 +715,9 @@ const App = (() => {
       mount(statsWrap,
         h('div.kpis', kpi('Mots-clés', fmtNum(u.keywords), { sub: `${fmtNum(u.roots)} à la racine` }), kpi('Utilisés', fmtNum(u.used), { sub: `${fmtNum(u.unused)} sans photo` }),
           kpi('Affectations', fmtNum(u.assignments)), kpi('Photos indexées', u.photos ? Math.round(100 * u.photosWith / u.photos) + ' %' : '—', { sub: `${fmtNum(u.photos - u.photosWith)} sans mot-clé` })),
+        u.photos - u.photosWith > 0 ? h('div.row', h('button.small.ghost', { title: 'Ouvre la Photothèque filtrée sur les photos sans aucun mot-clé',
+          onclick: () => { state.q = ''; document.getElementById('search').value = ''; state.facet = { noKeyword: 'true' }; state.page = 0; go('photos'); } },
+          `Voir les ${fmtNum(u.photos - u.photosWith)} photo(s) sans mot-clé`)) : null,
         u.top.length ? h('div', h('h4', 'Les plus utilisés'), h('div', ...u.top.map(k => h('span.kw-chip', { onclick: () => App.searchKeyword(k) }, k.name, h('small.dim', String(k.photo_count)))))) : null,
         u.categories.length > 1 || u.categories[0]?.category ? h('div', h('h4', 'Par catégorie'), table({ columns: [
           { label: 'Catégorie', format: r => r.category || h('span.dim', 'Sans catégorie') }, { label: 'Mots-clés', key: 'keywords', align: 'right' }, { label: 'Affectations', key: 'assignments', align: 'right' }], rows: u.categories })) : null);
@@ -766,7 +804,7 @@ const App = (() => {
   function describeQuery(q) {
     const kwName = id => state.keywords.find(k => k.id === id)?.name ?? id;
     const parts = Object.entries(q ?? {}).filter(([k]) => CRITERIA[k]).map(([k, val]) => {
-      if (val === true) return CRITERIA[k];
+      if (val === true || val === 'true') return CRITERIA[k];
       if (k === 'missing') return +val ? 'indisponibles' : 'présentes';
       if (k === 'hasGps') return [false, 0, '0', 'false'].includes(val) ? 'sans GPS' : 'avec GPS';
       if (k === 'hasPlace') return [false, 0, '0', 'false'].includes(val) ? 'lieu non renseigné' : 'lieu renseigné';
@@ -1079,7 +1117,7 @@ const App = (() => {
       return h('div',
         h('b', d.title || file?.file_name || 'Sans titre'), d.description ? h('p.dim', d.description) : null,
         h('h4', 'Classement'), stars, labels,
-        h('h4', 'Mots-clés'), h('div', ...(d.keywords ?? []).map(k => h('span.kw-chip', { title: 'Voir les photos', onclick: () => { lightboxClose(); App.searchKeyword(k); } }, k.name))), kwInput,
+        h('h4', 'Mots-clés'), h('div', ...(d.keywords ?? []).map(k => h('span.kw-chip', { title: 'Voir les photos', onclick: () => { lightboxClose(); App.searchKeyword(k); } }, k.name))), kwField(kwInput),
         h('h4', 'Prise de vue'), dl([['Date', d.captured_at ? fmtDateTime(d.captured_at) : ''], ['Appareil', [d.camera_make, d.camera_model].filter(Boolean).join(' ')], ['Objectif', d.lens], ['Exposition', exp],
           ['Dimensions', d.width ? `${d.width} × ${d.height} px` : ''], ['Format', d.format ? String(d.format).toUpperCase() : ''], ['Couleur', [data.ColorModel, data.IccProfile].filter(Boolean).join(' · ')],
           ['Lieu', place], ['GPS', d.gps_lat != null ? `${(+d.gps_lat).toFixed(5)} ; ${(+d.gps_lon).toFixed(5)}` : ''], ['Auteur', d.author], ['Copyright', d.copyright]]),
@@ -1268,7 +1306,7 @@ const App = (() => {
         };
         mount(pane, h('p.dim', 'Choisissez pour chaque champ : remplacer, remplir seulement s’il est vide, ou effacer. Rien n’est écrit avant l’aperçu.'),
           h('div.meta-grid', ...rows.flatMap(r => [h('label', r.l), r.mode, r.input])),
-          h('div.form', field('Ajouter les mots-clés', kwAdd), field('Retirer les mots-clés', kwDel, 'retirer « Montagne » retire aussi « Lieux › Montagne »')),
+          h('div.form', field('Ajouter les mots-clés', kwField(kwAdd)), field('Retirer les mots-clés', kwField(kwDel), 'retirer « Montagne » retire aussi « Lieux › Montagne »')),
           h('div.row', h('div.spacer'), h('button.ghost', { onclick: () => run('edit', payload(), { applyLabel: n => `Appliquer à ${fmtNum(n)} photo(s)`, render: r => [summaryLine(r.summary, r.more), changeTable(r.rows)] }) }, 'Aperçu')));
       } else if (tab === 'read') {
         const mode = h('select', {}, h('option', { value: 'fill' }, 'Compléter seulement les champs vides de la fiche'), h('option', { value: 'replace' }, 'Remplacer aussi les valeurs différentes'));

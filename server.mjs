@@ -409,7 +409,7 @@ async function api(req, res, url) {
   }
 
   // ---- Navigation : années, appareils, formats ----
-  if (p === '/api/facets' && m === 'GET') return json(res, 200, { years: library.years(), cameras: library.cameras(), formats: library.formats() });
+  if (p === '/api/facets' && m === 'GET') return json(res, 200, { years: library.years(), cameras: library.cameras(), formats: library.formats(), keywords: library.keywordFacets() });
   if (p === '/api/stats' && m === 'GET') return json(res, 200, library.stats());
   if (p.startsWith('/api/dashboard') && m === 'GET') {
     const sp = url.searchParams, f = { year: sp.get('year'), supportId: sp.get('supportId'), format: sp.get('format') };

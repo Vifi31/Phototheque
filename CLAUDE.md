@@ -188,6 +188,9 @@ bibliothèque).
    docs INSTALLATION / SAUVEGARDE / FONCTIONNALITES / DEPENDANCES) — **livré en v0.30.0** (§27).
    Piège : les .ps1 de `distribution/` doivent rester en UTF-8 **avec BOM** (PowerShell 5.1).
    Tout le cahier des charges a une première version ; limites dans `docs/FONCTIONNALITES.md`.
+   Filtre « Mots-clés » dans la barre de la Photothèque (sans / avec / un mot-clé, effectifs en direct)
+   et propositions de mots-clés pendant la frappe (`UI.keywordInput`, synonymes compris) —
+   **livré en v0.31.0** (§28). Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

@@ -844,3 +844,25 @@ les confirmations se font par un second clic sur le bouton, pas par
 * `distribution/Phototheque.cmd` → `scripts/lancer.mjs` : ouvre le navigateur si le serveur
   répond déjà, sinon importe `server.mjs` puis ouvre le navigateur.
 * Routes `GET /api/install` (installé, dossiers, signature) et `POST /api/install/verify`.
+
+## 28. Filtre « Mots-clés » de la Photothèque (v0.31.0)
+
+* Aucun nouveau critère de recherche : le filtre de la barre (`kwFilterSel`, `public/app.js`)
+  écrit `noKeyword`, `hasKeyword` ou `keywordId` dans `state.facet` (un seul à la fois) ; la
+  recherche (`lib/search.mjs`) les connaissait déjà. `keywordId` inclut les descendants
+  (`KEYWORD_ID_TREE_SQL`).
+* `library.keywordFacets()` (`GET /api/facets` → `keywords`) : `none` / `any` (photos sans / avec
+  mot-clé), `counts` (photos distinctes par mot-clé), `branch` (photos distinctes de la branche, pour
+  les seuls mots-clés qui ont des enfants). Comptage en direct : `keywords.photo_count` peut être
+  périmé hors `recount()`.
+* Synchronisation avec la recherche avancée : `advancedPanel()` expose `syncKeyword()` (liste
+  « Présence ») ; en sens inverse, son rappel `onApply` relit `kwCurrent()`. Si `noKeyword` et
+  `keywordId` sont présents ensemble (recherche avancée), la liste de la barre affiche « Sans mot-clé ».
+* **Saisie assistée** : `UI.keywordInput(input, { source, multi })` (`public/ui.js`) enveloppe un champ
+  texte dans `div.kw-ac` avec une liste `.suggest`. `UI.keywordMatches(list, terme, { exclude, limit })` est la
+  fonction pure de classement : début du libellé, début d'un mot, synonyme, contient, synonyme contenant
+  (comparaison repliée : accents, casse, `-'’_.`). Source : `kwSource` (`GET /api/keywords`, relue au focus).
+  L'écouteur `keydown` est en phase de capture : avec une proposition choisie il bloque Entrée / Échap pour les
+  gestionnaires de la fenêtre modale et de la visionneuse ; sans choix, Entrée garde son rôle (valider la
+  saisie). Un chemin saisi à la main (`Lieux|Montagne`) n'est pas proposé. Testé dans `scripts/test.mjs`
+  (`ui.js` chargé dans un contexte `vm`).

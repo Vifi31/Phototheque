@@ -62,6 +62,107 @@ const UI = (() => {
 
   function field(label, control, hint) { return h('div.field', h('label', label), control, hint ? h('small.hint', hint) : null); }
 
+  // ---------- saisie de mots-clés avec propositions au fil de la frappe ----------
+  // keywordInput(input, { source, multi }) → conteneur à placer à la place du champ.
+  //   source : async () => liste des mots-clés (/api/keywords : id, name, parent_id, data.synonyms), relue au focus.
+  //   multi  : saisie « a, b, c » ; la proposition concerne le mot en cours (après la dernière virgule).
+  // Insensible aux accents, à la casse, aux tirets et aux apostrophes ; trouve aussi les synonymes.
+  // Flèches ↑ ↓ pour choisir, Entrée ou Tab pour valider la proposition choisie (sans choix, Entrée garde son rôle
+  // habituel), Échap pour fermer ; clic de souris possible. Un mot qui n'existe pas encore est signalé « Nouveau ».
+  const kwFold = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[-'’_.]/g, ' ').replace(/\s+/g, ' ').trim();
+  /** Propositions pour une saisie : tableau de { k, score, via, path } trié par pertinence (fonction pure, testée). */
+  function keywordMatches(list, term, { exclude = new Set(), limit = 8 } = {}) {
+    const t = kwFold(term);
+    if (!t) return [];
+    const byId = new Map(list.map(k => [k.id, k]));
+    const pathOf = k => { const out = []; let p = k.parent_id ? byId.get(k.parent_id) : null; for (let i = 0; p && i < 32; i++) { out.unshift(p.name); p = p.parent_id ? byId.get(p.parent_id) : null; } return out.join(' › '); };
+    const found = [];
+    for (const k of list) {
+      const n = kwFold(k.name);
+      if (exclude.has(n)) continue;
+      let score = -1, via = '';
+      if (n.startsWith(t)) score = 0;
+      else if (n.split(' ').some(w => w.startsWith(t))) score = 1;
+      else {
+        const syn = (k.data?.synonyms ?? []).find(s => { const f = kwFold(s); return f.startsWith(t) || f.split(' ').some(w => w.startsWith(t)); });
+        if (syn) { score = 2; via = syn; }
+        else if (n.includes(t)) score = 3;
+        else { const syn2 = (k.data?.synonyms ?? []).find(s => kwFold(s).includes(t)); if (syn2) { score = 4; via = syn2; } }
+      }
+      if (score >= 0) found.push({ k, score, via, path: pathOf(k) });
+    }
+    found.sort((a, b) => a.score - b.score || a.k.name.localeCompare(b.k.name, 'fr', { sensitivity: 'base' }));
+    return found.slice(0, limit);
+  }
+  function keywordInput(input, { source, multi = false } = {}) {
+    const box = h('div.suggest.kw-suggest', { hidden: true, role: 'listbox' });
+    const wrap = h('div.kw-ac', input, box);
+    let list = null, items = [], hi = -1;
+    input.setAttribute('autocomplete', 'off');
+    const load = async () => { try { list = await source(); } catch { list = list ?? []; } };
+    // mot en cours : de la dernière virgule au curseur (ou toute la saisie hors mode multiple)
+    const current = () => {
+      const v = input.value, caret = input.selectionStart ?? v.length;
+      const start = multi ? v.lastIndexOf(',', caret - 1) + 1 : 0;
+      const end = multi ? (v.indexOf(',', caret) < 0 ? v.length : v.indexOf(',', caret)) : v.length;
+      return { start, end, text: v.slice(start, end).trim() };
+    };
+    // mots déjà saisis, sauf celui en cours : inutile de les reproposer
+    const others = () => {
+      if (!multi) return new Set();
+      const c = current(), idx = (input.value.slice(0, c.start).match(/,/g) ?? []).length;
+      return new Set(input.value.split(',').filter((_, i) => i !== idx).map(kwFold).filter(Boolean));
+    };
+    const close = () => { box.hidden = true; items = []; hi = -1; };
+    const unique = k => list.filter(x => kwFold(x.name) === kwFold(k.name)).length === 1;
+    const insertion = k => {
+      if (unique(k)) return k.name;
+      const parts = []; const byId = new Map(list.map(x => [x.id, x])); let p = k;
+      for (let i = 0; p && i < 32; i++) { parts.unshift(p.name); p = p.parent_id ? byId.get(p.parent_id) : null; }
+      return parts.join('|'); // « Lieux|Paris » : désigne sans ambiguïté un mot-clé de même nom ailleurs
+    };
+    const pick = k => {
+      const c = current(), v = input.value;
+      const before = v.slice(0, c.start).replace(/\s*$/, c.start ? ' ' : ''), after = v.slice(c.end).replace(/^\s+/, '');
+      const text = insertion(k) + (multi ? (after ? '' : ', ') : '');
+      input.value = before + text + (after ? (multi ? ', ' : '') + after : '');
+      const pos = (before + text).length; input.setSelectionRange(pos, pos);
+      close();
+    };
+    const mark = (name, term) => {
+      const i = kwFold(name).indexOf(kwFold(term));
+      // la forme repliée garde la longueur du libellé tant que la ponctuation / les accents sont à 1 caractère
+      return i >= 0 && kwFold(name).length === name.trim().length ? [name.slice(0, i), h('mark', name.slice(i, i + kwFold(term).length)), name.slice(i + kwFold(term).length)] : [name];
+    };
+    const render = () => {
+      const c = current();
+      if (!list || !c.text || c.text.includes('|')) { close(); return; } // « Lieux|Montagne » : chemin saisi à la main
+      items = keywordMatches(list, c.text, { exclude: others() });
+      const exact = list.some(k => kwFold(k.name) === kwFold(c.text) || (k.data?.synonyms ?? []).some(s => kwFold(s) === kwFold(c.text)));
+      if (!items.length && exact) { close(); return; }
+      mount(box,
+        ...items.map((m, i) => h('button' + (i === hi ? '.on' : ''), { type: 'button', role: 'option', tabindex: '-1',
+          onmousedown: e => { e.preventDefault(); pick(m.k); } },
+          h('span', ...mark(m.k.name, c.text)),
+          m.path ? h('span.k', m.path) : null,
+          m.via ? h('span.k', 'synonyme : ' + m.via) : null)),
+        !exact ? h('div.kw-new', items.length ? '« ' + c.text + ' » sera créé comme nouveau mot-clé' : 'Nouveau mot-clé : « ' + c.text + ' »') : null);
+      box.hidden = false;
+    };
+    input.addEventListener('focus', async () => { await load(); render(); });
+    input.addEventListener('input', async () => { if (!list) await load(); hi = -1; render(); });
+    input.addEventListener('blur', () => setTimeout(close, 120));
+    input.addEventListener('keydown', e => {
+      if (box.hidden || !items.length) return;
+      const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation(); };
+      if (e.key === 'ArrowDown') { hi = (hi + 1) % items.length; stop(); render(); }
+      else if (e.key === 'ArrowUp') { hi = hi <= 0 ? items.length - 1 : hi - 1; stop(); render(); }
+      else if (e.key === 'Escape') { stop(); close(); }
+      else if ((e.key === 'Enter' && hi >= 0) || (e.key === 'Tab' && !e.shiftKey)) { stop(); pick(items[hi >= 0 ? hi : 0].k); }
+    }, true);
+    return wrap;
+  }
+
   // ---------- toasts ----------
   function toast(message, type = 'ok') {
     const root = document.getElementById('toast');
@@ -237,5 +338,5 @@ const UI = (() => {
     });
   });
 
-  return { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate, loadImage };
+  return { h, clear, mount, esc, fmtBytes, fmtDate, fmtDateTime, fmtNum, kpi, card, sectionTitle, table, field, toast, modal, confirmDialog, lightboxOpen, lightboxClose, lightboxUpdate, loadImage, keywordInput, keywordMatches };
 })();
