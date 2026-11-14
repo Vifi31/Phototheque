@@ -303,7 +303,9 @@ export const SHOTS = ctx => [
   { name: 'recherche', js: `await App.go('photos'); await new Promise(r => setTimeout(r, 400)); const d = [...document.querySelectorAll('details')].find(x => /Recherche avancée/.test(x.textContent)); if (d) d.open = true; else [...document.querySelectorAll('summary, button')].find(b => /Recherche avancée/.test(b.textContent))?.click(); await new Promise(r => setTimeout(r, 300)); d?.scrollIntoView();` },
   { name: 'planche-dialogue', js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); [...document.querySelectorAll('button')].find(b => b.textContent.startsWith('Planches, catalogues'))?.click();` },
   { name: 'selection', h: 1180, js: `await App.go('photos'); await new Promise(r => setTimeout(r, 500)); for (const i of [0, 2, 3]) document.querySelectorAll('.photo-cell .ph-sel')[i]?.click();` },
-  { name: 'importation', js: `await App.go('import');` },
+  { name: 'importation', js: `await App.go('import'); await new Promise(r => setTimeout(r, 4500));` },
+  // choix des photos : le dossier d'exemple joue le rôle d'une carte mémoire
+  { name: 'importation-choix', h: 1180, js: `await App.go('import'); await new Promise(r => setTimeout(r, 800)); const i = [...document.querySelectorAll('#view input')].find(x => /Ou tapez/.test(x.placeholder)); i.value = ${JSON.stringify(PHOTOS)}; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await new Promise(r => setTimeout(r, 3500)); document.querySelector('.imp-group')?.parentElement?.closest('.card')?.scrollIntoView();` },
   { name: 'supports', js: `await App.go('supports');` },
   { name: 'mots-cles', h: 1180, js: `await App.go('keywords'); await new Promise(r => setTimeout(r, 500)); [...document.querySelectorAll('button')].find(b => b.textContent === 'Tout déplier')?.click();` },
   { name: 'collections', js: `await App.go('collections');` },

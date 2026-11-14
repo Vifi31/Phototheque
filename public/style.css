@@ -232,6 +232,32 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .support-card .grow { flex: 1; min-width: 0; }
 .folder-item { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .folder-item .grow { flex: 1; min-width: 0; word-break: break-all; }
+/* Importation : supports détectés, choix des photos, copie / déplacement */
+.drives { display: grid; gap: 10px; margin: 10px 0; }
+.drives-other { margin-top: 10px; } .drives-other summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.drive { display: flex; gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.drive.hot { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.drive-ico { font-size: 28px; line-height: 1; } .drive .grow { flex: 1; min-width: 0; }
+.drive-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.imp-tools { align-items: center; margin: 8px 0 4px; } .imp-hint { margin: 2px 0 10px; font-size: 12.5px; }
+.imp-group { margin: 14px 0; }
+.imp-group-h { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; cursor: pointer; }
+.imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.imp-cell { position: relative; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: var(--surface-2); cursor: pointer; user-select: none; content-visibility: auto; contain-intrinsic-size: 112px 128px; }
+.imp-cell img, .imp-noimg { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--surface-2); }
+.imp-noimg { display: flex; align-items: center; justify-content: center; font-size: 26px; }
+.imp-cell:not(.on) img { opacity: .45; filter: grayscale(.5); }
+.imp-cell.on { border-color: var(--accent); }
+.imp-check { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, .35); border: 2px solid #fff; color: transparent; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.imp-cell.on .imp-check { background: var(--accent); color: #fff; }
+.imp-known { position: absolute; left: 4px; top: 4px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+.imp-name { font-size: 11px; padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.imp-mode { display: grid; gap: 6px; margin: 6px 0 10px; } .imp-opt { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.imp-opts { display: grid; gap: 6px; margin: 8px 0; }
+.imp-warn { border: 1px solid var(--bad); background: color-mix(in srgb, var(--bad) 9%, transparent); border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 6px 0 10px; }
+.imp-warn[hidden], .imp-progress[hidden] { display: none; }
+.imp-progress { margin: 10px 0 2px; } .imp-bar { height: 8px; border-radius: 99px; border: 1px solid var(--border); background: linear-gradient(to right, var(--accent) var(--p, 0%), var(--surface-2) var(--p, 0%)); margin-bottom: 4px; }
+.imp-summary { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); } .imp-summary ul { margin: 6px 0 8px 18px; padding: 0; }
 .progress { height: 7px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; overflow: hidden; margin: 4px 0; }
 .progress i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width .2s; }
 .facet { cursor: pointer; }

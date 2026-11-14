@@ -4,6 +4,49 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.32.0] — 2026-11-15
+
+### Ajouté
+
+- **Importation : supports détectés** (`lib/drives.mjs`) : cartes mémoire, clés USB et disques branchés
+  sont listés en tête de l'écran (Windows : `Win32_LogicalDisk` ; macOS / Linux : points de montage
+  usuels). Une carte d'appareil photo est reconnue à son dossier `DCIM`. Actualisation toute seule
+  toutes les 10 secondes, avec une notification au branchement d'une carte. « Enregistrer comme support »
+  mémorise le lecteur dans l'écran Supports ; un lecteur déjà enregistré est reconnu (point de montage ou
+  empreinte). Le disque système et les lecteurs fixes sont rangés sous « Autres lecteurs ».
+- **Choix des photos à importer** : vignettes groupées par dossier, cases à cocher (clic, Maj + clic pour
+  une série, tout / aucune / nouvelles seulement / inverser). Les photos probablement déjà dans la
+  photothèque (même nom et même taille) sont signalées et décochées par défaut. Aperçus servis uniquement
+  pour les dossiers analysés (`GET /api/import/preview`, 403 ailleurs).
+- **Copier ou déplacer** :
+  - **copier** : la source n'est jamais touchée (inchangé), vérification d'empreinte facultative ;
+  - **déplacer** : chaque photo est copiée, **comparée à l'original par SHA-256**, indexée, et seulement
+    alors supprimée de la source. En cas de doute (copie différente, indexation en échec, suppression
+    impossible) la source est conservée et la copie ratée retirée ;
+  - photos déjà importées en mode « déplacer » : source conservée, sauf case « Retirer aussi de la
+    source… » ; l'exemplaire de la photothèque est alors revérifié (taille + empreinte), et un autre
+    exemplaire sur le même support ne compte pas ;
+  - refus de déplacer un fichier d'un dossier non analysé, de la photothèque ou du programme ;
+  - confirmation avant le déplacement, rappel de sauvegarder (la photothèque détient alors le seul exemplaire).
+- Import en tâche de fond avec barre de progression, bouton **Arrêter**, bilan (importées, déjà présentes,
+  sources conservées, erreurs) et un seul import à la fois ; contrôle de l'espace disponible.
+- Routes : `GET /api/import/drives`, `POST /api/import/drives/register`, `POST /api/import/scan`,
+  `GET /api/import/preview`, `POST /api/import/start`, `POST /api/import/cancel`. `POST /api/import`
+  accepte `mode`, `verify`, `removeDuplicateSources`.
+
+### Modifié
+
+- Règle de conception : « jamais de suppression de source » devient « jamais sans copie vérifiée et choix
+  explicite du mode Déplacer » (CLAUDE.md, docs).
+- Import : un fichier déjà indexé « sur place » n'est plus pris pour un doublon de lui-même ; une copie
+  incomplète ou ratée est retirée ; les dates du fichier source sont reportées sur la copie.
+- La table `imports` garde le mode, les compteurs et les sources supprimées (`data`).
+
+### Limites
+
+- Les fichiers annexes (XMP) voisins d'une photo ne sont ni copiés ni déplacés.
+- Détection testée sous Windows ; macOS et Linux utilisent les points de montage usuels, sans essai réel.
+
 ## [0.31.0] — 2026-11-14
 
 ### Ajouté

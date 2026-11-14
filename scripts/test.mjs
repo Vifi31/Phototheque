@@ -360,6 +360,155 @@ group('Import (copie) : doublons et collisions gérés, source intacte');
 }
 
 // ===================================================================
+group('Importation : supports détectés, choix des photos, copie ou déplacement vérifié');
+// ===================================================================
+{
+  const { parseWindowsDisks, classifyDrive, detectDrives } = await import('../lib/drives.mjs');
+  // --- détection : normalisation de la sortie Windows ---
+  const rows = [
+    { DeviceID: 'C:', DriveType: 3, VolumeName: 'OS', FileSystem: 'NTFS', Size: 1e12, FreeSpace: 4e11, VolumeSerialNumber: 'AAAA1111' },
+    { DeviceID: 'E:', DriveType: 2, VolumeName: 'EOS_DIGITAL', FileSystem: 'exFAT', Size: 64e9, FreeSpace: 50e9, VolumeSerialNumber: 'BBBB2222' },
+    { DeviceID: 'F:', DriveType: 2, VolumeName: '', FileSystem: null, Size: null, FreeSpace: null },     // lecteur de cartes vide
+    { DeviceID: 'Z:', DriveType: 4, VolumeName: 'NAS', FileSystem: 'NTFS', Size: 4e12, FreeSpace: 1e12 },
+  ];
+  const parsed = parseWindowsDisks(JSON.stringify(rows));
+  check('détection : lecteur vide ignoré', parsed.map(d => d.letter).join(','), 'C:,E:,Z:', 0);
+  check('détection : un seul lecteur (objet et non tableau)', parseWindowsDisks(JSON.stringify(rows[1])).length, 1, 0);
+  check('détection : sortie illisible → liste vide', parseWindowsDisks('pas du json').length + parseWindowsDisks('').length, 0, 0);
+  const kind = (d, extra = {}) => classifyDrive({ ...parsed.find(x => x.letter === d), ...extra }).kind;
+  check('détection : amovible + DCIM = carte mémoire', kind('E:', { dcim: 'E:\\DCIM' }), 'sd', 0);
+  check('détection : amovible sans DCIM = clé USB', kind('E:'), 'usb', 0);
+  check('détection : disque fixe', kind('C:'), 'disk', 0);
+  check('détection : lecteur réseau', kind('Z:'), 'nas', 0);
+  check('détection : disque système repéré, jamais proposé en premier', classifyDrive(parsed[0]).system && !classifyDrive(parsed[0]).likelyImport, true, 0);
+  check('détection : carte amovible proposée en premier', classifyDrive(parsed[1]).likelyImport, true, 0);
+  const fake = await detectDrives({ platform: 'win32', systemDrive: 'C:', exec: async () => JSON.stringify(rows) });
+  check('détection : amovible avant le disque système', fake.map(d => d.letter).join(','), 'E:,C:,Z:', 0);
+  const down = await detectDrives({ platform: 'win32', exec: async () => { throw new Error('PowerShell absent'); } });
+  check('détection : repli sans PowerShell (aucune erreur)', Array.isArray(down), true, 0);
+
+  // --- analyse d'un dossier source ---
+  const card = path.join(TMP, 'carte-import');
+  const sub = (...a) => path.join(card, ...a);
+  fs.mkdirSync(sub('DCIM', '100TEST'), { recursive: true }); fs.mkdirSync(sub('DCIM', '101TEST'), { recursive: true }); fs.mkdirSync(sub('.Trashes'), { recursive: true });
+  const col = n => ({ color: { r: 10 + n * 20, g: 200 - n * 15, b: 30 + n * 9 } });
+  await makeImage(sub('DCIM', '100TEST', 'A1.jpg'), { make: 'Canon', model: 'R6', ...col(1) });
+  await makeImage(sub('DCIM', '100TEST', 'A2.jpg'), { make: 'Canon', model: 'R6', ...col(2) });
+  await makeImage(sub('DCIM', '101TEST', 'B1.jpg'), { make: 'Canon', model: 'R6', ...col(3) });
+  await makeImage(sub('DCIM', '101TEST', 'B2.jpg'), { make: 'Canon', model: 'R6', ...col(4) });
+  fs.writeFileSync(sub('DCIM', '100TEST', 'notes.txt'), 'pas une image');
+  fs.writeFileSync(sub('.Trashes', 'caché.jpg'), 'x');
+  const importsBefore = DB.prepare('SELECT COUNT(*) n FROM imports').get().n;
+  const sc = await IMP.scan(card);
+  check('analyse : 4 images (sans texte ni dossier caché)', sc.total, 4, 0);
+  check('analyse : triées par dossier puis par nom', sc.files.map(f => f.name).join(','), 'A1.jpg,A2.jpg,B1.jpg,B2.jpg', 0);
+  check('analyse : dossier relatif indiqué', sc.files[2].dir, path.join('DCIM', '101TEST'), 0);
+  check('analyse : rien n\'est encore connu de la photothèque', sc.newCount, 4, 0);
+  check('analyse : volume total', sc.bytes, sc.files.reduce((a, f) => a + fs.statSync(f.path).size, 0), 0);
+  check('analyse : dossier inexistant refusé', await IMP.scan(path.join(TMP, 'absent')).then(() => 'ok', e => /introuvable/.test(e.message) ? 'refus' : e.message), 'refus', 0);
+  check('analyse : un fichier n\'est pas un dossier', await IMP.scan(sub('DCIM', '100TEST', 'A1.jpg')).then(() => 'ok', () => 'refus'), 'refus', 0);
+  check('analyse : limite respectée', (await IMP.scan(card, { limit: 2 })).truncated, true, 0);
+
+  // --- aperçus : uniquement dans les dossiers analysés ---
+  const pv = await IMP.preview(sub('DCIM', '100TEST', 'A1.jpg'), 120);
+  check('aperçu : image JPEG réduite', Buffer.isBuffer(pv) && pv[0] === 0xFF && pv[1] === 0xD8, true, 0);
+  const refuse = f => IMP.preview(f).then(() => 'ok', e => e.status);
+  check('aperçu : fichier hors des dossiers analysés refusé', await refuse(path.join(TMP, 'doublon.jpg')), 403, 0);
+  check('aperçu : remontée de dossier (..) refusée', await refuse(sub('DCIM', '..', '..', 'doublon.jpg')), 403, 0);
+  check('aperçu : fichier non image refusé', await refuse(sub('DCIM', '100TEST', 'notes.txt')), 403, 0);
+  check('aperçu : fichier absent', await refuse(sub('DCIM', '100TEST', 'zz.jpg')), 404, 0);
+
+  // --- choix des photos : seules les photos choisies sont importées ---
+  STORE.import.dest = path.join(TMP, 'imports-choix'); STORE.import.keepFolders = false; saveStore(DB, STORE);
+  const choisies = [sub('DCIM', '100TEST', 'A1.jpg'), sub('DCIM', '101TEST', 'B2.jpg')];
+  const rc = await IMP.importFiles(choisies, { mode: 'copy', verify: true });
+  check('choix : 2 photos sur 4 copiées', rc.copied, 2, 0);
+  check('choix : les autres ne sont pas copiées', fs.readdirSync(STORE.import.dest).sort().join(','), 'A1.jpg,B2.jpg', 0);
+  check('choix : en copie, toutes les sources restent', sc.files.every(f => fs.existsSync(f.path)), true, 0);
+  const sc2 = await IMP.scan(card);
+  check('analyse : les photos déjà importées sont repérées (nom + taille)', sc2.files.filter(f => f.known).map(f => f.name).join(','), 'A1.jpg,B2.jpg', 0);
+  check('analyse : 2 nouvelles', sc2.newCount, 2, 0);
+  const rowC = DB.prepare('SELECT mode, total, done FROM imports ORDER BY started_at DESC, rowid DESC LIMIT 1').get();
+  check('journal des imports : mode copie', rowC.mode, 'copy', 0);
+  check('journal des imports : une ligne par import', DB.prepare('SELECT COUNT(*) n FROM imports').get().n, importsBefore + 1, 0);
+
+  // --- copie vérifiée : une copie altérée est refusée et retirée ---
+  const corrompre = (s, d) => { fs.copyFileSync(s, d); fs.appendFileSync(d, 'x'); };
+  const rv = await IMP.importFiles([sub('DCIM', '100TEST', 'A2.jpg')], { mode: 'copy', verify: true, copyFile: corrompre });
+  check('copie vérifiée : altération détectée', rv.errors, 1, 0);
+  check('copie vérifiée : la copie ratée est retirée', fs.existsSync(path.join(STORE.import.dest, 'A2.jpg')), false, 0);
+
+  // --- déplacement ---
+  const mv = f => IMP.importFiles(f, { mode: 'move' });
+  const dA2 = sub('DCIM', '100TEST', 'A2.jpg'), dB1 = sub('DCIM', '101TEST', 'B1.jpg');
+  // refus : dossier non analysé
+  const horsAnalyse = path.join(TMP, 'hors-analyse.jpg'); await makeImage(horsAnalyse, { color: { r: 77, g: 78, b: 79 } });
+  const r0 = await mv([horsAnalyse]);
+  check('déplacement : refusé hors d\'un dossier analysé', r0.skipped + '/' + r0.copied, '1/0', 0);
+  check('déplacement : la source hors analyse reste intacte', fs.existsSync(horsAnalyse), true, 0);
+  // simulation
+  const rd = await IMP.importFiles([dA2], { mode: 'move', dryRun: true });
+  check('déplacement : simulation sans effet', rd.results[0].status === 'would-move' && fs.existsSync(dA2) && !fs.existsSync(path.join(STORE.import.dest, 'A2.jpg')), true, 0);
+  // copie altérée : la source est conservée
+  const rb = await IMP.importFiles([dA2], { mode: 'move', copyFile: corrompre });
+  check('déplacement : copie altérée → erreur', rb.errors, 1, 0);
+  check('déplacement : copie altérée → source conservée', fs.existsSync(dA2), true, 0);
+  check('déplacement : copie altérée → copie retirée', fs.existsSync(path.join(STORE.import.dest, 'A2.jpg')), false, 0);
+  // suppression impossible : la copie reste, la source aussi, signalé
+  const rk = await IMP.importFiles([dA2], { mode: 'move', removeFile: () => { throw new Error('support protégé en écriture'); } });
+  check('déplacement : suppression impossible → source gardée et signalée', rk.keptSources + '/' + rk.moved + '/' + rk.copied, '1/0/1', 0);
+  check('déplacement : suppression impossible → la copie est bien dans la photothèque', fs.existsSync(path.join(STORE.import.dest, 'A2.jpg')) && fs.existsSync(dA2), true, 0);
+  // arrêt demandé : rien n'est fait
+  const rs = await IMP.importFiles([dB1], { mode: 'move', shouldStop: () => true });
+  check('déplacement : arrêt demandé avant le début', rs.stopped && rs.copied === 0 && fs.existsSync(dB1), true, 0);
+  // déplacement réel
+  const hB1 = crypto.createHash('sha256').update(fs.readFileSync(dB1)).digest('hex');
+  const rm = await mv([dB1]);
+  check('déplacement : fichier déplacé', rm.moved + '/' + rm.copied + '/' + rm.errors, '1/1/0', 0);
+  check('déplacement : la source n\'existe plus', fs.existsSync(dB1), false, 0);
+  const movedDest = rm.results[0].dest;
+  check('déplacement : le contenu est identique (empreinte)', crypto.createHash('sha256').update(fs.readFileSync(movedDest)).digest('hex'), hB1, 0);
+  const rowM = DB.prepare('SELECT p.id, f.path, f.kind FROM files f JOIN photos p ON p.id = f.photo_id WHERE f.sha256 = ?').all(hB1);
+  check('déplacement : la photo est indexée à son nouvel emplacement', rowM.length === 1 && rowM[0].path === movedDest, true, 0);
+  const imM = DB.prepare("SELECT mode, data FROM imports WHERE mode = 'move' AND json_extract(data, '$.moved') = 1").get();
+  check('journal : import en mode déplacement', !!imM && JSON.parse(imM.data).removedSources.includes(dB1), true, 0);
+  check('journal d\'historique : déplacement tracé', DB.prepare("SELECT COUNT(*) n FROM history WHERE kind = 'import.move'").get().n >= 1, true, 0);
+  // une source déjà dans la photothèque n'est pas « déplacée » sur elle-même
+  const rin = await IMP.importFiles([movedDest], { mode: 'move' });
+  check('déplacement : un fichier de la photothèque est ignoré', rin.skipped, 1, 0);
+  check('déplacement : il reste en place', fs.existsSync(movedDest), true, 0);
+
+  // --- doublons en mode déplacement : la source n'est retirée que sur demande ET preuve ---
+  const dA1 = sub('DCIM', '100TEST', 'A1.jpg');                      // déjà copiée plus haut : doublon
+  const rdup = await IMP.importFiles([dA1], { mode: 'move' });
+  check('doublon (déplacement) : source conservée par défaut', rdup.duplicates === 1 && fs.existsSync(dA1) && rdup.removedDuplicates === 0, true, 0);
+  const rdup2 = await IMP.importFiles([dA1], { mode: 'move', removeDuplicateSources: true });
+  check('doublon (déplacement) : source retirée avec la case cochée', rdup2.removedDuplicates === 1 && !fs.existsSync(dA1) && rdup2.results[0].status === 'duplicate-removed', true, 0);
+  // l'exemplaire de la photothèque a disparu : la source est conservée
+  const dB2 = sub('DCIM', '101TEST', 'B2.jpg'), copieB2 = path.join(STORE.import.dest, 'B2.jpg');
+  fs.renameSync(copieB2, copieB2 + '.off');
+  const rdup3 = await IMP.importFiles([dB2], { mode: 'move', removeDuplicateSources: true });
+  check('doublon (déplacement) : exemplaire absent → source conservée', fs.existsSync(dB2) && rdup3.removedDuplicates === 0, true, 0);
+  fs.renameSync(copieB2 + '.off', copieB2);
+  // exemplaire altéré : la source est conservée
+  fs.appendFileSync(copieB2, 'x');
+  const rdup4 = await IMP.importFiles([dB2], { mode: 'move', removeDuplicateSources: true });
+  check('doublon (déplacement) : exemplaire différent → source conservée', fs.existsSync(dB2) && rdup4.removedDuplicates === 0, true, 0);
+  // un autre exemplaire sur le même support ne prouve rien
+  fs.writeFileSync(copieB2, fs.readFileSync(dB2));
+  const jumeau = sub('DCIM', '101TEST', 'B2-copie.jpg'); fs.copyFileSync(dB2, jumeau);
+  await LIB.indexFile(jumeau, {});
+  fs.renameSync(copieB2, copieB2 + '.off');
+  const rdup5 = await IMP.importFiles([dB2], { mode: 'move', removeDuplicateSources: true });
+  check('doublon (déplacement) : un jumeau sur la même carte ne suffit pas', fs.existsSync(dB2) && rdup5.removedDuplicates === 0, true, 0);
+  fs.renameSync(copieB2 + '.off', copieB2);
+
+  // --- route : aucune suppression sans dossier analysé (via le moteur, même par la voie synchrone) ---
+  check('déplacement : checkMovable refuse un chemin quelconque', IMP.checkMovable(path.join(TMP, 'doublon.jpg')) !== null, true, 0);
+  check('déplacement : checkMovable accepte un fichier analysé', IMP.checkMovable(dB2), null, 0);
+}
+
+// ===================================================================
 group('Collections : sélections et recherches enregistrées');
 // ===================================================================
 {

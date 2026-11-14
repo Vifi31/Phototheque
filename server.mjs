@@ -46,7 +46,7 @@ const { db, store } = initStore();
 const supports = createSupports(db);
 const keywords = createKeywords(db);
 const library = createLibrary(db, store, supports, keywords);
-const imports = createImports(db, store, library, keywords);
+const imports = createImports(db, store, library, keywords, supports);
 const collections = createCollections(db, library);
 const edits = createEdits(db, library);
 const albums = createAlbums(db, library, edits); // edits : recréer les retouches d'un projet réimporté
@@ -567,11 +567,68 @@ async function api(req, res, url) {
     }
   }
 
-  // ---- Importation physique (copie) ----
+  // ---- Importation physique : supports détectés, choix des photos, copie ou déplacement ----
+  const importErr = (e, code = 400) => json(res, e.status || code, { error: String(e.message || e) });
+  if (p === '/api/import/drives' && m === 'GET') {
+    try { return json(res, 200, { drives: await imports.drives({ fresh: url.searchParams.get('fresh') === '1' }), platform: process.platform, dest: imports.destRoot() }); }
+    catch (e) { return importErr(e, 500); }
+  }
+  // enregistre un lecteur détecté comme support (rôle « Transfert » : à modifier dans l'écran Supports)
+  if (p === '/api/import/drives/register' && m === 'POST') {
+    const b = await readBody(req);
+    const d = (await imports.drives()).find(x => x.root === String(b.root ?? ''));
+    if (!d) return json(res, 404, { error: 'Lecteur introuvable (débranché ?)' });
+    if (d.support) return json(res, 200, { support: supports.get(d.support.id), already: true });
+    const kind = { sd: 'sd', usb: 'usb', disk: 'disk', nas: 'nas' }[d.kind] ?? 'other';
+    const name = String(b.name || d.label || (d.letter ? `Lecteur ${d.letter}` : path.basename(d.root))).trim().slice(0, 120);
+    return json(res, 200, { support: supports.upsert({ name, kind, role: 'transfer', mount_path: d.root, serial: d.serial ?? '' }) });
+  }
+  if (p === '/api/import/scan' && m === 'POST') {
+    const b = await readBody(req);
+    try { return json(res, 200, await imports.scan(b.path, { limit: Math.min(50000, Math.max(1, +b.limit || 20000)) })); }
+    catch (e) { return importErr(e); }
+  }
+  if (p === '/api/import/preview' && m === 'GET') {
+    try {
+      const buf = await imports.preview(url.searchParams.get('path'), url.searchParams.get('size'));
+      if (!buf) { res.writeHead(204); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=300' });
+      return res.end(buf);
+    } catch (e) { return importErr(e, 404); }
+  }
+  // import asynchrone (progression : /api/jobs/<id>) ; un seul import à la fois
+  if (p === '/api/import/start' && m === 'POST') {
+    const b = await readBody(req);
+    const sources = Array.isArray(b.sources) ? b.sources.map(String).filter(Boolean) : [];
+    if (!sources.length) return json(res, 400, { error: 'Aucune photo choisie' });
+    if (sources.length > 100000) return json(res, 400, { error: 'Sélection trop grande' });
+    const mode = b.mode === 'move' ? 'move' : 'copy';
+    if ([...JOBS.values()].some(j => j.kind === 'import' && j.status === 'running')) return json(res, 409, { error: 'Un import est déjà en cours' });
+    if (mode === 'move') { // pas de suppression sans analyse préalable du dossier : refus global avant de commencer
+      const bad = sources.find(s => imports.checkMovable(s));
+      if (bad) return json(res, 400, { error: `Déplacement refusé pour « ${bad} » : ${imports.checkMovable(bad)}` });
+    }
+    const sup = b.supportId ? supports.get(String(b.supportId)) : null;
+    const jobId = 'j' + Date.now().toString(36);
+    const job = { id: jobId, kind: 'import', mode, done: 0, total: sources.length, current: null, status: 'running', result: null, error: null, cancel: false };
+    JOBS.set(jobId, job);
+    imports.importFiles(sources, {
+      mode, verify: b.verify !== false, removeDuplicateSources: !!b.removeDuplicateSources, supportId: sup?.id ?? null, supportName: sup?.name ?? null, root: b.root ? String(b.root) : null,
+      // seuls done / total / current : le champ `status` du travail ne doit pas être écrasé par l'étape en cours
+      onProgress: pr => { job.done = pr.done; job.total = pr.total; job.current = pr.current; job.phase = pr.status; }, shouldStop: () => job.cancel,
+    }).then(r => { job.status = r.stopped ? 'stopped' : 'done'; job.result = r; job.done = r.total; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
+    return json(res, 200, { jobId, job });
+  }
+  if (p === '/api/import/cancel' && m === 'POST') {
+    const b = await readBody(req); const j = JOBS.get(String(b.jobId ?? ''));
+    if (!j || j.kind !== 'import') return json(res, 404, { error: 'Import inconnu' });
+    j.cancel = true; return json(res, 200, { job: j });
+  }
+  // import synchrone (liste de chemins) : même moteur ; le mode « move » exige des fichiers d'un dossier analysé
   if (p === '/api/import' && m === 'POST') {
     const b = await readBody(req);
-    const r = await imports.importFiles(b.sources, { dryRun: !!b.dryRun, force: !!b.force });
-    return json(res, 200, r);
+    try { return json(res, 200, await imports.importFiles(b.sources, { dryRun: !!b.dryRun, force: !!b.force, mode: b.mode === 'move' ? 'move' : 'copy', verify: !!b.verify, removeDuplicateSources: !!b.removeDuplicateSources })); }
+    catch (e) { return importErr(e); }
   }
   if (p === '/api/import/index' && m === 'POST') { const b = await readBody(req); const r = await imports.importIndexOnly(String(b.path || '').trim(), { supportId: b.supportId }); return json(res, 200, r); }
   if (p === '/api/imports' && m === 'GET') return json(res, 200, { list: imports.list() });

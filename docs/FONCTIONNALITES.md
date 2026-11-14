@@ -13,7 +13,7 @@ les tests automatisés (`npm test`) ou vérifiée dans l'application.
 
 | Domaine | Fonctions |
 | --- | --- |
-| **Catalogue** | <ul><li>Base SQLite avec migrations versionnées</li><li>Indexation sans copie (originaux en lecture seule)</li><li>Importation par copie, avec détection des doublons et noms uniques</li><li>Vignettes et aperçus en cache</li><li>Supports de stockage, avec détection des supports absents et reconnexion par empreinte</li></ul> |
+| **Catalogue** | <ul><li>Base SQLite avec migrations versionnées</li><li>Indexation sans copie (originaux en lecture seule)</li><li>Importation par copie ou déplacement vérifié (SHA-256), avec détection des supports branchés, choix des photos, détection des doublons et noms uniques</li><li>Vignettes et aperçus en cache</li><li>Supports de stockage, avec détection des supports absents et reconnexion par empreinte</li></ul> |
 | **Métadonnées** | <ul><li>EXIF, IPTC et XMP (fichier et annexe), avec règle de priorité</li><li>Modification en masse, avec aperçu et lots annulables</li><li>Écriture d'annexes XMP</li><li>Lecture du profil ICC</li></ul> |
 | **Classement** | <ul><li>Notes et étiquettes de couleur</li><li>Mots-clés hiérarchiques, synonymes et catégories</li><li>Doublons de vocabulaire</li><li>Collections : sélections et recherches enregistrées</li></ul> |
 | **Recherche** | <ul><li>Plein texte FTS5, insensible aux accents</li><li>Critères avancés : dates, appareil, objectif, lieu, GPS, état de sauvegarde, manques…</li><li>Variantes masquables</li></ul> |
@@ -52,6 +52,15 @@ les tests automatisés (`npm test`) ou vérifiée dans l'application.
   - l'échange avec Ollama est testé avec un serveur simulé ;
   - Ollama est installé sur la machine de développement, mais sans modèle de
     vision. Il n'a donc pas été essayé avec un vrai modèle de vision.
+
+### Importation
+
+- **Déplacement** : la source n'est effacée qu'après une copie identique (SHA-256) et indexée ; la
+  photothèque détient ensuite le seul exemplaire, à sauvegarder.
+- **Détection des supports** : testée sous Windows (cartes et clés non essayées sur un vrai lecteur :
+  les tests couvrent l'analyse de la sortie système). macOS et Linux : points de montage usuels, sans essai réel.
+- **Téléphones** (MTP) : non détectés comme lecteurs ; copiez d'abord les photos vers un dossier.
+- Les fichiers annexes XMP voisins d'une photo ne sont ni copiés ni déplacés.
 
 ### Distribution
 

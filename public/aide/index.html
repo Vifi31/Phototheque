@@ -170,7 +170,7 @@
     <div class="kicker">Guide de l’utilisateur</div>
     <h1>📷 Photothèque</h1>
     <p class="lead">Rassembler, retrouver, classer, embellir et transmettre toutes vos photos, sans jamais toucher à vos originaux.</p>
-    <div class="meta">Version <span id="appVersion">0.31.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
+    <div class="meta">Version <span id="appVersion">0.32.0</span> · application locale pour Windows · aucune connexion Internet nécessaire</div>
   </div>
   <div class="shot">
     <figure style="margin:0"><img src="img/phototheque.jpg" alt="La Photothèque : la grille des photos, les filtres et le menu de gauche"></figure>
@@ -306,7 +306,9 @@
   <h2 class="ch"><span class="n">3</span>Importer et indexer</h2>
   <p class="sub">Faire entrer vos photos dans le catalogue — avec ou sans copie.</p>
 
-  <figure><img src="img/importation.jpg" alt="L'écran Importation"><figcaption>L’écran Importation : ajouter un dossier, suivre les dossiers indexés, importer avec copie.</figcaption></figure>
+  <figure><img src="img/importation.jpg" alt="L'écran Importation"><figcaption>L’écran Importation : supports détectés, choix des photos, copie ou déplacement, dossiers indexés.</figcaption></figure>
+
+  <figure><img src="img/importation-choix.jpg" alt="Choix des photos à importer"><figcaption>Le choix des photos : vignettes groupées par dossier, photos à importer cochées, puis Copier ou Déplacer.</figcaption></figure>
 
   <div class="two">
     <div>
@@ -320,13 +322,20 @@
       <p>La Photothèque parcourt les sous-dossiers, lit les métadonnées (date, appareil, GPS…), calcule l’empreinte de chaque fichier et crée les vignettes. Relancez <span class="ui">Indexer</span> après avoir ajouté des photos : seules les nouveautés sont traitées.</p>
     </div>
     <div>
-      <h3>Importer (avec copie)</h3>
-      <p>Pour vider une <b>carte mémoire</b> ou un téléphone : les fichiers sont <b>copiés</b> dans votre dossier de bibliothèque (réglable dans Paramètres), classés par année si vous le souhaitez.</p>
+      <h3>Importer depuis une carte</h3>
+      <p>Pour vider une <b>carte mémoire</b> ou une clé : les fichiers sont <b>copiés</b> (ou déplacés) dans votre dossier de bibliothèque (réglable dans Paramètres), classés par année si vous le souhaitez.</p>
+      <ol class="steps">
+        <li><b>Supports détectés</b> : branchez la carte ; elle apparaît toute seule (vérification toutes les 10 secondes, ou <span class="ui">Actualiser</span>). Les cartes d’appareil photo sont reconnues à leur dossier <span class="k">DCIM</span>. <span class="ui">Enregistrer comme support</span> la mémorise dans l’écran Supports.</li>
+        <li><span class="ui">Choisir les photos…</span> affiche les vignettes, groupées par dossier. Par défaut, seules les photos <b>pas encore importées</b> sont cochées ; cliquez pour cocher ou décocher, <span class="k">Maj</span> + clic pour une série.</li>
+        <li>Choisissez <b>Copier</b> (la carte garde ses photos) ou <b>Déplacer</b>, puis lancez l’import. Un bilan s’affiche à la fin.</li>
+      </ol>
       <ul>
         <li>Les photos déjà présentes (même empreinte) sont repérées et ne sont pas copiées deux fois.</li>
         <li>En cas de nom identique, un nom unique est créé : rien n’est écrasé.</li>
-        <li>La source n’est jamais vidée : effacez la carte vous-même, une fois rassuré.</li>
+        <li><b>Déplacer</b> efface les photos de la carte, <b>mais seulement après</b> que chaque copie a été comparée à l’original (empreinte SHA-256) et indexée. En cas de doute, l’original est conservé. Une confirmation est demandée.</li>
+        <li>Les photos <b>déjà importées</b> restent sur la carte en mode Déplacer, sauf si vous cochez « Retirer aussi de la source… » : l’exemplaire de la photothèque est alors revérifié avant de les effacer.</li>
       </ul>
+      <p><b>Après un déplacement</b>, la photothèque détient le seul exemplaire : faites une sauvegarde (Administration, Sauvegardes).</p>
     </div>
   </div>
 

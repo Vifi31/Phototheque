@@ -47,7 +47,8 @@ lib/
   db.mjs           Base SQLite : schéma, migrations, transactions, intégrité
   store.mjs        Persistance (chargement/enregistrement du store)
   library.mjs      Moteur : scan, indexation, métadonnées, vignettes, recherche
-  imports.mjs      Importation physique (copie) + détection de doublons
+  imports.mjs      Importation physique (copie / déplacement vérifié) + détection de doublons
+  drives.mjs       Détection des lecteurs branchés (cartes, clés, disques) pour l'écran Importation
   supports.mjs     Inventaire des supports, détection/reconnexion
   keywords.mjs     Mots-clés (hiérarchie, synonymes, catégories, fusion, doublons de vocabulaire)
   xmp.mjs          Champs documentaires, lecture / écriture XMP, profil ICC (pur)
@@ -140,7 +141,7 @@ Si le support est absent, la fiche photo est conservée, marquée
 | Changement de lettre de lecteur (Windows) | Chemins invalides | Recherche par empreinte de volume + chemin relatif + noms de fichiers. |
 | Volume important (centaines de milliers de photos) | Lenteur | Indexation par lots, en arrière-plan ; vignettes générées progressivement ; index SQL sur les colonnes recherchées. |
 | Corruption de la base | Perte du catalogue | WAL, sauvegardes régulières, `PRAGMA integrity_check`, export JSON. |
-| Perte d'un original | Irrémplaçable | Ne jamais supprimer la source sans confirmation ; avertir qu'un fichier présent sur un 2ᵉ support n'est pas une sauvegarde vérifiée. |
+| Perte d'un original | Irrémplaçable | Ne jamais supprimer la source sans confirmation ; avertir qu'un fichier présent sur un 2ᵉ support n'est pas une sauvegarde vérifiée. Import « Déplacer » : suppression seulement après copie vérifiée par SHA-256, confirmation et rappel de sauvegarde (§29). |
 | Dépendances natives (sharp) | Problème d'installation | Binaires précompilés ; repli : lecture des dimensions sans vignette. |
 
 ## 8. Étapes de réalisation (méthode)
@@ -866,3 +867,32 @@ les confirmations se font par un second clic sur le bouton, pas par
   gestionnaires de la fenêtre modale et de la visionneuse ; sans choix, Entrée garde son rôle (valider la
   saisie). Un chemin saisi à la main (`Lieux|Montagne`) n'est pas proposé. Testé dans `scripts/test.mjs`
   (`ui.js` chargé dans un contexte `vm`).
+
+## 29. Importation : supports détectés, choix des photos, copie ou déplacement (v0.32.0)
+
+* `lib/drives.mjs` : `detectDrives()` (Windows : `Get-CimInstance Win32_LogicalDisk` via PowerShell, ~2 s ; repli sur
+  les lettres existantes ; macOS / Linux : `/Volumes`, `/media`, `/run/media`, `/mnt`). `parseWindowsDisks` et
+  `classifyDrive` sont purs et testés : les lecteurs sans volume (lecteur de cartes vide) sont ignorés ;
+  amovible + `DCIM` = carte (`sd`), amovible sans `DCIM` = clé (`usb`), fixe = disque, réseau = NAS (jamais sondé).
+  `likelyImport` (amovible ou `DCIM`, hors disque système) range le lecteur en tête.
+* `imports.drives()` : détection mise en cache 4 s (appels simultanés regroupés) + rapprochement avec les supports
+  enregistrés (point de montage ou empreinte). Interface : actualisation toutes les 10 s tant que l'écran est affiché.
+* `imports.scan(dossier)` : liste récursive des images (sans dossiers cachés / corbeilles), triée ; `known` = un
+  fichier de même nom et de même taille est déjà dans `files` (indication, le doublon exact reste décidé par
+  SHA-256). Le dossier est mémorisé comme **analysé** : `imports.preview()` (vignette JPEG, cache mémoire) et le
+  mode « move » n'acceptent que des fichiers sous un dossier analysé.
+* `imports.importFiles(sources, { mode, verify, removeDuplicateSources, shouldStop, copyFile, removeFile })` :
+  - copie → contrôle de taille → (en move, ou `verify`) SHA-256 de la copie → dates reportées → indexation ;
+  - **move** : suppression de la source seulement si copie identique **et** indexation réussie ; sinon la copie
+    ratée est retirée et la source reste. `dropFileRow` retire la ligne `files` de la source (indexée sur place) et
+    promeut la copie en « original » ;
+  - doublon + `removeDuplicateSources` : source supprimée si un exemplaire **hors du support source** existe,
+    de même taille et de même empreinte (recalculée) ; sinon conservée avec la raison ;
+  - `checkMovable` refuse : dossier non analysé, fichier dans la photothèque, dans `data/` ou dans le programme ;
+  - `copyFile` / `removeFile` sont injectables (tests : copie altérée, suppression impossible).
+* Serveur : `POST /api/import/start` crée un travail (`JOBS`, `kind: 'import'`) ; un seul à la fois (409) ;
+  `onProgress` ne touche que `done / total / current / phase` (le `status` du travail ne doit jamais être écrasé :
+  l'interface l'interroge). `POST /api/import/cancel` positionne `job.cancel`.
+* Table `imports` : `mode` (`copy` | `move`) et `data` (compteurs, `removedSources` plafonné à 500). Historique :
+  `import.copy` / `import.move`.
+* Non couvert : XMP annexes voisins, lecteurs sans lettre (MTP : téléphones), détection macOS / Linux non essayée.

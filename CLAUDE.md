@@ -52,9 +52,12 @@ n'a aucune logique métier.
 
 ## Conventions
 
-- **Pas de suppression de source.** Ni l'indexation ni l'import ne suppriment,
-  déplacent ni écrasent un fichier d'origine. En cas de collision de nom à
-  l'import, générer un nom unique.
+- **Pas de suppression de source, sauf choix explicite.** L'indexation et
+  l'import par copie ne suppriment, déplacent ni écrasent un fichier d'origine.
+  Seul l'import en mode « Déplacer » (choisi par l'utilisateur, avec
+  confirmation) supprime une source, et **seulement après** une copie
+  vérifiée (taille + SHA-256) et indexée ; au moindre doute la source reste.
+  Jamais d'écrasement : en cas de collision de nom, générer un nom unique.
 - **Support absent ≠ supprimé.** Un support déconnecté rend ses photos
   « indisponibles » ; la reconnexion est détectée par empreinte.
 - **Indexation sans copie** = lecture seule des originaux + vignettes en cache
@@ -190,7 +193,8 @@ bibliothèque).
    Tout le cahier des charges a une première version ; limites dans `docs/FONCTIONNALITES.md`.
    Filtre « Mots-clés » dans la barre de la Photothèque (sans / avec / un mot-clé, effectifs en direct)
    et propositions de mots-clés pendant la frappe (`UI.keywordInput`, synonymes compris) —
-   **livré en v0.31.0** (§28). Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
+   **livré en v0.31.0** (§28). Importation : supports détectés (`lib/drives.mjs`), choix des photos,
+   copier ou déplacer avec copie vérifiée — **livré en v0.32.0** (§29). Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

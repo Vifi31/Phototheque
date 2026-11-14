@@ -489,6 +489,8 @@ const App = (() => {
   }
 
   // ---------- vue Importation ----------
+  // 1. Supports détectés (cartes, clés, disques) → 2. choix des photos (vignettes) → 3. copie ou déplacement vérifié.
+  // Le déplacement ne supprime une source qu'après une copie vérifiée par empreinte (lib/imports.mjs).
   async function viewImport(v) {
     clear(v);
     const folders = await api('/folders');
@@ -526,39 +528,193 @@ const App = (() => {
         } catch { clearInterval(poll); }
       }, 500);
     }
-
-    mount(v,
-      h('h2.page-title', 'Importation'),
-      card(h('div.sect', 'Ajouter et indexer un dossier (sans copie)'),
-        h('p.dim', "L'indexation lit les fichiers, extrait les métadonnées et génère les vignettes. Vos originaux ne sont ni copiés, ni modifiés, ni déplacés."),
-        h('div.form',
-          field('Chemin du dossier', pathInput),
-          field('Support rattaché', supportSel),
-          h('div.field', h('label', ' '), h('button', { onclick: addFolder }, 'Ajouter le dossier')),
-        )),
-      card(h('div.sect', 'Dossiers indexés'), folderList),
-      card(h('div.sect', 'Importer des fichiers (copie vers la bibliothèque)'),
-        h('p.dim', "Transfère physiquement des fichiers vers le dossier d'import, avec détection de doublons (empreinte) et renommage en cas de collision. La source n'est jamais supprimée."),
-        h('div.form', field('Fichiers source (séparés par ;)', h('input#importSources', { type: 'text', placeholder: 'E:\\\\photo1.jpg ; E:\\\\photo2.jpg' })),
-          h('div.field', h('label', ' '), h('button', { onclick: doImport }, 'Importer (copie)'))),
-      ),
-    );
-    renderFolders(folders.list);
-
     async function addFolder() {
       const p = pathInput.value.trim(); if (!p) return toast('Chemin manquant', 'warn');
       try { await api('/folders', 'POST', { path: p, supportId: supportSel.value || null }); toast('Dossier ajouté'); pathInput.value = ''; renderFolders((await api('/folders')).list); }
       catch (e) { toast(e.message, 'bad'); }
     }
-    async function doImport() {
-      const sources = document.getElementById('importSources').value.split(';').map(s => s.trim()).filter(Boolean);
-      if (!sources.length) return toast('Indiquez au moins un fichier source', 'warn');
-      const r = await api('/import', 'POST', { sources });
-      toast(`Import : ${r.copied} copiée(s), ${r.duplicates} doublon(s), ${r.errors} erreur(s)`);
-      state.stats = await api('/stats'); renderNav();
-    }
-  }
 
+    // ----- 1. supports détectés -----
+    const drivesWrap = h('div', h('p.dim', 'Recherche des supports branchés…'));
+    const picker = h('div');
+    const manualInput = h('input', { type: 'text', placeholder: 'Ou tapez un dossier : E:\\DCIM, \\\\NAS\\photos…', onkeydown: e => { if (e.key === 'Enter') openPicker(manualInput.value.trim(), null); } });
+    let seen = null, destDir = '';
+    const DRIVE_ICON = { sd: '🗂️', usb: '🔌', disk: '💽', nas: '🌐', optical: '💿', other: '📁' };
+    async function loadDrives(fresh) {
+      try {
+        const r = await api('/import/drives' + (fresh ? '?fresh=1' : ''));
+        destDir = r.dest;
+        const roots = new Set(r.drives.map(d => d.root));
+        if (seen) for (const d of r.drives) if (!seen.has(d.root) && d.likelyImport) toast(`Support détecté : ${d.label || 'sans nom'} (${d.letter || d.root})`);
+        seen = roots;
+        renderDrives(r.drives);
+      } catch (e) { mount(drivesWrap, h('p.dim', 'Détection impossible : ' + e.message)); }
+    }
+    function driveTile(d) {
+      return h('div.drive' + (d.likelyImport ? '.hot' : ''),
+        h('div.drive-ico', DRIVE_ICON[d.kind] ?? '📁'),
+        h('div.grow',
+          h('div', h('b', d.label || 'Sans nom'), ' ', h('span.dim', d.letter || d.root)),
+          h('small.dim', [d.kindLabel, d.total ? fmtBytes(d.total) : null, d.total ? `${fmtBytes(d.free)} libres` : null, d.filesystem].filter(Boolean).join(' · ')),
+          h('div', d.dcim ? h('span.pill.ok', 'Photos d’appareil (DCIM)') : null, ' ', d.support ? h('span.pill.accent', 'Support : ' + d.support.name) : null, ' ', d.system ? h('span.pill', 'Disque système') : null)),
+        h('div.drive-actions',
+          h('button.small', { onclick: () => openPicker(d.dcim || d.root, d) }, 'Choisir les photos…'),
+          !d.support && !d.system ? h('button.ghost.small', { title: 'Mémorise ce lecteur dans l’écran Supports (suivi des originaux)', onclick: async () => {
+            try { await api('/import/drives/register', 'POST', { root: d.root }); toast('Support enregistré'); loadDrives(true); } catch (e) { toast(e.message, 'bad'); } } }, 'Enregistrer comme support') : null));
+    }
+    function renderDrives(list) {
+      const hot = list.filter(d => d.likelyImport), other = list.filter(d => !d.likelyImport);
+      mount(drivesWrap,
+        hot.length ? h('div.drives', ...hot.map(driveTile)) : h('p.dim', 'Aucune carte mémoire ni clé USB détectée. Branchez-en une : elle apparaît ici toute seule (vérification toutes les 10 secondes).'),
+        other.length ? h('details.drives-other', h('summary', `Autres lecteurs (${other.length})`), h('div.drives', ...other.map(driveTile))) : null);
+    }
+    loadDrives(false);
+    const driveTimer = setInterval(() => { if (!document.body.contains(drivesWrap)) return clearInterval(driveTimer); if (!document.hidden && !picker.dataset.busy) loadDrives(false); }, 10000);
+
+    // ----- 2. choix des photos -----
+    async function openPicker(root, drive) {
+      if (!root) return toast('Indiquez un dossier ou choisissez un lecteur', 'warn');
+      mount(picker, card(h('p.dim', `Analyse de ${root}…`)));
+      picker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      let sc;
+      try { sc = await api('/import/scan', 'POST', { path: root }); }
+      catch (e) { mount(picker, card(h('p', { style: { color: 'var(--bad)' } }, e.message))); return; }
+      renderPicker(sc, drive);
+    }
+
+    function renderPicker(sc, drive, summary = null) {
+      const files = sc.files;
+      const sel = new Set(files.filter(f => !f.known).map(f => f.path));       // par défaut : les photos pas encore importées
+      let mode = 'copy', verify = true, removeDup = false, last = -1;
+      const title = drive ? `${drive.label || 'Sans nom'} (${drive.letter || drive.root})` : sc.root;
+      const countEl = h('b'), sizeEl = h('span.dim');
+      const cells = new Map();
+      const sizeOf = () => files.reduce((a, f) => a + (sel.has(f.path) ? f.size : 0), 0);
+      const sync = () => {
+        countEl.textContent = `${fmtNum(sel.size)} photo(s) choisie(s) sur ${fmtNum(files.length)}`;
+        sizeEl.textContent = ' · ' + fmtBytes(sizeOf());
+        for (const [p, c] of cells) c.classList.toggle('on', sel.has(p));
+        for (const g of groupBoxes) g.cb.checked = g.items.every(f => sel.has(f.path)) && g.items.length > 0;
+        runBtn.textContent = mode === 'move' ? `Déplacer ${fmtNum(sel.size)} photo(s)` : `Copier ${fmtNum(sel.size)} photo(s)`;
+        runBtn.className = mode === 'move' ? 'danger' : '';
+        runBtn.disabled = !sel.size;
+      };
+      const toggle = (f, e, i) => {
+        if (e?.shiftKey && last >= 0) { const [a, b] = [Math.min(last, i), Math.max(last, i)]; const on = !sel.has(f.path); for (let k = a; k <= b; k++) on ? sel.add(files[k].path) : sel.delete(files[k].path); }
+        else if (sel.has(f.path)) sel.delete(f.path); else sel.add(f.path);
+        last = i; sync();
+      };
+      // groupes par dossier de la carte
+      const byDir = new Map();
+      files.forEach((f, i) => { const k = f.dir || '.'; (byDir.get(k) ?? byDir.set(k, []).get(k)).push({ ...f, i }); });
+      const groupBoxes = [];
+      const groupsEl = h('div');
+      for (const [dir, items] of byDir) {
+        const cb = h('input', { type: 'checkbox', onchange: () => { for (const f of items) cb.checked ? sel.add(f.path) : sel.delete(f.path); sync(); } });
+        groupBoxes.push({ cb, items });
+        const grid = h('div.imp-grid', ...items.map(f => {
+          const c = h('div.imp-cell', { title: `${f.name}\n${fmtBytes(f.size)} · ${fmtDateTime(new Date(f.mtime).toISOString())}${f.known ? '\nProbablement déjà dans la photothèque (même nom et même taille)' : ''}`, onclick: e => toggle(f, e, f.i) },
+            h('img', { loading: 'lazy', alt: '', src: `/api/import/preview?size=220&path=${encodeURIComponent(f.path)}`, draggable: 'false', onerror: e => { e.target.replaceWith(h('div.imp-noimg', '🖼️')); } }),
+            h('span.imp-check', '✓'),
+            f.known ? h('span.imp-known', 'déjà importée ?') : null,
+            h('div.imp-name', f.name));
+          cells.set(f.path, c);
+          return c;
+        }));
+        groupsEl.append(h('div.imp-group', h('label.imp-group-h', cb, h('b', dir === '.' ? 'Racine du dossier' : dir), h('span.dim', ` · ${items.length} photo(s)`)), grid));
+      }
+
+      const modeBox = h('div.imp-mode',
+        ...[['copy', 'Copier', 'Les photos restent aussi sur le support d’origine.'], ['move', 'Déplacer', 'Les photos sont effacées du support d’origine, après copie vérifiée.']].map(([val, label, hint]) =>
+          h('label.imp-opt', h('input', { type: 'radio', name: 'impMode', value: val, checked: val === mode, onchange: () => { mode = val; verifyCb.checked = verify = mode === 'move' ? true : verify; verifyCb.disabled = mode === 'move'; warn.hidden = dupLabel.hidden = mode !== 'move'; sync(); } }), h('span', h('b', label), h('small.dim', ' ' + hint)))));
+      const verifyCb = h('input', { type: 'checkbox', checked: true, onchange: () => { verify = verifyCb.checked; } });
+      const dupCb = h('input', { type: 'checkbox', onchange: () => { removeDup = dupCb.checked; } });
+      const dupLabel = h('label.check', { hidden: true }, dupCb, ' Retirer aussi de la source les photos déjà présentes dans la photothèque (l’exemplaire de la photothèque est revérifié avant)');
+      const warn = h('div.imp-warn', { hidden: true }, h('b', 'Déplacer efface les fichiers du support d’origine. '), 'Chaque photo est d’abord copiée dans la photothèque, puis comparée à l’original par empreinte SHA-256 et indexée ; l’original n’est supprimé qu’ensuite. En cas de doute, il est conservé. Ne débranchez pas le support pendant l’opération. Ensuite, la photothèque détient le seul exemplaire : pensez à la sauvegarder (Administration, Sauvegardes).');
+      const bar = h('div.imp-bar'), barText = h('div.dim'), progress = h('div.imp-progress', { hidden: true }, bar, barText);
+      const cancelBtn = h('button.ghost.small', { hidden: true }, 'Arrêter');
+      const runBtn = h('button', { onclick: run }, 'Copier');
+      const result = h('div');
+
+      async function run() {
+        const sources = files.filter(f => sel.has(f.path)).map(f => f.path);
+        if (!sources.length) return toast('Aucune photo choisie', 'warn');
+        if (mode === 'move' && !(await confirmDialog('Déplacer les photos',
+          `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.`))) return;
+        let jobId;
+        try { ({ jobId } = await api('/import/start', 'POST', { sources, mode, verify, removeDuplicateSources: mode === 'move' && removeDup, supportId: drive?.support?.id ?? null, root: sc.root })); }
+        catch (e) { return toast(e.message, 'bad'); }
+        picker.dataset.busy = '1'; runBtn.disabled = true; progress.hidden = false; cancelBtn.hidden = false; clear(result);
+        cancelBtn.onclick = async () => { cancelBtn.disabled = true; try { await api('/import/cancel', 'POST', { jobId }); } catch { /* terminé entre-temps */ } };
+        const tick = async () => {
+          let job; try { job = (await api('/jobs/' + jobId)).job; } catch { return setTimeout(tick, 800); }
+          const pct = job.total ? Math.round(100 * job.done / job.total) : 0;
+          bar.style.setProperty('--p', pct + '%'); barText.textContent = `${fmtNum(job.done)} / ${fmtNum(job.total)} · ${job.status === 'running' ? (job.current ? String(job.current).split(/[\\/]/).pop() : '…') : ''}`;
+          if (job.status === 'running') return setTimeout(tick, 400);
+          delete picker.dataset.busy; progress.hidden = true; cancelBtn.hidden = true; cancelBtn.disabled = false;
+          if (job.status === 'error') { toast(job.error || 'Import en erreur', 'bad'); runBtn.disabled = false; return; }
+          state.stats = await api('/stats'); renderNav(); loadDrives(true);
+          // la source a changé (photos déplacées) : on réanalyse et on affiche le bilan au-dessus
+          try { renderPicker(await api('/import/scan', 'POST', { path: sc.root }), drive, job.result); } catch { showSummary(job.result); }
+        };
+        tick();
+      }
+      function showSummary(r) {
+        if (!r) return;
+        const bad = r.results.filter(x => x.status === 'error' || x.reason);
+        mount(result, h('div.imp-summary',
+          h('b', r.stopped ? 'Import interrompu' : (r.errors ? 'Import terminé avec des erreurs' : 'Import terminé')),
+          h('ul',
+            h('li', `${fmtNum(r.copied)} photo(s) importée(s)` + (r.mode === 'move' ? `, dont ${fmtNum(r.moved)} déplacée(s) (source supprimée)` : '')),
+            r.duplicates ? h('li', `${fmtNum(r.duplicates)} déjà présente(s) dans la photothèque` + (r.removedDuplicates ? ` — ${fmtNum(r.removedDuplicates)} retirée(s) de la source` : ' — source conservée')) : null,
+            r.keptSources ? h('li', { style: { color: 'var(--warn)' } }, `${fmtNum(r.keptSources)} source(s) conservée(s) (copie faite, suppression impossible ou non prouvée)`) : null,
+            r.skipped ? h('li', `${fmtNum(r.skipped)} ignorée(s)`) : null,
+            r.errors ? h('li', { style: { color: 'var(--bad)' } }, `${fmtNum(r.errors)} erreur(s) : les sources correspondantes n’ont pas été touchées`) : null),
+          bad.length ? h('details', h('summary', 'Détail'), h('ul', ...bad.slice(0, 20).map(x => h('li', h('small', `${String(x.src).split(/[\\/]/).pop()} : ${x.error || x.reason}`))))) : null,
+          h('div.row', h('button.small', { onclick: () => { state.q = ''; state.facet = {}; state.sort = 'added_desc'; state.page = 0; go('photos'); } }, 'Voir les photos importées'))));
+      }
+
+      mount(picker, card(
+        h('div.row', h('div.sect', `Photos de « ${title} »`), h('div.spacer'), h('button.ghost.small', { onclick: () => renderPicker(sc, drive) }, 'Réinitialiser le choix'), h('button.ghost.small', { onclick: async () => openPicker(sc.root, drive) }, 'Réanalyser'), h('button.ghost.small', { onclick: () => clear(picker) }, 'Fermer')),
+        h('p.dim', `${sc.root} · ${fmtNum(files.length)} photo(s), ${fmtBytes(sc.bytes)} · ${fmtNum(sc.newCount)} pas encore dans la photothèque` + (sc.truncated ? ' · liste limitée aux premières photos' : '')),
+        files.length ? h('div', h('div.row.imp-tools',
+          h('button.ghost.small', { onclick: () => { for (const f of files) sel.add(f.path); sync(); } }, 'Tout choisir'),
+          h('button.ghost.small', { onclick: () => { sel.clear(); sync(); } }, 'Aucune'),
+          h('button.ghost.small', { onclick: () => { sel.clear(); for (const f of files) if (!f.known) sel.add(f.path); sync(); } }, 'Nouvelles seulement'),
+          h('button.ghost.small', { onclick: () => { for (const f of files) f.known ? sel.delete(f.path) : sel.add(f.path); sync(); } }, 'Inverser'),
+          h('div.spacer'), countEl, sizeEl),
+          h('p.dim.imp-hint', 'Cliquez sur une photo pour la choisir ou l’écarter ; Maj + clic choisit une série. Par défaut, seules les photos pas encore importées sont cochées.'),
+          groupsEl,
+          h('h4', 'Que faire des photos choisies ?'),
+          modeBox, warn,
+          h('div.imp-opts', h('label.check', verifyCb, ' Vérifier chaque copie par empreinte (toujours actif en déplacement)'), dupLabel),
+          h('p.dim', `Destination : ${destDir || 'dossier d’import'} (réglable dans Paramètres). Aucun fichier n’est jamais remplacé : un nom déjà pris est suivi de (2), (3)…`),
+          h('div.row', runBtn, cancelBtn),
+          progress)
+          : h('p.dim', 'Aucune image trouvée dans ce dossier.'),
+        result));
+      if (summary) showSummary(summary);
+      sync();
+    }
+
+    mount(v,
+      h('h2.page-title', 'Importation'),
+      card(h('div.row', h('div.sect', 'Supports détectés'), h('div.spacer'), h('button.ghost.small', { onclick: () => loadDrives(true) }, '↻ Actualiser')),
+        h('p.dim', 'Cartes mémoire, clés USB et disques branchés à cet ordinateur. Choisissez-en un pour voir ses photos, puis cochez celles à importer.'),
+        drivesWrap,
+        h('div.form', field('Autre dossier (réseau, copie sur disque…)', h('div.row', manualInput, h('button.small', { onclick: () => openPicker(manualInput.value.trim(), null) }, 'Voir les photos'))))),
+      picker,
+      card(h('div.sect', 'Ajouter et indexer un dossier (sans copie)'),
+        h('p.dim', "L'indexation lit les fichiers, extrait les métadonnées et génère les vignettes. Vos originaux ne sont ni copiés, ni modifiés, ni déplacés."),
+        h('div.form',
+          field('Chemin du dossier', pathInput),
+          field('Support rattaché', supportSel),
+          h('div.field', h('label', ' '), h('button', { onclick: addFolder }, 'Ajouter le dossier')),
+        )),
+      card(h('div.sect', 'Dossiers indexés'), folderList),
+    );
+    renderFolders(folders.list);
+  }
   // ---------- vue Supports ----------
   async function viewSupports(v) {
     clear(v);

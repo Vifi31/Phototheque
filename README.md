@@ -56,9 +56,10 @@ npm test
 
 1. **Supports** — enregistrez vos disques, cartes mémoire ou NAS pour suivre
    d'où viennent vos originaux et lesquels sont actuellement connectés.
-2. **Importation** — indiquez le chemin d'un dossier à *indexer* (lecture seule,
-   sans copie) ou *importer* (copie vers la bibliothèque avec détection de
-   doublons).
+2. **Importation** — branchez une carte mémoire ou une clé : elle est détectée,
+   vous choisissez les photos à importer, puis *copier* ou *déplacer* (la source
+   n'est effacée qu'après une copie vérifiée par empreinte). Ou indiquez le
+   chemin d'un dossier à *indexer* (lecture seule, sans copie).
 3. **Photothèque** — parcourez la grille, cherchez par mot-clés, appareil,
    année, format ou note.
 4. **Administration** — sauvegardes, versions, base de données, licence et
