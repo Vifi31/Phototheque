@@ -17,6 +17,7 @@ import { createSupports, SUPPORT_KINDS, SUPPORT_ROLES } from './lib/supports.mjs
 import { createKeywords } from './lib/keywords.mjs';
 import { createLibrary } from './lib/library.mjs';
 import { createImports } from './lib/imports.mjs';
+import { createDemoPhones } from './lib/phones.mjs';
 import { createCollections, COLLECTION_KINDS } from './lib/collections.mjs';
 import { createAlbums, FORMATS, LAYOUTS, ALBUM_FORMAT_VERSION, DPI_WARN, ALIGNS, BORDER_MAX } from './lib/albums.mjs';
 import { createAlbumPdf, PDF_PROFILES, BLEED_MM, SERVICE_OUTPUTS, SERVICE_LAYOUTS } from './lib/albumpdf.mjs';
@@ -46,7 +47,8 @@ const { db, store } = initStore();
 const supports = createSupports(db);
 const keywords = createKeywords(db);
 const library = createLibrary(db, store, supports, keywords);
-const imports = createImports(db, store, library, keywords, supports);
+// PHOTOTHEQUE_DEMO_PHONE=<dossier> : un dossier joue le rôle d'un téléphone branché (guide, essais) ; sinon détection réelle (Windows)
+const imports = createImports(db, store, library, keywords, supports, process.env.PHOTOTHEQUE_DEMO_PHONE ? createDemoPhones(process.env.PHOTOTHEQUE_DEMO_PHONE) : undefined);
 const collections = createCollections(db, library);
 const edits = createEdits(db, library);
 const albums = createAlbums(db, library, edits); // edits : recréer les retouches d'un projet réimporté
@@ -578,6 +580,7 @@ async function api(req, res, url) {
     const b = await readBody(req);
     const d = (await imports.drives()).find(x => x.root === String(b.root ?? ''));
     if (!d) return json(res, 404, { error: 'Lecteur introuvable (débranché ?)' });
+    if (d.phone) return json(res, 400, { error: 'Un téléphone n\'a pas de lettre de lecteur : il ne s\'enregistre pas comme support' });
     if (d.support) return json(res, 200, { support: supports.get(d.support.id), already: true });
     const kind = { sd: 'sd', usb: 'usb', disk: 'disk', nas: 'nas' }[d.kind] ?? 'other';
     const name = String(b.name || d.label || (d.letter ? `Lecteur ${d.letter}` : path.basename(d.root))).trim().slice(0, 120);
@@ -585,12 +588,16 @@ async function api(req, res, url) {
   }
   if (p === '/api/import/scan' && m === 'POST') {
     const b = await readBody(req);
-    try { return json(res, 200, await imports.scan(b.path, { limit: Math.min(50000, Math.max(1, +b.limit || 20000)) })); }
-    catch (e) { return importErr(e); }
+    try {
+      const limit = Math.min(50000, Math.max(1, +b.limit || 20000));
+      return json(res, 200, b.phone ? await imports.scanPhone(String(b.phone), { limit: Math.min(limit, 10000) }) : await imports.scan(b.path, { limit }));
+    } catch (e) { return importErr(e); }
   }
   if (p === '/api/import/preview' && m === 'GET') {
     try {
-      const buf = await imports.preview(url.searchParams.get('path'), url.searchParams.get('size'));
+      const ph = url.searchParams.get('phone');
+      const buf = ph ? await imports.previewPhone(ph, url.searchParams.get('path'), url.searchParams.get('size'))
+        : await imports.preview(url.searchParams.get('path'), url.searchParams.get('size'));
       if (!buf) { res.writeHead(204); return res.end(); }
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=300' });
       return res.end(buf);
@@ -602,6 +609,8 @@ async function api(req, res, url) {
     const sources = Array.isArray(b.sources) ? b.sources.map(String).filter(Boolean) : [];
     if (!sources.length) return json(res, 400, { error: 'Aucune photo choisie' });
     if (sources.length > 100000) return json(res, 400, { error: 'Sélection trop grande' });
+    const phone = b.phone ? String(b.phone) : null;
+    if (phone && b.mode === 'move') return json(res, 400, { error: 'Depuis un téléphone, seule la copie est possible : rien n\'est jamais supprimé sur l\'appareil' });
     const mode = b.mode === 'move' ? 'move' : 'copy';
     if ([...JOBS.values()].some(j => j.kind === 'import' && j.status === 'running')) return json(res, 409, { error: 'Un import est déjà en cours' });
     if (mode === 'move') { // pas de suppression sans analyse préalable du dossier : refus global avant de commencer
@@ -612,11 +621,12 @@ async function api(req, res, url) {
     const jobId = 'j' + Date.now().toString(36);
     const job = { id: jobId, kind: 'import', mode, done: 0, total: sources.length, current: null, status: 'running', result: null, error: null, cancel: false };
     JOBS.set(jobId, job);
-    imports.importFiles(sources, {
+    const runOpts = {
       mode, verify: b.verify !== false, removeDuplicateSources: !!b.removeDuplicateSources, supportId: sup?.id ?? null, supportName: sup?.name ?? null, root: b.root ? String(b.root) : null,
       // seuls done / total / current : le champ `status` du travail ne doit pas être écrasé par l'étape en cours
       onProgress: pr => { job.done = pr.done; job.total = pr.total; job.current = pr.current; job.phase = pr.status; }, shouldStop: () => job.cancel,
-    }).then(r => { job.status = r.stopped ? 'stopped' : 'done'; job.result = r; job.done = r.total; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
+    };
+    (phone ? imports.importFromPhone(phone, sources, runOpts) : imports.importFiles(sources, runOpts)).then(r => { job.status = r.stopped ? 'stopped' : 'done'; job.result = r; job.done = r.total; }).catch(e => { job.status = 'error'; job.error = String(e.message || e); });
     return json(res, 200, { jobId, job });
   }
   if (p === '/api/import/cancel' && m === 'POST') {

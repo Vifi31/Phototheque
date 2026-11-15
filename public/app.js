@@ -539,18 +539,31 @@ const App = (() => {
     const picker = h('div');
     const manualInput = h('input', { type: 'text', placeholder: 'Ou tapez un dossier : E:\\DCIM, \\\\NAS\\photos…', onkeydown: e => { if (e.key === 'Enter') openPicker(manualInput.value.trim(), null); } });
     let seen = null, destDir = '';
-    const DRIVE_ICON = { sd: '🗂️', usb: '🔌', disk: '💽', nas: '🌐', optical: '💿', other: '📁' };
+    const DRIVE_ICON = { sd: '🗂️', usb: '🔌', disk: '💽', nas: '🌐', optical: '💿', phone: '📱', camera: '📷', other: '📁' };
     async function loadDrives(fresh) {
       try {
         const r = await api('/import/drives' + (fresh ? '?fresh=1' : ''));
         destDir = r.dest;
         const roots = new Set(r.drives.map(d => d.root));
-        if (seen) for (const d of r.drives) if (!seen.has(d.root) && d.likelyImport) toast(`Support détecté : ${d.label || 'sans nom'} (${d.letter || d.root})`);
+        if (seen) for (const d of r.drives) if (!seen.has(d.root) && d.likelyImport) toast(d.phone ? `${d.kindLabel} détecté : ${d.label}` : `Support détecté : ${d.label || 'sans nom'} (${d.letter || d.root})`);
         seen = roots;
         renderDrives(r.drives);
       } catch (e) { mount(drivesWrap, h('p.dim', 'Détection impossible : ' + e.message)); }
     }
+    function phoneTile(d) {
+      const ok = d.phone.ready;
+      return h('div.drive.hot',
+        h('div.drive-ico', DRIVE_ICON[d.kind] ?? '📱'),
+        h('div.grow',
+          h('div', h('b', d.label), ' ', h('span.dim', d.kindLabel)),
+          h('div', ok ? h('span.pill.ok', 'Prêt : transfert de fichiers autorisé') : h('span.pill.warn', 'Verrouillé ou transfert non autorisé')),
+          ok ? h('small.dim', 'Photos lues dans DCIM et Pictures. Copie seulement : rien n’est jamais supprimé sur l’appareil.')
+            : h('small.dim', 'Déverrouillez l’appareil, puis choisissez « Transfert de fichiers » (Android) ou « Faire confiance » (iPhone). Cliquez ensuite sur Actualiser.')),
+        h('div.drive-actions',
+          ok ? h('button.small', { onclick: () => openPicker(null, d) }, 'Choisir les photos…') : h('button.ghost.small', { onclick: () => loadDrives(true) }, '↻ Actualiser')));
+    }
     function driveTile(d) {
+      if (d.phone) return phoneTile(d);
       return h('div.drive' + (d.likelyImport ? '.hot' : ''),
         h('div.drive-ico', DRIVE_ICON[d.kind] ?? '📁'),
         h('div.grow',
@@ -565,19 +578,21 @@ const App = (() => {
     function renderDrives(list) {
       const hot = list.filter(d => d.likelyImport), other = list.filter(d => !d.likelyImport);
       mount(drivesWrap,
-        hot.length ? h('div.drives', ...hot.map(driveTile)) : h('p.dim', 'Aucune carte mémoire ni clé USB détectée. Branchez-en une : elle apparaît ici toute seule (vérification toutes les 10 secondes).'),
+        hot.length ? h('div.drives', ...hot.map(driveTile)) : h('p.dim', 'Aucune carte mémoire, clé USB ni téléphone détecté. Branchez-en un : il apparaît ici tout seul (vérification toutes les 10 secondes).'),
         other.length ? h('details.drives-other', h('summary', `Autres lecteurs (${other.length})`), h('div.drives', ...other.map(driveTile))) : null);
     }
     loadDrives(false);
     const driveTimer = setInterval(() => { if (!document.body.contains(drivesWrap)) return clearInterval(driveTimer); if (!document.hidden && !picker.dataset.busy) loadDrives(false); }, 10000);
 
     // ----- 2. choix des photos -----
+    // demande d'analyse : un téléphone se lit par son identifiant (MTP, sans chemin), le reste par son chemin
+    const scanRequest = (root, drive) => drive?.phone ? { phone: drive.phone.id } : { path: root };
     async function openPicker(root, drive) {
-      if (!root) return toast('Indiquez un dossier ou choisissez un lecteur', 'warn');
-      mount(picker, card(h('p.dim', `Analyse de ${root}…`)));
+      if (!root && !drive?.phone) return toast('Indiquez un dossier ou choisissez un lecteur', 'warn');
+      mount(picker, card(h('p.dim', drive?.phone ? `Lecture des photos de « ${drive.label} »… cela peut durer une minute selon le nombre de photos.` : `Analyse de ${root}…`)));
       picker.scrollIntoView({ behavior: 'smooth', block: 'start' });
       let sc;
-      try { sc = await api('/import/scan', 'POST', { path: root }); }
+      try { sc = await api('/import/scan', 'POST', scanRequest(root, drive)); }
       catch (e) { mount(picker, card(h('p', { style: { color: 'var(--bad)' } }, e.message))); return; }
       renderPicker(sc, drive);
     }
@@ -586,7 +601,8 @@ const App = (() => {
       const files = sc.files;
       const sel = new Set(files.filter(f => !f.known).map(f => f.path));       // par défaut : les photos pas encore importées
       let mode = 'copy', verify = true, removeDup = false, last = -1;
-      const title = drive ? `${drive.label || 'Sans nom'} (${drive.letter || drive.root})` : sc.root;
+      const title = drive?.phone ? drive.label : drive ? `${drive.label || 'Sans nom'} (${drive.letter || drive.root})` : sc.root;
+      const phoneId = sc.phone?.id ?? null;                                  // téléphone : copie seulement, rien n'est supprimé sur l'appareil
       const countEl = h('b'), sizeEl = h('span.dim');
       const cells = new Map();
       const sizeOf = () => files.reduce((a, f) => a + (sel.has(f.path) ? f.size : 0), 0);
@@ -614,7 +630,7 @@ const App = (() => {
         groupBoxes.push({ cb, items });
         const grid = h('div.imp-grid', ...items.map(f => {
           const c = h('div.imp-cell', { title: `${f.name}\n${fmtBytes(f.size)} · ${fmtDateTime(new Date(f.mtime).toISOString())}${f.known ? '\nProbablement déjà dans la photothèque (même nom et même taille)' : ''}`, onclick: e => toggle(f, e, f.i) },
-            h('img', { loading: 'lazy', alt: '', src: `/api/import/preview?size=220&path=${encodeURIComponent(f.path)}`, draggable: 'false', onerror: e => { e.target.replaceWith(h('div.imp-noimg', '🖼️')); } }),
+            h('img', { loading: 'lazy', alt: '', src: `/api/import/preview?size=220${phoneId ? '&phone=' + encodeURIComponent(phoneId) : ''}&path=${encodeURIComponent(f.path)}`, draggable: 'false', onerror: e => { e.target.replaceWith(h('div.imp-noimg', '🖼️')); } }),
             h('span.imp-check', '✓'),
             f.known ? h('span.imp-known', 'déjà importée ?') : null,
             h('div.imp-name', f.name));
@@ -625,7 +641,8 @@ const App = (() => {
       }
 
       const modeBox = h('div.imp-mode',
-        ...[['copy', 'Copier', 'Les photos restent aussi sur le support d’origine.'], ['move', 'Déplacer', 'Les photos sont effacées du support d’origine, après copie vérifiée.']].map(([val, label, hint]) =>
+        phoneId ? h('p.dim', h('b', 'Copie seulement. '), 'Depuis un téléphone, les photos sont copiées : rien n’est jamais supprimé sur l’appareil. Pour libérer sa mémoire, supprimez les photos vous-même une fois la sauvegarde faite.') : null,
+        ...[['copy', 'Copier', 'Les photos restent aussi sur le support d’origine.'], ['move', 'Déplacer', 'Les photos sont effacées du support d’origine, après copie vérifiée.']].filter(([val]) => !phoneId || val === 'copy').map(([val, label, hint]) =>
           h('label.imp-opt', h('input', { type: 'radio', name: 'impMode', value: val, checked: val === mode, onchange: () => { mode = val; verifyCb.checked = verify = mode === 'move' ? true : verify; verifyCb.disabled = mode === 'move'; warn.hidden = dupLabel.hidden = mode !== 'move'; sync(); } }), h('span', h('b', label), h('small.dim', ' ' + hint)))));
       const verifyCb = h('input', { type: 'checkbox', checked: true, onchange: () => { verify = verifyCb.checked; } });
       const dupCb = h('input', { type: 'checkbox', onchange: () => { removeDup = dupCb.checked; } });
@@ -642,7 +659,7 @@ const App = (() => {
         if (mode === 'move' && !(await confirmDialog('Déplacer les photos',
           `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.`))) return;
         let jobId;
-        try { ({ jobId } = await api('/import/start', 'POST', { sources, mode, verify, removeDuplicateSources: mode === 'move' && removeDup, supportId: drive?.support?.id ?? null, root: sc.root })); }
+        try { ({ jobId } = await api('/import/start', 'POST', { sources, mode, verify, removeDuplicateSources: mode === 'move' && removeDup, supportId: drive?.support?.id ?? null, root: sc.root, phone: phoneId })); }
         catch (e) { return toast(e.message, 'bad'); }
         picker.dataset.busy = '1'; runBtn.disabled = true; progress.hidden = false; cancelBtn.hidden = false; clear(result);
         cancelBtn.onclick = async () => { cancelBtn.disabled = true; try { await api('/import/cancel', 'POST', { jobId }); } catch { /* terminé entre-temps */ } };
@@ -655,7 +672,7 @@ const App = (() => {
           if (job.status === 'error') { toast(job.error || 'Import en erreur', 'bad'); runBtn.disabled = false; return; }
           state.stats = await api('/stats'); renderNav(); loadDrives(true);
           // la source a changé (photos déplacées) : on réanalyse et on affiche le bilan au-dessus
-          try { renderPicker(await api('/import/scan', 'POST', { path: sc.root }), drive, job.result); } catch { showSummary(job.result); }
+          try { renderPicker(await api('/import/scan', 'POST', phoneId ? { phone: phoneId } : { path: sc.root }), drive, job.result); } catch { showSummary(job.result); }
         };
         tick();
       }
@@ -675,7 +692,7 @@ const App = (() => {
       }
 
       mount(picker, card(
-        h('div.row', h('div.sect', `Photos de « ${title} »`), h('div.spacer'), h('button.ghost.small', { onclick: () => renderPicker(sc, drive) }, 'Réinitialiser le choix'), h('button.ghost.small', { onclick: async () => openPicker(sc.root, drive) }, 'Réanalyser'), h('button.ghost.small', { onclick: () => clear(picker) }, 'Fermer')),
+        h('div.row', h('div.sect', `Photos de « ${title} »`), h('div.spacer'), h('button.ghost.small', { onclick: () => renderPicker(sc, drive) }, 'Réinitialiser le choix'), h('button.ghost.small', { onclick: async () => openPicker(sc.root, drive) }, phoneId ? 'Relire le téléphone' : 'Réanalyser'), h('button.ghost.small', { onclick: () => clear(picker) }, 'Fermer')),
         h('p.dim', `${sc.root} · ${fmtNum(files.length)} photo(s), ${fmtBytes(sc.bytes)} · ${fmtNum(sc.newCount)} pas encore dans la photothèque` + (sc.truncated ? ' · liste limitée aux premières photos' : '')),
         files.length ? h('div', h('div.row.imp-tools',
           h('button.ghost.small', { onclick: () => { for (const f of files) sel.add(f.path); sync(); } }, 'Tout choisir'),
@@ -700,7 +717,7 @@ const App = (() => {
     mount(v,
       h('h2.page-title', 'Importation'),
       card(h('div.row', h('div.sect', 'Supports détectés'), h('div.spacer'), h('button.ghost.small', { onclick: () => loadDrives(true) }, '↻ Actualiser')),
-        h('p.dim', 'Cartes mémoire, clés USB et disques branchés à cet ordinateur. Choisissez-en un pour voir ses photos, puis cochez celles à importer.'),
+        h('p.dim', 'Cartes mémoire, clés USB, disques et téléphones branchés à cet ordinateur. Choisissez-en un pour voir ses photos, puis cochez celles à importer.'),
         drivesWrap,
         h('div.form', field('Autre dossier (réseau, copie sur disque…)', h('div.row', manualInput, h('button.small', { onclick: () => openPicker(manualInput.value.trim(), null) }, 'Voir les photos'))))),
       picker,

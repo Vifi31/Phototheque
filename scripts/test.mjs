@@ -509,6 +509,130 @@ group('Importation : supports détectés, choix des photos, copie ou déplacemen
 }
 
 // ===================================================================
+group('Téléphones branchés (MTP) : détection, lecture des photos, copie sans jamais rien supprimer');
+// ===================================================================
+{
+  const { createPhones, parsePortableDevices, classifyPortable } = await import('../lib/phones.mjs');
+  // --- classement par identifiant USB ---
+  check('téléphone : Apple = iPhone / iPad', JSON.stringify(classifyPortable('05AC', 'Apple iPhone')), JSON.stringify({ brand: 'Apple', kind: 'phone', kindLabel: 'iPhone / iPad' }), 0);
+  check('téléphone : constructeur Android reconnu', classifyPortable('18d1', 'Pixel 7').brand + '/' + classifyPortable('18d1', 'Pixel 7').kind, 'Google/phone', 0);
+  check('appareil photo reconnu par constructeur', classifyPortable('04a9', 'Canon EOS R6').kind, 'camera', 0);
+  check('appareil inconnu : le nom aide', classifyPortable('ffff', 'Canon EOS R6').kind + '/' + classifyPortable('ffff', 'Mon Truc').kindLabel, 'camera/Téléphone', 0);
+  // --- analyse de la réponse du script de détection ---
+  const raw = { devices: [
+    { name: 'Pixel 7', path: '::{20D04FE0}\\\\?\\usb#vid_18d1&pid_4ee1#abc#{6ac27878}', vid: '18d1', storages: ['Mémoire de stockage interne partagée'] },
+    { name: 'Apple iPhone', path: '::{20D04FE0}\\\\?\\usb#vid_05ac&pid_12a8#def#{6ac27878}', vid: '05ac', storages: [] },
+    { name: 'sans chemin' }, null,
+  ] };
+  const devs = parsePortableDevices(JSON.stringify(raw));
+  check('détection : entrées incomplètes ignorées', devs.length, 2, 0);
+  check('détection : appareil prêt si un stockage est exposé', devs[0].ready, true, 0);
+  check('détection : appareil verrouillé = aucun stockage', devs[1].ready, false, 0);
+  check('détection : identifiant stable pour un même appareil', parsePortableDevices(raw)[0].id, devs[0].id, 0);
+  check('détection : identifiants distincts', devs[0].id !== devs[1].id, true, 0);
+  check('détection : un seul appareil (objet et non tableau)', parsePortableDevices({ name: 'X', path: 'p', vid: '', storages: 'S' }).length, 1, 0);
+  check('détection : réponse illisible → aucun appareil', parsePortableDevices('pas du json').length + parsePortableDevices(null).length, 0, 0);
+  // --- détection avec un script simulé ---
+  const fakeRun = async (req, o) => { if (req.op === 'detect') o.onLine(raw); return { stopped: false }; };
+  const ph = createPhones({ run: fakeRun, platform: 'win32' });
+  const seen = await ph.detect();
+  check('détection : appareils retournés et mémorisés', seen.length === 2 && ph.known.size === 2, true, 0);
+  check('détection : hors Windows, aucun appareil (et aucun script lancé)', (await createPhones({ run: () => { throw new Error('ne doit pas tourner'); }, platform: 'linux' }).detect()).length, 0, 0);
+  check('lecture : un appareil inconnu est refusé', await ph.list({ id: 'ph-inconnu' }).then(() => 'ok', e => e.status), 404, 0);
+
+  if (process.platform !== 'win32') { check('essais sur un « appareil » factice : Windows seulement (ignorés)', true, true, 0); }
+  else {
+    // Un dossier ordinaire joue le rôle d'un appareil : même code Shell (Shell.Application) que pour un vrai téléphone.
+    const dev = path.join(TMP, 'faux-telephone');
+    const st = path.join(dev, 'Stockage interne');
+    for (const d of ['DCIM/Camera', 'DCIM/100APPLE', 'Pictures/Screenshots', 'Autre', 'Android/data']) fs.mkdirSync(path.join(st, d), { recursive: true });
+    await makeImage(path.join(st, 'DCIM', 'Camera', 'IMG_0001.jpg'), { make: 'Google', model: 'Pixel 7', color: { r: 200, g: 40, b: 40 } });
+    await makeImage(path.join(st, 'DCIM', 'Camera', 'été à.JPG'), { make: 'Google', model: 'Pixel 7', color: { r: 40, g: 200, b: 40 } });
+    await makeImage(path.join(st, 'DCIM', '100APPLE', 'IMG_0001.jpg'), { make: 'Apple', model: 'iPhone', color: { r: 40, g: 40, b: 200 } }); // même nom, autre dossier
+    await makeImage(path.join(st, 'Pictures', 'Screenshots', 'capture.png'), { color: { r: 120, g: 120, b: 20 } });
+    await makeImage(path.join(st, 'Autre', 'hors-racine.jpg'), { color: { r: 1, g: 1, b: 1 } });
+    fs.writeFileSync(path.join(st, 'DCIM', 'notes.txt'), 'pas une photo');
+    const real = createPhones();
+    const ref = { folderRoot: dev };
+    const l = await real.list(ref, { limit: 100 });
+    const rels = l.files.map(f => f.rel).sort();
+    check('lecture : seules les photos de DCIM et Pictures', l.files.length, 4, 0);
+    check('lecture : noms accentués conservés', l.files.some(f => f.name.startsWith('été à')), true, 0);
+    check('lecture : même nom dans deux dossiers distingué par son chemin', rels.filter(r => /IMG_0001/.test(r)).length, 2, 0);
+    check('lecture : ni le texte, ni les autres dossiers', rels.every(r => !/notes|hors-racine/.test(r)), true, 0);
+    check('lecture : tailles fournies', l.files.every(f => f.size > 0), true, 0);
+    check('lecture : dates de modification fournies', l.files.every(f => typeof f.mtime === 'number' && f.mtime > 0), true, 0);
+    check('lecture : limite respectée et signalée', await real.list(ref, { limit: 2 }).then(r => r.files.length + '/' + r.truncated), '2/true', 0);
+    check('lecture : appareil sans les dossiers demandés = liste vide', await real.list(ref, { roots: ['Nulle part'] }).then(r => r.files.length), 0, 0);
+
+    // --- copie depuis l'« appareil » ---
+    const out = path.join(TMP, 'copie-telephone');
+    const jobs = l.files.map((f, i) => ({ rel: f.rel, name: f.name, size: f.size ?? 0, to: path.join(out, String(i)) }));
+    const got = [];
+    const cr = await real.copy(ref, jobs, { onFile: x => got.push(x) });
+    check('copie : tout est copié', cr.copied + '/' + cr.failed, '4/0', 0);
+    check('copie : fichiers présents avec leur nom, un dossier par fichier', jobs.every(j => fs.existsSync(path.join(j.to, j.name))), true, 0);
+    const hashOf = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+    const srcHashes = new Set(['DCIM/Camera/IMG_0001.jpg', 'DCIM/Camera/été à.JPG', 'DCIM/100APPLE/IMG_0001.jpg', 'Pictures/Screenshots/capture.png'].map(r => hashOf(path.join(st, r))));
+    const copied = jobs.map(j => hashOf(path.join(j.to, j.name)));
+    check('copie : contenu identique à l\'original (4 fichiers distincts)', new Set(copied).size === 4 && copied.every(h => srcHashes.has(h)), true, 0);
+    const bad = await real.copy(ref, [{ rel: 'Stockage interne\\DCIM\\Camera\\absent.jpg', name: 'absent.jpg', size: 10, to: path.join(out, 'x') }]);
+    check('copie : fichier introuvable = échec signalé, pas de plantage', bad.failed, 1, 0);
+    check('copie : rien n\'est supprimé sur l\'appareil', l.files.length, (await real.list(ref, { limit: 100 })).files.length, 0);
+    const stop = await real.copy(ref, jobs.map((j, i) => ({ ...j, to: path.join(out, 'arret' + i) })), { shouldStop: () => true });
+    check('copie : arrêt demandé', stop.stopped, true, 0);
+
+    // --- import depuis le téléphone (moteur d'import, appareil simulé par ce dossier) ---
+    STORE.import.dest = path.join(TMP, 'imports-telephone'); STORE.import.keepFolders = false; saveStore(DB, STORE);
+    const fake = {
+      known: new Map([['ph-test', { id: 'ph-test', name: 'Pixel de test', kind: 'phone', ready: true }], ['ph-lock', { id: 'ph-lock', name: 'iPhone verrouillé', kind: 'phone', ready: false }]]),
+      detect: async () => [...fake.known.values()].map(d => ({ ...d, kindLabel: 'Téléphone', brand: null, storages: d.ready ? ['Stockage interne'] : [] })),
+      list: (r, o) => real.list(ref, o), copy: (r, j, o) => fake.failOn ? real.copy(ref, j.filter(x => !fake.failOn(x)), o) : real.copy(ref, j, o),
+    };
+    const IMPP = createImports(DB, STORE, LIB, KW, null, fake);
+    const tmpBefore = fs.readdirSync(os.tmpdir()).filter(n => /^phototheque-(phone|prev)-/.test(n)).length;
+    check('import téléphone : lecture refusée si l\'appareil est verrouillé', await IMPP.scanPhone('ph-lock').then(() => 'ok', e => e.status), 409, 0);
+    check('import téléphone : appareil inconnu', await IMPP.scanPhone('ph-nope').then(() => 'ok', e => e.status), 404, 0);
+    check('import téléphone : import refusé avant lecture', await IMPP.importFromPhone('ph-test', ['Stockage interne\\DCIM\\Camera\\IMG_0001.jpg']).then(() => 'ok', e => e.status), 403, 0);
+    check('import téléphone : aperçu refusé avant lecture', await IMPP.previewPhone('ph-test', 'Stockage interne\\DCIM\\Camera\\IMG_0001.jpg').then(() => 'ok', e => e.status), 403, 0);
+    const sc = await IMPP.scanPhone('ph-test');
+    check('import téléphone : 4 photos listées, dossiers distingués', sc.total + '/' + new Set(sc.files.map(f => f.dir)).size, '4/3', 0);
+    check('import téléphone : rien n\'est connu de la photothèque', sc.newCount, 4, 0);
+    const pv = await IMPP.previewPhone('ph-test', sc.files[0].path, 120);
+    check('import téléphone : aperçu JPEG', Buffer.isBuffer(pv) && pv[0] === 0xFF && pv[1] === 0xD8, true, 0);
+    check('import téléphone : aperçu d\'une photo non listée refusé', await IMPP.previewPhone('ph-test', 'Stockage interne\\Autre\\hors-racine.jpg').then(() => 'ok', e => e.status), 403, 0);
+    const dr = await IMPP.drives({ fresh: true });
+    const tile = dr.find(d => d.phone?.id === 'ph-test');
+    check('supports détectés : le téléphone apparaît avec les lecteurs', !!tile && tile.root === 'phone:ph-test' && tile.likelyImport && tile.kind === 'phone', true, 0);
+    check('supports détectés : le téléphone verrouillé est signalé', dr.find(d => d.phone?.id === 'ph-lock')?.phone.ready, false, 0);
+
+    const pick = sc.files.filter(f => f.name !== 'capture.png').map(f => f.path);      // 3 photos sur 4
+    const prog = [];
+    const r1 = await IMPP.importFromPhone('ph-test', pick, { mode: 'move', onProgress: p => prog.push(p.status) });
+    check('import téléphone : 3 photos copiées (le mode « move » est ignoré)', r1.copied + '/' + r1.mode + '/' + r1.moved, '3/copy/0', 0);
+    check('import téléphone : la 4e n\'est pas importée', fs.readdirSync(STORE.import.dest).length, 3, 0);
+    check('import téléphone : les résultats parlent du chemin sur le téléphone', r1.results.every(r => /^Stockage interne\\/.test(r.src)), true, 0);
+    check('import téléphone : rien n\'est supprimé sur l\'appareil', (await real.list(ref, { limit: 100 })).files.length, 4, 0);
+    check('import téléphone : progression en deux temps (lecture, puis copie)', prog.includes('lecture du téléphone') && prog.includes('indexé'), true, 0);
+    check('import téléphone : dossiers temporaires effacés', fs.readdirSync(os.tmpdir()).filter(n => /^phototheque-(phone|prev)-/.test(n)).length, tmpBefore, 0);
+    const imp = DB.prepare("SELECT mode, data FROM imports WHERE json_extract(data, '$.phone') = 'Pixel de test'").get();
+    check('import téléphone : tracé dans le journal des imports', !!imp && imp.mode === 'copy', true, 0);
+    // ré-import : doublons détectés par empreinte ; relecture : photos connues (nom + taille)
+    const r2 = await IMPP.importFromPhone('ph-test', pick);
+    check('import téléphone : ré-import = doublons, rien de copié', r2.duplicates + '/' + r2.copied, '3/0', 0);
+    const sc2 = await IMPP.scanPhone('ph-test');
+    check('import téléphone : les photos déjà importées sont repérées', sc2.files.filter(f => f.known).length + '/' + sc2.newCount, '3/1', 0);
+    // une photo qui ne se copie pas : erreur isolée, le reste passe
+    fake.failOn = j => j.name === 'capture.png';
+    const r3 = await IMPP.importFromPhone('ph-test', sc2.files.map(f => f.path));
+    check('import téléphone : une photo illisible n\'arrête pas l\'import', r3.errors + '/' + r3.duplicates, '1/3', 0);
+    fake.failOn = null;
+    const rs = await IMPP.importFromPhone('ph-test', sc2.files.map(f => f.path), { shouldStop: () => true });
+    check('import téléphone : arrêt demandé', rs.stopped && rs.copied === 0, true, 0);
+  }
+}
+
+// ===================================================================
 group('Collections : sélections et recherches enregistrées');
 // ===================================================================
 {

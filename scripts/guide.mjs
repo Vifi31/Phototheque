@@ -18,6 +18,7 @@ const OUT = path.join(ROOT, 'public', 'aide');
 const IMG = path.join(OUT, 'img');
 const PORT = 3298, BASE = `http://127.0.0.1:${PORT}`;
 const HOME = path.join(os.tmpdir(), 'phototheque-guide');
+const PHONE = path.join(HOME, 'Téléphone de démonstration'); // joue le rôle d'un téléphone branché (PHOTOTHEQUE_DEMO_PHONE)
 const PHOTOS = path.join(HOME, 'Photos de famille');
 const args = new Set(process.argv.slice(2));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -87,11 +88,15 @@ async function makeLibrary() {
   }
   fs.mkdirSync(path.join(PHOTOS, 'Sauvegarde téléphone'), { recursive: true });
   fs.copyFileSync(path.join(PHOTOS, 'Anniversaire.jpg'), path.join(PHOTOS, 'Sauvegarde téléphone', 'IMG_2041.jpg'));
+  // téléphone de démonstration : quelques photos dans DCIM/Camera, comme sur un Android
+  const cam = path.join(PHONE, 'Stockage interne partagé', 'DCIM', 'Camera');
+  fs.mkdirSync(cam, { recursive: true });
+  SCENES.slice(0, 5).forEach((s, i) => fs.copyFileSync(path.join(PHOTOS, s.file), path.join(cam, `PXL_2024090${i + 1}_1${i}3000.jpg`)));
 }
 
 // ------------------------------------------------------------------ serveur de démonstration
 async function startServer() {
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PHOTOTHEQUE_HOME: HOME, PHOTOTHEQUE_PORT: String(PORT) }, stdio: 'ignore' });
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env: { ...process.env, PHOTOTHEQUE_HOME: HOME, PHOTOTHEQUE_PORT: String(PORT), PHOTOTHEQUE_DEMO_PHONE: PHONE }, stdio: 'ignore' });
   for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE + '/api/ping')).ok) return child; } catch { /* pas encore prêt */ } await sleep(250); }
   child.kill(); throw new Error('Le serveur de démonstration ne démarre pas');
 }

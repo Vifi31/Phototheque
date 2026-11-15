@@ -92,7 +92,8 @@ Base SQLite ouverte avec `PRAGMA foreign_keys=ON`, mode WAL,
 ## Configuration
 
 `.env` (cf. `.env.example`) : `PHOTOTHEQUE_HOME`, `PHOTOTHEQUE_PORT` (3212),
-`PHOTOTHEQUE_HOST` (127.0.0.1).
+`PHOTOTHEQUE_HOST` (127.0.0.1). Essais : `PHOTOTHEQUE_DEMO_PHONE=<dossier>` fait jouer à un
+dossier le rôle d'un téléphone branché (guide, démonstration).
 
 ---
 
@@ -194,7 +195,8 @@ bibliothèque).
    Filtre « Mots-clés » dans la barre de la Photothèque (sans / avec / un mot-clé, effectifs en direct)
    et propositions de mots-clés pendant la frappe (`UI.keywordInput`, synonymes compris) —
    **livré en v0.31.0** (§28). Importation : supports détectés (`lib/drives.mjs`), choix des photos,
-   copier ou déplacer avec copie vérifiée — **livré en v0.32.0** (§29). Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
+   copier ou déplacer avec copie vérifiée — **livré en v0.32.0** (§29). Téléphones branchés (MTP, Windows, `lib/phones.mjs`) : détection,
+   choix des photos, copie seulement — **livré en v0.33.0** (§30) ; non essayé avec un vrai appareil. Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

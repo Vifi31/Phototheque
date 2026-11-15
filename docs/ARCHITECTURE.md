@@ -49,6 +49,7 @@ lib/
   library.mjs      Moteur : scan, indexation, métadonnées, vignettes, recherche
   imports.mjs      Importation physique (copie / déplacement vérifié) + détection de doublons
   drives.mjs       Détection des lecteurs branchés (cartes, clés, disques) pour l'écran Importation
+  phones.mjs       Téléphones / appareils photo en MTP (Windows, Shell.Application via PowerShell) : détection, liste, copie
   supports.mjs     Inventaire des supports, détection/reconnexion
   keywords.mjs     Mots-clés (hiérarchie, synonymes, catégories, fusion, doublons de vocabulaire)
   xmp.mjs          Champs documentaires, lecture / écriture XMP, profil ICC (pur)
@@ -896,3 +897,30 @@ les confirmations se font par un second clic sur le bouton, pas par
 * Table `imports` : `mode` (`copy` | `move`) et `data` (compteurs, `removedSources` plafonné à 500). Historique :
   `import.copy` / `import.move`.
 * Non couvert : XMP annexes voisins, lecteurs sans lettre (MTP : téléphones), détection macOS / Linux non essayée.
+
+## 30. Téléphones branchés (v0.33.0)
+
+* **Pourquoi un module à part** : un téléphone en MTP / PTP n'a ni lettre de lecteur ni chemin pour `node:fs`. Windows le
+  montre comme « appareil portable » dans « Ce PC » et ne l'expose qu'à l'interface Shell. `lib/phones.mjs` lance donc
+  un script PowerShell constant (`-EncodedCommand`, Windows PowerShell 5.1) qui utilise `Shell.Application` :
+  `NameSpace(17).Items()` pour les appareils, `GetFolder.Items()` pour parcourir, `CopyHere` pour copier.
+* **Opérations** (une par exécution, requête JSON dans un fichier temporaire désigné par `PT_REQ`, réponses en lignes
+  JSON UTF-8 ; une erreur non prévue sort en `{fatal}`) : `detect` (nom, chemin Shell, `vid` USB, stockages),
+  `list` (images de `DCIM` et `Pictures`, profondeur ≤ 10, limite), `copy` (un dossier de destination par fichier).
+  Les appareils sont repérés par leur chemin Shell (`usb#vid_…`, `wpdbusenum`, GUID WPD) : ce filtre écarte les
+  lecteurs (`C:\`) et les dossiers système (« Photos iCloud »).
+* **Pièges Shell** : l'Explorateur peut masquer les extensions (nom `IMG_0001` sans `.jpg`) : le type affiché
+  (« Fichier JPG ») sert alors à décider et le fichier copié est renommé avec le nom attendu. `CopyHere` est
+  asynchrone : on attend un fichier de taille stable, au moins égale à la taille annoncée, et libéré (ouverture
+  exclusive). `NameSpace` exige des antislashs. Pas de `2>&1` / progression : `$ProgressPreference` est coupé.
+* **Un seul accès à la fois** (file `serial`) : un appareil MTP ne tolère pas les sessions simultanées.
+* `imports.scanPhone(id)` mémorise les photos listées (`phoneScans`) : seules celles-ci peuvent être prévisualisées ou
+  importées (403 sinon). `previewPhone` copie la photo dans un dossier temporaire, fait la vignette, efface.
+  `importFromPhone(id, rels)` : lots de 20 → `phones.copy` vers un dossier temporaire → `processOne` sur chaque
+  fichier copié → effacement ; une seule ligne `imports` (`data.phone`). **Copie seulement** (le serveur refuse
+  `mode: 'move'` avec `phone`).
+* Ligne « supports détectés » : `root: 'phone:<id>'`, `kind` `phone` | `camera`, `phone: { id, name, brand, ready,
+  storages }`. Un appareil sans stockage est « verrouillé ou non autorisé ».
+* `createDemoPhones(dossier)` (`PHOTOTHEQUE_DEMO_PHONE`) : un dossier joue le téléphone, avec le même code Shell.
+* Testé : classement USB, analyse des réponses, détection simulée, liste / copie / arrêt / limite sur un vrai dossier
+  via PowerShell, import complet avec un appareil simulé. **Non essayé avec un vrai téléphone.**

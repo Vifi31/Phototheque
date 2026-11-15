@@ -4,6 +4,44 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.33.0] — 2026-11-15
+
+### Ajouté
+
+- **Importation : détection des téléphones et appareils photo branchés** (Windows, `lib/phones.mjs`) :
+  un téléphone en « Transfert de fichiers » (Android) ou autorisé (iPhone, « Faire confiance ») n'a pas
+  de lettre de lecteur ; il est repéré parmi les « appareils portables » de Windows et apparaît avec les
+  cartes et les clés, avec son état :
+  - **prêt** : stockage accessible ;
+  - **verrouillé ou non autorisé** : aucun stockage exposé, avec la marche à suivre.
+  Constructeur reconnu à l'identifiant USB (Apple, Samsung, Google, Xiaomi… ; Canon, Nikon, Sony… pour
+  les appareils photo).
+- **Choix des photos d'un téléphone** : lecture de `DCIM` et `Pictures` (jusqu'à 10 000 photos),
+  vignettes à la demande, mêmes cases à cocher que pour une carte ; les photos déjà importées sont repérées
+  (nom et taille, y compris sous un nom « (2) » généré à l'import).
+- **Import depuis un téléphone : copie seulement.** Par lots de 20, les photos sont copiées dans un dossier
+  temporaire, importées comme n'importe quel fichier (doublons par empreinte, vérification SHA-256,
+  indexation) puis le dossier temporaire est effacé. **Rien n'est jamais supprimé ni modifié sur l'appareil**
+  (le mode Déplacer est refusé par le serveur).
+- **Appareil de démonstration** : `PHOTOTHEQUE_DEMO_PHONE=<dossier>` fait jouer à un dossier le rôle d'un
+  téléphone (même code Shell) : essais, guide.
+- Routes : `POST /api/import/scan`, `GET /api/import/preview` et `POST /api/import/start` acceptent
+  `phone` (identifiant de l'appareil) ; `GET /api/import/drives` renvoie aussi les téléphones.
+
+### Modifié
+
+- Moteur d'import : un import partage un état (`beginImport` / `processOne` / `finishImport`), ce qui permet
+  d'importer par lots sous une seule ligne de journal.
+- La détection des lecteurs et celle des téléphones se font en parallèle ; un échec de l'une ne masque pas l'autre.
+
+### Limites
+
+- **Non essayé avec un vrai téléphone** (aucun appareil branché sur le poste de développement) : la lecture et
+  la copie sont testées sur un dossier ordinaire lu par la même interface Shell, la détection sur des réponses
+  simulées. Une surprise est possible selon le modèle et la langue de Windows.
+- Windows seulement. Les vidéos ne sont pas listées. Les vignettes demandent de copier chaque photo (quelques
+  secondes pour une page d'écran).
+
 ## [0.32.0] — 2026-11-15
 
 ### Ajouté
