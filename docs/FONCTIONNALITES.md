@@ -59,8 +59,8 @@ les tests automatisés (`npm test`) ou vérifiée dans l'application.
   photothèque détient ensuite le seul exemplaire, à sauvegarder.
 - **Détection des supports** : testée sous Windows (cartes et clés non essayées sur un vrai lecteur :
   les tests couvrent l'analyse de la sortie système). macOS et Linux : points de montage usuels, sans essai réel.
-- **Téléphones** (MTP, Windows) : détectés, photos de `DCIM` et `Pictures` listées et copiées (copie seulement,
-  rien n'est supprimé sur l'appareil). **Non essayé avec un vrai téléphone** : testé sur un dossier lu par la même
+- **Téléphones** (MTP, Windows) : détectés, photos de `DCIM` et `Pictures` listées, copiées ou déplacées (le déplacement
+  supprime la photo de l'appareil après copie vérifiée). **Non essayé avec un vrai téléphone** : testé sur un dossier lu par la même
   interface Shell. Pas de vidéos ; vignettes lentes (chaque photo est copiée).
 - Les fichiers annexes XMP voisins d'une photo ne sont ni copiés ni déplacés.
 

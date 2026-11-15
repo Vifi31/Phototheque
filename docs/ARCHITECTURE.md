@@ -917,8 +917,10 @@ les confirmations se font par un second clic sur le bouton, pas par
 * `imports.scanPhone(id)` mémorise les photos listées (`phoneScans`) : seules celles-ci peuvent être prévisualisées ou
   importées (403 sinon). `previewPhone` copie la photo dans un dossier temporaire, fait la vignette, efface.
   `importFromPhone(id, rels)` : lots de 20 → `phones.copy` vers un dossier temporaire → `processOne` sur chaque
-  fichier copié → effacement ; une seule ligne `imports` (`data.phone`). **Copie seulement** (le serveur refuse
-  `mode: 'move'` avec `phone`).
+  fichier copié → effacement ; une seule ligne `imports` (`data.phone`). Mode `copy` : rien n'est touché sur l'appareil. Mode `move` (v0.34.0) : la copie temporaire est
+  traitée comme une source « stagée » (`staged`) ; après copie vérifiée (SHA-256) et indexée, `phones.remove` supprime
+  la photo de l'appareil (op PowerShell `remove` : `InvokeVerb('delete')`, puis attente de sa disparition, 30 s). Un échec
+  laisse la photo en place (`keptSources`). `removeDuplicateSources` retire aussi les doublons déjà en photothèque.
 * Ligne « supports détectés » : `root: 'phone:<id>'`, `kind` `phone` | `camera`, `phone: { id, name, brand, ready,
   storages }`. Un appareil sans stockage est « verrouillé ou non autorisé ».
 * `createDemoPhones(dossier)` (`PHOTOTHEQUE_DEMO_PHONE`) : un dossier joue le téléphone, avec le même code Shell.

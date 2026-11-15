@@ -557,7 +557,7 @@ const App = (() => {
         h('div.grow',
           h('div', h('b', d.label), ' ', h('span.dim', d.kindLabel)),
           h('div', ok ? h('span.pill.ok', 'Prêt : transfert de fichiers autorisé') : h('span.pill.warn', 'Verrouillé ou transfert non autorisé')),
-          ok ? h('small.dim', 'Photos lues dans DCIM et Pictures. Copie seulement : rien n’est jamais supprimé sur l’appareil.')
+          ok ? h('small.dim', 'Photos lues dans DCIM et Pictures. En mode Déplacer, chaque photo est supprimée du téléphone après copie vérifiée.')
             : h('small.dim', 'Déverrouillez l’appareil, puis choisissez « Transfert de fichiers » (Android) ou « Faire confiance » (iPhone). Cliquez ensuite sur Actualiser.')),
         h('div.drive-actions',
           ok ? h('button.small', { onclick: () => openPicker(null, d) }, 'Choisir les photos…') : h('button.ghost.small', { onclick: () => loadDrives(true) }, '↻ Actualiser')));
@@ -602,7 +602,7 @@ const App = (() => {
       const sel = new Set(files.filter(f => !f.known).map(f => f.path));       // par défaut : les photos pas encore importées
       let mode = 'copy', verify = true, removeDup = false, last = -1;
       const title = drive?.phone ? drive.label : drive ? `${drive.label || 'Sans nom'} (${drive.letter || drive.root})` : sc.root;
-      const phoneId = sc.phone?.id ?? null;                                  // téléphone : copie seulement, rien n'est supprimé sur l'appareil
+      const phoneId = sc.phone?.id ?? null;                                  // téléphone : « Déplacer » supprime sur l'appareil, après copie vérifiée
       const countEl = h('b'), sizeEl = h('span.dim');
       const cells = new Map();
       const sizeOf = () => files.reduce((a, f) => a + (sel.has(f.path) ? f.size : 0), 0);
@@ -641,8 +641,7 @@ const App = (() => {
       }
 
       const modeBox = h('div.imp-mode',
-        phoneId ? h('p.dim', h('b', 'Copie seulement. '), 'Depuis un téléphone, les photos sont copiées : rien n’est jamais supprimé sur l’appareil. Pour libérer sa mémoire, supprimez les photos vous-même une fois la sauvegarde faite.') : null,
-        ...[['copy', 'Copier', 'Les photos restent aussi sur le support d’origine.'], ['move', 'Déplacer', 'Les photos sont effacées du support d’origine, après copie vérifiée.']].filter(([val]) => !phoneId || val === 'copy').map(([val, label, hint]) =>
+        ...[['copy', 'Copier', 'Les photos restent aussi sur le support d’origine.'], ['move', 'Déplacer', 'Les photos sont effacées du support d’origine, après copie vérifiée.']].map(([val, label, hint]) =>
           h('label.imp-opt', h('input', { type: 'radio', name: 'impMode', value: val, checked: val === mode, onchange: () => { mode = val; verifyCb.checked = verify = mode === 'move' ? true : verify; verifyCb.disabled = mode === 'move'; warn.hidden = dupLabel.hidden = mode !== 'move'; sync(); } }), h('span', h('b', label), h('small.dim', ' ' + hint)))));
       const verifyCb = h('input', { type: 'checkbox', checked: true, onchange: () => { verify = verifyCb.checked; } });
       const dupCb = h('input', { type: 'checkbox', onchange: () => { removeDup = dupCb.checked; } });
@@ -657,7 +656,9 @@ const App = (() => {
         const sources = files.filter(f => sel.has(f.path)).map(f => f.path);
         if (!sources.length) return toast('Aucune photo choisie', 'warn');
         if (mode === 'move' && !(await confirmDialog('Déplacer les photos',
-          `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.`))) return;
+          `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.${phoneId ? '
+
+Sur le téléphone, Windows peut demander une confirmation de suppression à l’écran : acceptez-la, sinon la photo reste sur le téléphone.' : ''}`))) return;
         let jobId;
         try { ({ jobId } = await api('/import/start', 'POST', { sources, mode, verify, removeDuplicateSources: mode === 'move' && removeDup, supportId: drive?.support?.id ?? null, root: sc.root, phone: phoneId })); }
         catch (e) { return toast(e.message, 'bad'); }

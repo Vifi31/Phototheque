@@ -196,7 +196,7 @@ bibliothèque).
    et propositions de mots-clés pendant la frappe (`UI.keywordInput`, synonymes compris) —
    **livré en v0.31.0** (§28). Importation : supports détectés (`lib/drives.mjs`), choix des photos,
    copier ou déplacer avec copie vérifiée — **livré en v0.32.0** (§29). Téléphones branchés (MTP, Windows, `lib/phones.mjs`) : détection,
-   choix des photos, copie seulement — **livré en v0.33.0** (§30) ; non essayé avec un vrai appareil. Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
+   choix des photos, copie ou déplacement (v0.34.0 : suppression sur l'appareil après copie vérifiée) — **livré en v0.33.0** (§30) ; non essayé avec un vrai appareil. Piège : `keywords.photo_count` peut être périmé, ne pas l'afficher tel quel.
    Piège : les clés `config` contenant un point appartiennent aux modules
    (jamais dans le store). Une base ouverte ne se réécrit pas : restauration
    complète appliquée au démarrage (`STAGED_DB`).

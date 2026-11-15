@@ -608,8 +608,8 @@ group('Téléphones branchés (MTP) : détection, lecture des photos, copie sans
 
     const pick = sc.files.filter(f => f.name !== 'capture.png').map(f => f.path);      // 3 photos sur 4
     const prog = [];
-    const r1 = await IMPP.importFromPhone('ph-test', pick, { mode: 'move', onProgress: p => prog.push(p.status) });
-    check('import téléphone : 3 photos copiées (le mode « move » est ignoré)', r1.copied + '/' + r1.mode + '/' + r1.moved, '3/copy/0', 0);
+    const r1 = await IMPP.importFromPhone('ph-test', pick, { mode: 'copy', onProgress: p => prog.push(p.status) });
+    check('import téléphone : 3 photos copiées', r1.copied + '/' + r1.mode + '/' + r1.moved, '3/copy/0', 0);
     check('import téléphone : la 4e n\'est pas importée', fs.readdirSync(STORE.import.dest).length, 3, 0);
     check('import téléphone : les résultats parlent du chemin sur le téléphone', r1.results.every(r => /^Stockage interne\\/.test(r.src)), true, 0);
     check('import téléphone : rien n\'est supprimé sur l\'appareil', (await real.list(ref, { limit: 100 })).files.length, 4, 0);
@@ -629,6 +629,43 @@ group('Téléphones branchés (MTP) : détection, lecture des photos, copie sans
     fake.failOn = null;
     const rs = await IMPP.importFromPhone('ph-test', sc2.files.map(f => f.path), { shouldStop: () => true });
     check('import téléphone : arrêt demandé', rs.stopped && rs.copied === 0, true, 0);
+
+    // --- déplacement depuis le téléphone : la photo est supprimée de l'appareil après copie vérifiée ---
+    const st2 = path.join(TMP, 'telephone-deplacer');  // racine de l'appareil : contient « Stockage interne »
+    fs.cpSync(dev, st2, { recursive: true });
+    const ref2 = { folderRoot: st2 };
+    // images différentes de celles déjà importées (sinon ce seraient des doublons de la photothèque)
+    const st2s = path.join(st2, 'Stockage interne');
+    for (const [f, c] of [['DCIM/Camera/IMG_0001.jpg', { r: 10, g: 90, b: 90 }], ['DCIM/Camera/été à.JPG', { r: 90, g: 10, b: 90 }], ['DCIM/100APPLE/IMG_0001.jpg', { r: 90, g: 90, b: 10 }]]) await makeImage(path.join(st2s, f), { color: c });
+    const real2 = createPhones({ platform: 'win32' });
+    const removeCalls = [];
+    const fake2 = {
+      known: new Map([['ph-mv', { id: 'ph-mv', name: 'Pixel déplacé', kind: 'phone', ready: true }]]),
+      detect: async () => [], list: (r, o) => real2.list(ref2, o), copy: (r, j, o) => real2.copy(ref2, j, o),
+      remove: async (r, rel) => { removeCalls.push(rel); if (fake2.failRemove) throw new Error('suppression refusée'); return real2.remove(ref2, rel); },
+    };
+    STORE.import.dest = path.join(TMP, 'imports-telephone-deplacer'); saveStore(DB, STORE);
+    const IMPM = createImports(DB, STORE, LIB, KW, null, fake2);
+    const scm = await IMPM.scanPhone('ph-mv');
+    const nameIn = n => scm.files.find(f => f.name === n)?.path;
+    const toMove = scm.files.filter(f => f.name !== 'capture.png').map(f => f.path);
+    // une suppression refusée : la copie est faite, la photo reste sur l'appareil
+    fake2.failRemove = true;
+    const m0 = await IMPM.importFromPhone('ph-mv', [nameIn('capture.png')], { mode: 'move' });
+    check('déplacement téléphone : suppression refusée = copie gardée, photo conservée sur l\'appareil', m0.copied + '/' + m0.moved + '/' + m0.keptSources + '/' + (await real2.list(ref2, { limit: 100 })).files.length, '1/0/1/4', 0);
+    fake2.failRemove = false; removeCalls.length = 0;
+    const m1 = await IMPM.importFromPhone('ph-mv', toMove, { mode: 'move' });
+    check('déplacement téléphone : 3 copiées et 3 déplacées', m1.mode + '/' + m1.copied + '/' + m1.moved, 'move/3/3', 0);
+    const left = (await real2.list(ref2, { limit: 100 })).files.map(f => f.name);
+    check('déplacement téléphone : les 3 photos ont disparu de l\'appareil, la 4e est restée', left.length + '/' + left[0], '1/capture.png', 0);
+    check('déplacement téléphone : suppression demandée pour les chemins de l\'appareil', removeCalls.length === 3 && removeCalls.every(r => /^Stockage interne\\/.test(r)), true, 0);
+    check('déplacement téléphone : copies présentes dans la photothèque', fs.readdirSync(STORE.import.dest).length, 4, 0);
+    const mrow = DB.prepare("SELECT mode, data FROM imports WHERE json_extract(data, '$.phone') = 'Pixel déplacé' ORDER BY started_at DESC").get();
+    check('déplacement téléphone : tracé (mode move, chemins de l\'appareil)', mrow.mode + '/' + JSON.parse(mrow.data).removedSources.every(r => /^Stockage interne\\/.test(r)), 'move/true', 0);
+    // photos déjà présentes dans la photothèque : retirées de l'appareil seulement si demandé
+    const scm2 = await IMPM.scanPhone('ph-mv');
+    const m2 = await IMPM.importFromPhone('ph-mv', scm2.files.map(f => f.path), { mode: 'move', removeDuplicateSources: true });
+    check('déplacement téléphone : doublon retiré de l\'appareil sur demande', m2.removedDuplicates + '/' + (await real2.list(ref2, { limit: 100 })).files.length, '1/0', 0);
   }
 }
 
@@ -674,7 +711,7 @@ group('Collections : sélections et recherches enregistrées');
     JSON.stringify(Search.cleanFilters({ rating: '3', missing: '0', duplicate: 'true', anyKeywords: 'a, b,', hasGps: '0', prefix: 'false' })),
     JSON.stringify({ rating: 3, missing: 0, duplicate: true, anyKeywords: ['a', 'b'], hasGps: false, prefix: false }));
   check('renommage', COL.update(dyn.id, { name: 'Boîtier Nikon' }).name, 'Boîtier Nikon');
-  check('critères modifiables', COL.update(dyn.id, { query: { format: 'png' } }).photo_count, 1, 0);
+  check('critères modifiables', COL.update(dyn.id, { query: { format: 'png' } }).photo_count, 2, 0); // 2 : la capture PNG importée par l'essai de déplacement depuis un téléphone s'ajoute
   check('liste triée par nom', COL.list().map(c => c.name).join('|'), 'Boîtier Nikon|Mes favorites');
 
   // --- suppression : jamais de photo perdue ---

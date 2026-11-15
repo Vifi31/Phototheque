@@ -610,10 +610,9 @@ async function api(req, res, url) {
     if (!sources.length) return json(res, 400, { error: 'Aucune photo choisie' });
     if (sources.length > 100000) return json(res, 400, { error: 'Sélection trop grande' });
     const phone = b.phone ? String(b.phone) : null;
-    if (phone && b.mode === 'move') return json(res, 400, { error: 'Depuis un téléphone, seule la copie est possible : rien n\'est jamais supprimé sur l\'appareil' });
     const mode = b.mode === 'move' ? 'move' : 'copy';
     if ([...JOBS.values()].some(j => j.kind === 'import' && j.status === 'running')) return json(res, 409, { error: 'Un import est déjà en cours' });
-    if (mode === 'move') { // pas de suppression sans analyse préalable du dossier : refus global avant de commencer
+    if (mode === 'move' && !phone) { // (téléphone : les chemins sont ceux de la dernière lecture de l'appareil, contrôlés par importFromPhone) pas de suppression sans analyse préalable du dossier : refus global avant de commencer
       const bad = sources.find(s => imports.checkMovable(s));
       if (bad) return json(res, 400, { error: `Déplacement refusé pour « ${bad} » : ${imports.checkMovable(bad)}` });
     }

@@ -4,6 +4,25 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.34.0] — 2026-11-15
+
+### Ajouté
+
+- **Importation depuis un téléphone : option « Déplacer »** (v0.33.0 : copie seulement). Chaque photo est copiée,
+  vérifiée par SHA-256 et indexée, puis supprimée du téléphone (`phones.remove`, op PowerShell `remove`).
+  Si la suppression échoue ou n'est pas confirmée, la photo reste sur l'appareil et la copie est gardée.
+  « Retirer aussi les photos déjà présentes dans la photothèque » est disponible comme pour une carte.
+
+### Modifié
+
+- `/api/import/start` n'écarte plus `mode: 'move'` avec `phone`. Le moteur attend désormais la suppression de la source (`await removeFile`).
+
+### Limites
+
+- **Suppression non essayée avec un vrai téléphone** : testée sur un dossier lu par la même interface Shell
+  (corbeille de Windows). Sur un vrai appareil, Windows peut afficher une confirmation (à accepter) et la suppression
+  est définitive (pas de corbeille MTP).
+
 ## [0.33.0] — 2026-11-15
 
 ### Ajouté
