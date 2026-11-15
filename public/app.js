@@ -656,9 +656,7 @@ const App = (() => {
         const sources = files.filter(f => sel.has(f.path)).map(f => f.path);
         if (!sources.length) return toast('Aucune photo choisie', 'warn');
         if (mode === 'move' && !(await confirmDialog('Déplacer les photos',
-          `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.${phoneId ? '
-
-Sur le téléphone, Windows peut demander une confirmation de suppression à l’écran : acceptez-la, sinon la photo reste sur le téléphone.' : ''}`))) return;
+          `${fmtNum(sources.length)} photo(s) (${fmtBytes(sizeOf())}) seront copiées dans la photothèque, vérifiées, puis SUPPRIMÉES de « ${sc.root} ».${removeDup ? '\n\nLes photos déjà présentes dans la photothèque seront aussi supprimées du support.' : ''}\n\nChaque original n’est effacé qu’après vérification de sa copie.${phoneId ? '\n\nSur le téléphone, Windows peut demander une confirmation de suppression à l’écran : acceptez-la, sinon la photo reste sur le téléphone.' : ''}`))) return;
         let jobId;
         try { ({ jobId } = await api('/import/start', 'POST', { sources, mode, verify, removeDuplicateSources: mode === 'move' && removeDup, supportId: drive?.support?.id ?? null, root: sc.root, phone: phoneId })); }
         catch (e) { return toast(e.message, 'bad'); }
