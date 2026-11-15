@@ -245,6 +245,10 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
     check('filtre mots-clés : recherche par l\'enfant', n({ keywordId: enf.id }), 2, 0);
     check('filtre mots-clés : « sans » exclut les photos marquées', LIB.search({ noKeyword: true }, { limit: 500 }).rows.every(r => r.id !== pa && r.id !== pb), true, 0);
     check('filtre mots-clés : « avec » inclut les photos marquées', LIB.search({ hasKeyword: true }, { limit: 500 }).rows.some(r => r.id === pa), true, 0);
+    const solo = KW.ensure('Facette solo'); KW.attach(pa, solo.id);
+    check('filtre mots-clés : plusieurs mots-clés = ou logique', n({ keywordId: solo.id + '|' + enf.id }), 2, 0);
+    check('filtre mots-clés : deux mots-clés disjoints', n({ keywordId: solo.id + '|' + enf.id }) >= n({ keywordId: solo.id }), true, 0);
+    KW.remove(solo.id);
     KW.remove(enf.id); KW.remove(par.id);
     const kf2 = LIB.keywordFacets();
     check('filtre mots-clés : retour à l\'état initial après nettoyage', kf2.none === kf0.none && kf2.any === kf0.any, true, 0);
@@ -275,6 +279,12 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   check('critère : intégrité (fichier)', n({ integrity: 'missing' }) >= 0, true, 0);
   check('critère : doublons', n({ duplicate: true }) >= 0, true, 0);
   check('critère : année', n({ year: '2024' }) >= 0, true, 0);
+  // choix multiples (valeurs séparées par « | », ou logique entre elles)
+  check('multi : deux années = somme des deux', n({ year: '2024|2023' }), n({ year: '2024' }) + n({ year: '2023' }), 0);
+  check('multi : année inconnue ajoutée sans effet', n({ year: '2024|1900' }), n({ year: '2024' }), 0);
+  check('multi : deux formats = somme des deux', n({ format: 'jpeg|png' }), n({ format: 'jpeg' }) + n({ format: 'png' }), 0);
+  check('multi : valeur vide ignorée', n({ year: '2024|' }), n({ year: '2024' }), 0);
+  check('multi : plusieurs appareils', n({ camera: 'Pixel 7|Nikon' }) >= n({ camera: 'Pixel 7' }), true, 0);
   // GPS : aucune photo de test n'est géolocalisée ; la valeur d'URL « 0 » doit valoir « sans GPS »
   check('critère : sans GPS (« 0 » d\'URL)', n({ hasGps: '0' }), LIB.stats().photos, 0);
   check('critère : sans GPS (« false » d\'URL)', n({ hasGps: 'false' }), LIB.stats().photos, 0);

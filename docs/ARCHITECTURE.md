@@ -926,3 +926,12 @@ les confirmations se font par un second clic sur le bouton, pas par
 * `createDemoPhones(dossier)` (`PHOTOTHEQUE_DEMO_PHONE`) : un dossier joue le téléphone, avec le même code Shell.
 * Testé : classement USB, analyse des réponses, détection simulée, liste / copie / arrêt / limite sur un vrai dossier
   via PowerShell, import complet avec un appareil simulé. **Non essayé avec un vrai téléphone.**
+
+## 31. Filtres à choix multiples et filtre d'importation (v0.35.0)
+
+* `lib/search.mjs` : `year`, `camera`, `format` et `keywordId` acceptent plusieurs valeurs séparées par « | » (`multi()`), combinées
+  par OU (`IN`, ou OU de `LIKE`, ou OU de sous-requêtes d'arbre de mots-clés). Une valeur unique garde l'ancien sens.
+* `public/app.js` : `multiFilter()` (bouton + liste de cases à cocher, options « exclusives » pour sans / avec mot-clé,
+  `box.sync()` pour resynchroniser avec la recherche avancée) ; styles `.filters`, `.mf*` dans `style.css`.
+* Importation : `view` (all | new | known) masque cellules et groupes (`applyView`) ; les actions de choix portent sur les
+  photos affichées. « Déjà importée » = même nom et même taille qu'une photo de la photothèque (heuristique de `scan`).

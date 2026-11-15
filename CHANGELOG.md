@@ -4,6 +4,24 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.35.0] — 2026-11-15
+
+### Ajouté
+
+- **Importation : filtre d'affichage** « Toutes / Pas encore importées / Déjà importées » (avec effectifs) au-dessus
+  des vignettes ; « Tout choisir », « Aucune » et « Inverser » agissent sur les photos affichées, les groupes de
+  dossiers vides disparaissent.
+- **Photothèque : choix multiples** pour les années, appareils, formats et mots-clés (listes à cases à cocher, ou
+  logique entre les valeurs cochées ; recherche dans les longues listes, « Tout effacer »). Valeurs séparées par
+  « | » dans les critères (`year`, `camera`, `format`, `keywordId`) : une valeur seule fonctionne comme avant,
+  les recherches enregistrées existantes restent valables. « Sans » et « avec au moins un mot-clé » sont exclusifs.
+
+### Modifié
+
+- **Barre de filtres de la Photothèque plus compacte** : contrôles plus petits et de largeur automatique, sur une
+  seule rangée qui passe à la ligne ; les listes s'ouvrent en menu.
+- Les notes (« ★ et + ») et la disponibilité restent à choix unique : ce sont des seuils / des états exclusifs.
+
 ## [0.34.0] — 2026-11-15
 
 ### Ajouté

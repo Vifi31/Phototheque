@@ -130,6 +130,37 @@ const App = (() => {
   }
 
   // ---------- vue Photothèque (grille + recherche + filtres) ----------
+  /**
+   * Filtre à choix multiples, compact : un bouton qui ouvre une liste de cases à cocher.
+   * options : [{ value, label, n?, depth?, exclusive? }] ; get() → valeurs cochées ; set(valeurs) applique.
+   * Une option « exclusive » décoche les autres quand on la coche (et inversement).
+   */
+  function multiFilter(label, options, get, set, { search = false, title = '' } = {}) {
+    const sum = h('summary', { title: title || label });
+    const list = h('div.mf-list');
+    const find = h('input', { type: 'search', placeholder: 'Chercher…', oninput: () => { const t = find.value.trim().toLowerCase(); for (const r of list.children) r.hidden = !!t && !r.dataset.l.includes(t); } });
+    const box = h('details.mf', sum, h('div.mf-pop', search && options.length > 8 ? find : null,
+      h('div.mf-head', h('button.ghost.small', { type: 'button', onclick: () => { set([]); box.sync(); } }, 'Tout effacer')), list));
+    const rows = options.map(o => {
+      const cb = h('input', { type: 'checkbox', onchange: () => {
+        let cur = get().filter(v => v !== o.value);
+        if (cb.checked) cur = o.exclusive ? [o.value] : [...cur.filter(v => !options.find(x => x.value === v)?.exclusive), o.value];
+        set(cur); box.sync(); } });
+      const r = h('label.mf-row', { dataset: { l: String(o.label).toLowerCase() }, style: o.depth ? { paddingLeft: 6 + 12 * o.depth + 'px' } : null }, cb, h('span', o.label), o.n != null ? h('small.dim', fmtNum(o.n)) : null);
+      list.append(r); return [o, cb];
+    });
+    box.sync = () => {
+      const cur = new Set(get());
+      for (const [o, cb] of rows) cb.checked = cur.has(o.value);
+      const picked = options.filter(o => cur.has(o.value));
+      sum.textContent = !picked.length ? label : picked.length === 1 ? picked[0].label : `${label} · ${picked.length}`;
+      box.classList.toggle('on', picked.length > 0);
+    };
+    box.sync();
+    if (!window.__mfBound) { window.__mfBound = true; document.addEventListener('click', e => { for (const d of document.querySelectorAll('details.mf[open]')) if (!d.contains(e.target)) d.open = false; }); }
+    return box;
+  }
+
   async function viewPhotos(v) {
     clear(v);
     const [facets, kwr] = await Promise.all([api('/facets'), api('/keywords')]); state.facets = facets; state.keywords = kwr.list;
@@ -137,29 +168,26 @@ const App = (() => {
     const coll = state.facet.collectionId ? (await api('/collections/' + encodeURIComponent(state.facet.collectionId)).catch(() => ({}))).collection : null;
     if (state.facet.collectionId && !coll) delete state.facet.collectionId;
     const toolbar = h('div.grid-toolbar');
-    const filterBar = h('div.row');
+    const filterBar = h('div.row.filters');
     const grid = h('div.grid-photos');
     const info = h('div.dim');
 
     // filtres
     const sortSel = h('select', { onchange: () => { state.sort = sortSel.value; state.page = 0; refresh(); } },
       ...[['captured_desc', 'Plus récentes'], ['captured_asc', 'Plus anciennes'], ['rating_desc', 'Mieux notées'], ['added_desc', 'Ajoutées récemment'], ['size_desc', 'Plus grandes']].map(([v2, l]) => h('option', { value: v2, selected: state.sort === v2 }, l)));
-    const yearSel = h('select', { onchange: () => { state.facet.year = yearSel.value; state.page = 0; refresh(); } },
-      h('option', { value: '' }, 'Toutes les années'),
-      ...facets.years.map(y => h('option', { value: y.y, selected: state.facet.year === y.y }, `${y.y} (${y.n})`)));
-    const camSel = h('select', { onchange: () => { state.facet.camera = camSel.value; state.page = 0; refresh(); } },
-      h('option', { value: '' }, 'Tous les appareils'),
-      ...facets.cameras.map(c => h('option', { value: c.camera_model, selected: state.facet.camera === c.camera_model }, `${c.camera_model || c.camera_make} (${c.n})`)));
-    const fmtSel = h('select', { onchange: () => { state.facet.format = fmtSel.value; state.page = 0; refresh(); } },
-      h('option', { value: '' }, 'Tous les formats'),
-      ...facets.formats.map(f => h('option', { value: f.format, selected: state.facet.format === f.format }, `${f.format} (${f.n})`)));
+    // listes à choix multiples (valeurs séparées par « | » dans state.facet, ou logique entre elles)
+    const facetList = key => String(state.facet[key] ?? '').split('|').filter(Boolean);
+    const setFacetList = key => arr => { if (arr.length) state.facet[key] = arr.join('|'); else delete state.facet[key]; state.page = 0; refresh(); };
+    const yearSel = multiFilter('Années', facets.years.map(y => ({ value: String(y.y), label: String(y.y), n: y.n })), () => facetList('year'), setFacetList('year'));
+    const camSel = multiFilter('Appareils', facets.cameras.map(c => ({ value: c.camera_model || c.camera_make, label: c.camera_model || c.camera_make, n: c.n })).filter(o => o.value), () => facetList('camera'), setFacetList('camera'), { search: true });
+    const fmtSel = multiFilter('Formats', facets.formats.map(f => ({ value: f.format, label: f.format, n: f.n })), () => facetList('format'), setFacetList('format'));
     const ratingSel = h('select', { onchange: () => { state.facet.rating = ratingSel.value; state.page = 0; refresh(); } },
-      ...[['', 'Toutes notes'], ['1', '★ et +'], ['3', '★★★ et +'], ['5', '★★★★★']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.rating === v2 }, l)));
+      ...[['', 'Notes : toutes'], ['1', '★ et +'], ['3', '★★★ et +'], ['5', '★★★★★']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.rating === v2 }, l)));
     const missSel = h('select', { onchange: () => { state.facet.missing = missSel.value; state.page = 0; refresh(); } },
-      ...[['', 'Toutes disponibilités'], ['0', 'Présentes'], ['1', 'Indisponibles']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.missing === v2 }, l)));
+      ...[['', 'Disponibilité : toutes'], ['0', 'Présentes'], ['1', 'Indisponibles']].map(([v2, l]) => h('option', { value: v2, selected: state.facet.missing === v2 }, l)));
 
     // recherche avancée : critères ET / OU / NON et filtres fins (mêmes clés que lib/search.mjs)
-    const advanced = advancedPanel(() => { kwFilterSel.value = kwCurrent(); state.page = 0; refresh(); });
+    const advanced = advancedPanel(() => { kwFilterSel.sync(); state.page = 0; refresh(); });
 
     // filtre « Mots-clés » : sans mot-clé, avec au moins un, ou un mot-clé précis (la recherche inclut ceux rangés dessous).
     // Mêmes clés que la recherche avancée (noKeyword, hasKeyword, keywordId) : les deux contrôles restent synchronisés.
@@ -171,23 +199,20 @@ const App = (() => {
     const kwOptions = [];
     const kwWalk = (k, depth) => {
       if (depth > 31) return;
-      kwOptions.push(h('option', { value: 'id:' + k.id }, `${'  '.repeat(depth)}${depth ? '› ' : ''}${k.name} (${fmtNum(kwFacet.branch?.[k.id] ?? kwFacet.counts?.[k.id] ?? 0)})`));
+      kwOptions.push({ value: 'id:' + k.id, label: k.name, depth, n: kwFacet.branch?.[k.id] ?? kwFacet.counts?.[k.id] ?? 0 });
       for (const c of (kwKids.get(k.id) ?? []).sort(kwByName)) kwWalk(c, depth + 1);
     };
     for (const k of (kwKids.get(null) ?? []).sort(kwByName)) kwWalk(k, 0);
-    const kwCurrent = () => state.facet.noKeyword ? 'none' : state.facet.hasKeyword ? 'any' : state.facet.keywordId ? 'id:' + state.facet.keywordId : '';
-    const kwFilterSel = h('select', { title: 'Filtrer par mot-clé : sans mot-clé, avec au moins un, ou un mot-clé précis (avec ceux rangés dessous)', onchange: () => {
-      const val = kwFilterSel.value;
+    const kwCurrent = () => state.facet.noKeyword ? ['none'] : state.facet.hasKeyword ? ['any'] : facetList('keywordId').map(id => 'id:' + id);
+    const kwFilterSel = multiFilter('Mots-clés', [
+      { value: 'none', label: 'Sans mot-clé', n: kwFacet.none, exclusive: true },
+      { value: 'any', label: 'Avec au moins un mot-clé', n: kwFacet.any, exclusive: true },
+      ...kwOptions], kwCurrent, arr => {
       delete state.facet.noKeyword; delete state.facet.hasKeyword; delete state.facet.keywordId;
-      if (val === 'none') state.facet.noKeyword = 'true';
-      else if (val === 'any') state.facet.hasKeyword = 'true';
-      else if (val.startsWith('id:')) state.facet.keywordId = val.slice(3);
-      advanced.syncKeyword(); state.page = 0; refresh(); } },
-      h('option', { value: '' }, 'Tous les mots-clés'),
-      h('option', { value: 'none' }, `Sans mot-clé (${fmtNum(kwFacet.none)})`),
-      h('option', { value: 'any' }, `Avec au moins un mot-clé (${fmtNum(kwFacet.any)})`),
-      ...(kwOptions.length ? [h('optgroup', { label: 'Un mot-clé' }, ...kwOptions)] : []));
-    kwFilterSel.value = kwCurrent();
+      if (arr[0] === 'none') state.facet.noKeyword = 'true';
+      else if (arr[0] === 'any') state.facet.hasKeyword = 'true';
+      else if (arr.length) state.facet.keywordId = arr.map(v => v.slice(3)).join('|');
+      advanced.syncKeyword(); state.page = 0; refresh(); }, { search: true, title: 'Filtrer par mot-clé : sans mot-clé, avec au moins un, ou un ou plusieurs mots-clés précis (avec ceux rangés dessous)' });
 
     // variantes (outil Doublons) : préférence d'affichage, hors critères enregistrés ; sans effet dans une collection
     // (une sélection montre ce qu'on y a mis) ni pendant « référence et variantes »
@@ -601,6 +626,8 @@ const App = (() => {
       const files = sc.files;
       const sel = new Set(files.filter(f => !f.known).map(f => f.path));       // par défaut : les photos pas encore importées
       let mode = 'copy', verify = true, removeDup = false, last = -1;
+      let view = 'all';                                                       // affichage : all | new (pas encore importées) | known (déjà importées)
+      const shown = f => view === 'all' || (view === 'new') === !f.known;
       const title = drive?.phone ? drive.label : drive ? `${drive.label || 'Sans nom'} (${drive.letter || drive.root})` : sc.root;
       const phoneId = sc.phone?.id ?? null;                                  // téléphone : « Déplacer » supprime sur l'appareil, après copie vérifiée
       const countEl = h('b'), sizeEl = h('span.dim');
@@ -610,7 +637,7 @@ const App = (() => {
         countEl.textContent = `${fmtNum(sel.size)} photo(s) choisie(s) sur ${fmtNum(files.length)}`;
         sizeEl.textContent = ' · ' + fmtBytes(sizeOf());
         for (const [p, c] of cells) c.classList.toggle('on', sel.has(p));
-        for (const g of groupBoxes) g.cb.checked = g.items.every(f => sel.has(f.path)) && g.items.length > 0;
+        for (const g of groupBoxes) { const vis = g.items.filter(shown); g.cb.checked = vis.length > 0 && vis.every(f => sel.has(f.path)); }
         runBtn.textContent = mode === 'move' ? `Déplacer ${fmtNum(sel.size)} photo(s)` : `Copier ${fmtNum(sel.size)} photo(s)`;
         runBtn.className = mode === 'move' ? 'danger' : '';
         runBtn.disabled = !sel.size;
@@ -625,9 +652,17 @@ const App = (() => {
       files.forEach((f, i) => { const k = f.dir || '.'; (byDir.get(k) ?? byDir.set(k, []).get(k)).push({ ...f, i }); });
       const groupBoxes = [];
       const groupsEl = h('div');
+      const viewInfo = h('span.dim');
+      const applyView = () => {
+        for (const f of files) cells.get(f.path).hidden = !shown(f);
+        for (const g of groupBoxes) { const n = g.items.filter(shown).length; g.el.hidden = !n; g.count.textContent = ` · ${n} photo(s)`; }
+        viewInfo.textContent = view === 'all' ? '' : `${fmtNum(files.filter(shown).length)} photo(s) affichée(s)`;
+        sync();
+      };
       for (const [dir, items] of byDir) {
-        const cb = h('input', { type: 'checkbox', onchange: () => { for (const f of items) cb.checked ? sel.add(f.path) : sel.delete(f.path); sync(); } });
-        groupBoxes.push({ cb, items });
+        const cb = h('input', { type: 'checkbox', onchange: () => { for (const f of items.filter(shown)) cb.checked ? sel.add(f.path) : sel.delete(f.path); sync(); } });
+        const count = h('span.dim', ` · ${items.length} photo(s)`), gBox = { cb, items, count, el: null };
+        groupBoxes.push(gBox);
         const grid = h('div.imp-grid', ...items.map(f => {
           const c = h('div.imp-cell', { title: `${f.name}\n${fmtBytes(f.size)} · ${fmtDateTime(new Date(f.mtime).toISOString())}${f.known ? '\nProbablement déjà dans la photothèque (même nom et même taille)' : ''}`, onclick: e => toggle(f, e, f.i) },
             h('img', { loading: 'lazy', alt: '', src: `/api/import/preview?size=220${phoneId ? '&phone=' + encodeURIComponent(phoneId) : ''}&path=${encodeURIComponent(f.path)}`, draggable: 'false', onerror: e => { e.target.replaceWith(h('div.imp-noimg', '🖼️')); } }),
@@ -637,7 +672,8 @@ const App = (() => {
           cells.set(f.path, c);
           return c;
         }));
-        groupsEl.append(h('div.imp-group', h('label.imp-group-h', cb, h('b', dir === '.' ? 'Racine du dossier' : dir), h('span.dim', ` · ${items.length} photo(s)`)), grid));
+        gBox.el = h('div.imp-group', h('label.imp-group-h', cb, h('b', dir === '.' ? 'Racine du dossier' : dir), count), grid);
+        groupsEl.append(gBox.el);
       }
 
       const modeBox = h('div.imp-mode',
@@ -647,6 +683,11 @@ const App = (() => {
       const dupCb = h('input', { type: 'checkbox', onchange: () => { removeDup = dupCb.checked; } });
       const dupLabel = h('label.check', { hidden: true }, dupCb, ' Retirer aussi de la source les photos déjà présentes dans la photothèque (l’exemplaire de la photothèque est revérifié avant)');
       const warn = h('div.imp-warn', { hidden: true }, h('b', 'Déplacer efface les fichiers du support d’origine. '), 'Chaque photo est d’abord copiée dans la photothèque, puis comparée à l’original par empreinte SHA-256 et indexée ; l’original n’est supprimé qu’ensuite. En cas de doute, il est conservé. Ne débranchez pas le support pendant l’opération. Ensuite, la photothèque détient le seul exemplaire : pensez à la sauvegarder (Administration, Sauvegardes).');
+      const nKnown = files.filter(f => f.known).length;
+      const viewSel = h('select', { title: 'Filtrer l’affichage : photos pas encore importées ou déjà importées (même nom et même taille)', onchange: () => { view = viewSel.value; applyView(); } },
+        h('option', { value: 'all' }, `Toutes (${fmtNum(files.length)})`),
+        h('option', { value: 'new' }, `Pas encore importées (${fmtNum(files.length - nKnown)})`),
+        h('option', { value: 'known' }, `Déjà importées (${fmtNum(nKnown)})`));
       const bar = h('div.imp-bar'), barText = h('div.dim'), progress = h('div.imp-progress', { hidden: true }, bar, barText);
       const cancelBtn = h('button.ghost.small', { hidden: true }, 'Arrêter');
       const runBtn = h('button', { onclick: run }, 'Copier');
@@ -694,11 +735,12 @@ const App = (() => {
         h('div.row', h('div.sect', `Photos de « ${title} »`), h('div.spacer'), h('button.ghost.small', { onclick: () => renderPicker(sc, drive) }, 'Réinitialiser le choix'), h('button.ghost.small', { onclick: async () => openPicker(sc.root, drive) }, phoneId ? 'Relire le téléphone' : 'Réanalyser'), h('button.ghost.small', { onclick: () => clear(picker) }, 'Fermer')),
         h('p.dim', `${sc.root} · ${fmtNum(files.length)} photo(s), ${fmtBytes(sc.bytes)} · ${fmtNum(sc.newCount)} pas encore dans la photothèque` + (sc.truncated ? ' · liste limitée aux premières photos' : '')),
         files.length ? h('div', h('div.row.imp-tools',
-          h('button.ghost.small', { onclick: () => { for (const f of files) sel.add(f.path); sync(); } }, 'Tout choisir'),
-          h('button.ghost.small', { onclick: () => { sel.clear(); sync(); } }, 'Aucune'),
+          h('label.dim', 'Afficher '), viewSel,
+          h('button.ghost.small', { title: 'Choisit les photos affichées', onclick: () => { for (const f of files.filter(shown)) sel.add(f.path); sync(); } }, 'Tout choisir'),
+          h('button.ghost.small', { title: 'Écarte les photos affichées', onclick: () => { for (const f of files.filter(shown)) sel.delete(f.path); sync(); } }, 'Aucune'),
           h('button.ghost.small', { onclick: () => { sel.clear(); for (const f of files) if (!f.known) sel.add(f.path); sync(); } }, 'Nouvelles seulement'),
-          h('button.ghost.small', { onclick: () => { for (const f of files) f.known ? sel.delete(f.path) : sel.add(f.path); sync(); } }, 'Inverser'),
-          h('div.spacer'), countEl, sizeEl),
+          h('button.ghost.small', { title: 'Inverse le choix des photos affichées', onclick: () => { for (const f of files.filter(shown)) sel.has(f.path) ? sel.delete(f.path) : sel.add(f.path); sync(); } }, 'Inverser'),
+          viewInfo, h('div.spacer'), countEl, sizeEl),
           h('p.dim.imp-hint', 'Cliquez sur une photo pour la choisir ou l’écarter ; Maj + clic choisit une série. Par défaut, seules les photos pas encore importées sont cochées.'),
           groupsEl,
           h('h4', 'Que faire des photos choisies ?'),
@@ -981,10 +1023,10 @@ const App = (() => {
       if (k === 'hasGps') return [false, 0, '0', 'false'].includes(val) ? 'sans GPS' : 'avec GPS';
       if (k === 'hasPlace') return [false, 0, '0', 'false'].includes(val) ? 'lieu non renseigné' : 'lieu renseigné';
       if (k === 'backup') return { covered: 'copie de sauvegarde', uncovered: 'sans copie de sauvegarde', single: 'un seul exemplaire' }[val] ?? val;
-      if (k === 'keywordId') return `${CRITERIA[k]} « ${kwName(val)} »`;
+      if (k === 'keywordId') return `${CRITERIA[k]} « ${String(val).split('|').map(kwName).join(' ou ')} »`;
       if (k === 'from' || k === 'to') return `${CRITERIA[k]} ${fmtDate(String(val).slice(0, 10))}`;
       if (k === 'orientation') return { landscape: 'paysage', portrait: 'portrait', square: 'carré' }[val] ?? val;
-      return `${CRITERIA[k]} « ${[].concat(val).join(', ')} »`;
+      return `${CRITERIA[k]} « ${[].concat(val).join(', ').split('|').join(' ou ')} »`;
     });
     return parts.length ? parts.join(' · ') : 'aucun critère';
   }
