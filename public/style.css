@@ -577,6 +577,7 @@ button.hbar { padding: 2px 4px; }
 /* Photothèque : filtres compacts à choix multiples */
 .filters { gap: 6px; }
 .filters select { width: auto; max-width: 168px; padding: 4px 8px; font-size: 12.5px; border-radius: 8px; }
+.filters select.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .filters .small { padding: 4px 9px; font-size: 12.5px; }
 .mf { position: relative; }
 .mf > summary { list-style: none; cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 22px 4px 8px; font-size: 12.5px; max-width: 168px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; user-select: none; }

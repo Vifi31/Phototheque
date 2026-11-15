@@ -935,3 +935,10 @@ les confirmations se font par un second clic sur le bouton, pas par
   `box.sync()` pour resynchroniser avec la recherche avancée) ; styles `.filters`, `.mf*` dans `style.css`.
 * Importation : `view` (all | new | known) masque cellules et groupes (`applyView`) ; les actions de choix portent sur les
   photos affichées. « Déjà importée » = même nom et même taille qu'une photo de la photothèque (heuristique de `scan`).
+
+## 32. ET / OU entre critères (v0.36.0)
+
+* `buildQuery` : `f.match === 'any'` range les clauses de critères (`addC`) dans `crit`, assemblées par OU entre parenthèses
+  puis ajoutées par ET au reste (`add` : texte libre, exclusions, collection / album / support / dossier, variantes).
+  `addGroup` fait de la période et des dimensions un seul critère. Les paramètres des critères sont ajoutés en dernier (ordre des `?`).
+* `cleanFilters` ne garde `match` que s'il vaut `any` et s'il accompagne au moins un critère. `filtersFrom` (serveur) le lit.

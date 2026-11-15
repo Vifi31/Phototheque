@@ -102,7 +102,7 @@ const aiHandle = aiRoutes(ai, { json, readBody, cards: cardsOf });
 function filtersFrom(sp) {
   const f = {};
   // chaînes
-  for (const k of ['q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf', 'place', 'backup', 'keywordCategory']) if (sp.get(k)) f[k] = sp.get(k);
+  for (const k of ['match', 'q', 'camera', 'lens', 'format', 'from', 'to', 'year', 'keywordId', 'supportId', 'folderId', 'albumId', 'collectionId', 'author', 'orientation', 'integrity', 'variantsOf', 'place', 'backup', 'keywordCategory']) if (sp.get(k)) f[k] = sp.get(k);
   // nombres / booléens « marqués » (la présence du paramètre compte, même vide)
   for (const k of ['rating', 'color', 'missing', 'hasGps', 'hasPlace', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight']) if (sp.get(k) != null && sp.get(k) !== '') f[k] = sp.get(k);
   // drapeaux présents/absents : la valeur « true » (ou sans valeur) active le critère

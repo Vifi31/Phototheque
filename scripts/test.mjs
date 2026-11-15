@@ -279,6 +279,20 @@ group('Recherche plein texte (FTS5) : index, accents, synchronisation');
   check('critère : intégrité (fichier)', n({ integrity: 'missing' }) >= 0, true, 0);
   check('critère : doublons', n({ duplicate: true }) >= 0, true, 0);
   check('critère : année', n({ year: '2024' }) >= 0, true, 0);
+  // ET / OU entre critères (match = 'any')
+  {
+    const a = { year: '1900' }, b = { format: 'jpeg' };
+    check('ET : critères incompatibles = aucune photo', n({ ...a, ...b }), 0, 0);
+    check('OU : une photo qui répond à un seul critère suffit', n({ ...a, ...b, match: 'any' }), n(b), 0);
+    check('OU : union de deux critères', n({ format: 'jpeg', year: '2024', match: 'any' }), n({ format: 'jpeg' }) + n({ year: '2024' }) - n({ format: 'jpeg', year: '2024' }), 0);
+    check('OU : un seul critère = comme ET', n({ ...b, match: 'any' }), n(b), 0);
+    check('OU : aucun critère = toutes les photos', n({ match: 'any' }), n({}), 0);
+    check('OU : le texte libre reste exigé', n({ q: 'zzzintrouvable', format: 'jpeg', match: 'any' }), 0, 0);
+    check('OU : une exclusion reste exigée', n({ excludeText: 'zzzintrouvable', ...a, ...b, match: 'any' }), n(b), 0);
+    check('OU : période et dimensions comptent chacune pour un critère', n({ from: '2999-01-01', to: '2999-12-31', ...b, match: 'any' }), n(b), 0);
+    check('critères enregistrés : « any » seul n\'est pas un critère', JSON.stringify(Search.cleanFilters({ match: 'any' })) + JSON.stringify(Search.cleanFilters({ match: 'all', year: '2024' })), '{}{"year":"2024"}', 0);
+    check('critères enregistrés : « any » conservé avec un critère', Search.cleanFilters({ match: 'any', year: '2024' }).match, 'any', 0);
+  }
   // choix multiples (valeurs séparées par « | », ou logique entre elles)
   check('multi : deux années = somme des deux', n({ year: '2024|2023' }), n({ year: '2024' }) + n({ year: '2023' }), 0);
   check('multi : année inconnue ajoutée sans effet', n({ year: '2024|1900' }), n({ year: '2024' }), 0);

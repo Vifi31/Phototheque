@@ -4,6 +4,18 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.36.0] — 2026-11-15
+
+### Ajouté
+
+- **Photothèque : ET / OU entre les critères.** Un sélecteur « Critères : tous (ET) / au moins un (OU) » dans la barre
+  de filtres : en OU, une photo est affichée dès qu'elle répond à au moins un des critères choisis (année, appareil,
+  format, mot-clé, note, disponibilité et critères de la recherche avancée). Critère `match` (`any`) de
+  `lib/search.mjs`, enregistrable dans une recherche enregistrée ; ET reste le comportement par défaut.
+- Restent toujours exigés, même en OU : le texte de la zone de recherche, les exclusions (« sans le texte / les
+  mots-clés »), la collection, l'album, le support, le dossier et l'affichage des variantes. La période (depuis / jusqu'au)
+  et les dimensions comptent chacune pour un seul critère.
+
 ## [0.35.0] — 2026-11-15
 
 ### Ajouté

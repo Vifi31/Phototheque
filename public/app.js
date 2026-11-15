@@ -221,7 +221,14 @@ const App = (() => {
       state.page = 0; refresh(); } },
       ...[['hide', 'Masquer les variantes'], ['show', 'Afficher les variantes'], ['only', 'Seulement les variantes']].map(([v2, l]) => h('option', { value: v2, selected: state.variants === v2 }, l)));
     varSel.hidden = !!coll;
-    mount(filterBar, yearSel, camSel, fmtSel, kwFilterSel, ratingSel, missSel, varSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
+    // ET / OU entre les critères : toutes les conditions (par défaut) ou au moins une
+    const matchSel = h('select', { title: 'Photos qui répondent à tous les critères des filtres (ET), ou à au moins un d’entre eux (OU)', onchange: () => {
+      if (matchSel.value === 'any') state.facet.match = 'any'; else delete state.facet.match;
+      matchSel.classList.toggle('on', matchSel.value === 'any'); state.page = 0; refresh(); } },
+      h('option', { value: 'all', selected: state.facet.match !== 'any' }, 'Critères : tous (ET)'),
+      h('option', { value: 'any', selected: state.facet.match === 'any' }, 'Critères : au moins un (OU)'));
+    matchSel.classList.toggle('on', state.facet.match === 'any');
+    mount(filterBar, matchSel, yearSel, camSel, fmtSel, kwFilterSel, ratingSel, missSel, varSel, h('button.ghost.small', { onclick: () => { state.facet = {}; state.q = ''; document.getElementById('search').value = ''; state.page = 0; go('photos'); } }, 'Réinitialiser'));
 
     // sélection multiple
     const selInfo = h('span.sel-count');
@@ -244,7 +251,7 @@ const App = (() => {
       }
     }
     // critères courants (texte + filtres), tels qu'enregistrés dans une recherche sauvegardée
-    const currentCriteria = () => { const c = { ...state.facet }; delete c.collectionId; if (state.q) c.q = state.q; return Object.fromEntries(Object.entries(c).filter(([, val]) => val !== '' && val != null)); };
+    const currentCriteria = () => { const c = { ...state.facet }; delete c.collectionId; if (Object.keys(c).every(k => k === 'match')) delete c.match; if (state.q) c.q = state.q; return Object.fromEntries(Object.entries(c).filter(([, val]) => val !== '' && val != null)); };
     const saveBtn = h('button.ghost.small', { onclick: saveSearch, title: 'Enregistrer le texte et les filtres actuels comme collection dynamique' }, 'Enregistrer la recherche…');
     const refreshSaveBtn = () => { saveBtn.hidden = !!coll || !!state.facet.ids || !Object.keys(currentCriteria()).length; };
     // planche-contact : la sélection si elle existe, sinon toutes les photos de la recherche affichée
@@ -1013,11 +1020,12 @@ const App = (() => {
     supportId: 'support', folderId: 'dossier', albumId: 'album', integrity: 'intégrité', hasGps: 'GPS',
     noKeyword: 'sans mot-clé', hasKeyword: 'avec mot-clé', hasCaption: 'avec légende', noCaption: 'sans légende', noDate: 'sans date', duplicate: 'doublons',
     hideVariants: 'sans les variantes', variants: 'seulement les variantes', variantsOf: 'référence et variantes de',
-    place: 'lieu', hasPlace: 'lieu', backup: 'sauvegarde', keywordCategory: 'catégorie de mot-clé',
+    match: 'conditions', place: 'lieu', hasPlace: 'lieu', backup: 'sauvegarde', keywordCategory: 'catégorie de mot-clé',
   };
   function describeQuery(q) {
     const kwName = id => state.keywords.find(k => k.id === id)?.name ?? id;
     const parts = Object.entries(q ?? {}).filter(([k]) => CRITERIA[k]).map(([k, val]) => {
+      if (k === 'match') return val === 'any' ? 'au moins un des critères (OU)' : 'tous les critères (ET)';
       if (val === true || val === 'true') return CRITERIA[k];
       if (k === 'missing') return +val ? 'indisponibles' : 'présentes';
       if (k === 'hasGps') return [false, 0, '0', 'false'].includes(val) ? 'sans GPS' : 'avec GPS';

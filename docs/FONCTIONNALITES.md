@@ -59,7 +59,7 @@ les tests automatisés (`npm test`) ou vérifiée dans l'application.
   photothèque détient ensuite le seul exemplaire, à sauvegarder.
 - **Détection des supports** : testée sous Windows (cartes et clés non essayées sur un vrai lecteur :
   les tests couvrent l'analyse de la sortie système). macOS et Linux : points de montage usuels, sans essai réel.
-- **Filtres de la Photothèque** : années, appareils, formats et mots-clés à choix multiples (ou logique) ; notes et
+- **Filtres de la Photothèque** : critères combinés par ET (tous) ou OU (au moins un) ; années, appareils, formats et mots-clés à choix multiples (ou logique) ; notes et
   disponibilité à choix unique. Importation : filtre « pas encore importées / déjà importées ».
 - **Téléphones** (MTP, Windows) : détectés, photos de `DCIM` et `Pictures` listées, copiées ou déplacées (le déplacement
   supprime la photo de l'appareil après copie vérifiée). **Non essayé avec un vrai téléphone** : testé sur un dossier lu par la même
