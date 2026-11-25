@@ -73,6 +73,7 @@ const App = (() => {
     { id: 'admin', label: 'Administration', icon: '⚙️' },
     { id: 'settings', label: 'Paramètres', icon: '🛠️' },
     { id: 'help', label: 'Aide', icon: '❓' },
+    { id: 'about', label: 'À propos', icon: 'ℹ️' },
   ];
 
   function renderNav() {
@@ -112,6 +113,7 @@ const App = (() => {
       else if (view === 'reports') await viewReports(v);
       else if (view === 'ia') { if (typeof IA === 'undefined') throw new Error('Extension IA absente'); await IA.view(v); }
       else if (view === 'settings') await viewSettings(v);
+      else if (view === 'about') await viewAbout(v);
       else if (view === 'admin') await Admin.view(v, 'backups', nav => (state._adminNav = nav));
       else if (view.startsWith('admin-')) await Admin.view(v, view.slice(6));
       renderStatus(); pushNav();
@@ -2584,6 +2586,79 @@ const App = (() => {
   }
 
   // ---------- vue Paramètres ----------
+  // ---------- À propos : version installée, mise à jour depuis GitHub ----------
+  async function viewAbout(v) {
+    const tab = state.aboutTab === 'update' ? 'update' : 'version';
+    const tabs = h('div.tabs', ...[['version', 'Version'], ['update', 'Mise à jour']].map(([id, label]) =>
+      h('button' + (id === tab ? '.active' : ''), { onclick: () => { state.aboutTab = id; go('about'); } }, label)));
+    const body = h('div');
+    mount(v, h('h2.page-title', 'À propos'), tabs, body);
+    const about = await api('/about');
+    const MODES = { git: 'Copie de travail (git) : mise à jour par git', installed: 'Installée avec l’installateur Windows', archive: 'Copie du programme' };
+
+    if (tab === 'version') {
+      const out = h('div');
+      mount(body,
+        card(
+          h('div.about-head', h('div.about-ico', '📷'), h('div', h('div.about-name', about.product), h('div.dim', about.description || ''))),
+          h('div.about-ver', h('span.dim', 'Version installée'), h('b', about.version)),
+          h('div.about-grid', ...[
+            ['Installation', MODES[about.mode] ?? about.mode],
+            about.info?.installedAt ? ['Installée le', fmtDateTime(about.info.installedAt)] : null,
+            ['Dossier du programme', about.program], ['Dossier des données', about.data], ['Node.js', about.node],
+            about.keyId ? ['Clé de signature de l’éditeur', about.keyId] : null,
+            ['Éditeur', about.holder], ['Projet', about.repo]].filter(Boolean).flatMap(([k, val]) => [h('b', k), h('span', val)])),
+          h('div.row', h('button.ghost.small', { disabled: !about.distributable, title: about.distributable ? 'Recalcule l’empreinte de chaque fichier du programme' : 'Version de développement : pas d’empreintes de distribution', onclick: async () => {
+            try { const r = await api('/install/verify', 'POST'); mount(out, h('p', h(r.ok ? 'span.ok' : 'span.bad', r.ok ? `✓ ${fmtNum(r.files)} fichiers conformes${r.signed ? ', signature valide' : ''}` : '✗ ' + (r.error || 'non conforme')))); }
+            catch (e) { toast(e.message, 'bad'); } } }, 'Vérifier l’installation')), out),
+        about.notes?.length ? card(h('div.sect', 'Nouveautés de cette version'), ...about.notes.map(n => h('div', h('b', n.version), n.title ? h('span.dim', ' · ' + n.title) : null, h('pre.about-notes', n.body)))) : null);
+      return;
+    }
+
+    // ---- Mise à jour ----
+    const out = h('div');
+    const btn = h('button', { onclick: check }, 'Rechercher une mise à jour');
+    mount(body, card(
+      h('p', 'Version installée : ', h('b', about.version)),
+      h('p.dim', 'La recherche interroge GitHub (', h('span.k', about.repo), ') uniquement quand vous cliquez ici ; aucune donnée personnelle n’est envoyée et aucune mise à jour n’est faite sans votre accord.'),
+      h('div.row', btn), out));
+
+    function show(r) {
+      if (!r) return;
+      const when = h('p.dim', 'Recherche faite le ' + fmtDateTime(r.checkedAt));
+      if (r.error) return mount(out, h('div.imp-warn', h('b', r.offline ? 'Pas de connexion à GitHub. ' : 'Recherche impossible. '), r.error), when);
+      if (!r.newer) return mount(out, h('p', h('span.ok', '✓ Photothèque est à jour'), r.latest ? ` (version ${r.latest})` : ''), r.note ? h('p.dim', r.note) : null, when);
+      mount(out,
+        h('div.upd-new', h('b', `Une mise à jour est disponible : ${r.current} → ${r.latest}`), h('span.dim', r.source === 'release' ? ' (version publiée)' : ' (branche principale)')),
+        r.notes?.length ? h('div', h('div.sect', 'Nouveautés'), ...r.notes.map(n => h('div', h('b', n.version), n.title ? h('span.dim', ' · ' + n.title) : null, h('pre.about-notes', n.body)))) : null,
+        r.canApply ? h('div', h('p.dim', r.mode === 'git'
+            ? 'La mise à jour récupère les nouveaux fichiers depuis GitHub (git, avance rapide seulement). Vos données ne sont pas touchées ; elle est refusée si des fichiers du programme ont été modifiés localement. Un redémarrage sera nécessaire.'
+            : 'L’installateur de la nouvelle version est téléchargé et son empreinte SHA-256 vérifiée ; il sera enregistré dans votre dossier Téléchargements. Il restera à le lancer, Photothèque fermée (vos données ne sont pas touchées).'),
+          h('div.row', h('button', { onclick: () => apply(r) }, r.mode === 'git' ? 'Mettre à jour maintenant' : 'Télécharger l’installateur'), h('a', { href: r.release?.url || r.url, target: '_blank', rel: 'noopener' }, 'Voir sur GitHub'))) :
+          h('p', r.note || 'Cette installation ne peut pas être mise à jour d’ici. ', h('a', { href: r.release?.url || r.url, target: '_blank', rel: 'noopener' }, 'Ouvrir la page du projet')),
+        when);
+    }
+    async function check() {
+      btn.disabled = true; btn.textContent = 'Recherche en cours…';
+      try { show(await api('/update/check', 'POST')); } catch (e) { mount(out, h('div.imp-warn', e.message)); }
+      btn.disabled = false; btn.textContent = 'Rechercher une mise à jour';
+    }
+    async function apply(r) {
+      if (!(await confirmDialog('Mettre à jour', r.mode === 'git'
+        ? `Mettre à jour de ${r.current} vers ${r.latest} ? Les fichiers du programme seront remplacés ; vos photos et votre base de données ne sont pas touchées. Un redémarrage sera nécessaire.`
+        : `Télécharger l’installateur de la version ${r.latest} ?`))) return;
+      mount(out, h('p.dim', r.mode === 'git' ? 'Mise à jour en cours… (peut durer quelques minutes si des dépendances changent)' : 'Téléchargement en cours…'));
+      try {
+        const x = await api('/update/apply', 'POST', { confirm: true });
+        mount(out, h('div.upd-done', h('b', '✓ ' + x.message),
+          x.npm && !x.npm.ok ? h('div.imp-warn', 'Les dépendances n’ont pas pu être installées (npm install) : lancez « npm install » dans le dossier du programme.', h('pre.about-notes', x.npm.log)) : null,
+          x.restartRequired ? h('p', h('b', 'Redémarrez Photothèque '), ': fermez la fenêtre du serveur (Ctrl+C) puis relancez Phototheque.bat, et rechargez cette page.') : null,
+          x.installerReady ? h('p', 'Fichier : ', h('span.k', x.file)) : null));
+      } catch (e) { mount(out, h('div.imp-warn', h('b', 'Mise à jour non faite. '), e.message)); }
+    }
+    try { const st = await api('/update'); if (st.last) show(st.last); } catch { /* pas de recherche précédente */ }
+  }
+
   async function viewSettings(v) {
     clear(v);
     const scan = { ...state.scan };

@@ -592,3 +592,14 @@ button.hbar { padding: 2px 4px; }
 .mf-row[hidden] { display: none; }
 .mf-row:hover { background: var(--surface-2); }
 .mf-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* À propos */
+.about-head { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; }
+.about-ico { font-size: 40px; }
+.about-name { font-size: 20px; font-weight: 700; }
+.about-ver { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 12px; }
+.about-ver b { font-size: 26px; color: var(--accent); }
+.about-notes { white-space: pre-wrap; font: inherit; font-size: 12.5px; margin: 4px 0 10px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; max-height: 260px; overflow: auto; }
+.upd-new { margin: 10px 0; font-size: 15px; }
+.upd-done { margin-top: 10px; }
+.about-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 6px 0 12px; font-size: 13.5px; word-break: break-all; }

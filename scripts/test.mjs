@@ -2537,6 +2537,110 @@ group('Distribution : empreintes, signature, vérification, construction');
   check('empreintes des livrables', fs.readFileSync(path.join(out, 'SHA256SUMS'), 'utf8').includes(path.basename(zipf)), true, 0);
 }
 
+// ===================================================================
+group('À propos et mise à jour : versions, GitHub simulé, copie git');
+// ===================================================================
+{
+  const U = await import('../lib/update.mjs');
+  const { spawnSync } = await import('child_process');
+  check('versions : comparaison numérique (0.10.0 > 0.9.0)', U.compareVersions('0.10.0', '0.9.0'), 1, 0);
+  check('versions : égalité avec préfixe v', U.compareVersions('v1.2.3', '1.2.3'), 0, 0);
+  check('versions : plus ancienne', U.compareVersions('0.36.0', '0.36.1'), -1, 0);
+  check('versions : numéro valide / invalide', [U.isVersion('0.36.0'), U.isVersion('v1.0.0'), U.isVersion('latest'), U.isVersion('1.0')].join(), 'true,true,false,false', 0);
+  const CL = '# Journal\n\n## [0.3.0] — 2026-03-01\n\n### Ajouté\n- C\n\n## [0.2.0] — 2026-02-01\n\n- B\n\n## [0.1.0] — 2026-01-01\n\n- A\n';
+  check('journal : sections plus récentes que 0.1.0', U.changelogSince(CL, '0.1.0').map(s => s.version).join(), '0.3.0,0.2.0', 0);
+  check('journal : rien de plus récent', U.changelogSince(CL, '0.3.0').length, 0, 0);
+  check('journal : une version précise', U.changelogSince(CL, null, { only: '0.2.0' }).map(s => s.title + '|' + s.body).join(), '2026-02-01|- B', 0);
+
+  // GitHub simulé
+  const net = { release: null, main: '0.40.0', cl: CL, fail: null, calls: [] };
+  const fakeFetch = async (url, o) => {
+    net.calls.push(url);
+    if (net.fail) throw Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } });
+    const ok = (body, json) => ({ ok: true, status: 200, json: async () => body, text: async () => body, arrayBuffer: async () => Buffer.from(body) });
+    if (url.endsWith('/releases/latest')) return net.release ? ok(net.release) : { ok: false, status: 404 };
+    if (url.endsWith('/package.json')) return ok(JSON.stringify({ version: net.main }));
+    if (url.endsWith('/CHANGELOG.md')) return ok(net.cl);
+    if (net.files?.[url] != null) return ok(net.files[url]);
+    return { ok: false, status: 404 };
+  };
+  let current = '0.1.0';
+  const mk = (extra = {}) => U.createUpdater({ root: path.join(TMP, 'pas-de-git'), version: () => current, fetch: fakeFetch, exec: async () => ({ code: 1, stdout: '', stderr: '' }), downloads: path.join(TMP, 'telechargements'), ...extra });
+  let up = mk();
+  let c = await up.check();
+  check('recherche : version plus récente détectée (branche)', c.newer + '/' + c.latest + '/' + c.source + '/' + c.mode, 'true/0.40.0/branche/archive', 0);
+  check('recherche : nouveautés extraites du journal', c.notes.map(s => s.version).join(), '0.3.0,0.2.0', 0);
+  check('recherche : archive sans git = pas de mise à jour automatique', c.canApply, false, 0);
+  check('recherche : seules les adresses GitHub sont contactées', net.calls.every(u => /^https:\/\/(api\.github\.com|raw\.githubusercontent\.com)\//.test(u)), true, 0);
+  current = '0.40.0'; c = await up.check();
+  check('recherche : déjà à jour', c.newer + '/' + c.error, 'false/null', 0);
+  net.fail = true; c = await up.check();
+  check('recherche : hors connexion = message clair, pas de plantage', c.offline + '/' + /Connexion à GitHub impossible/.test(c.error), 'true/true', 0);
+  net.fail = null;
+  check('mise à jour refusée sans proposition', await up.apply().then(() => 'ok', e => e.status), 409, 0);
+  check('adresse hors GitHub refusée', await U.createUpdater({ root: TMP, version: () => '1.0.0', fetch: fakeFetch, repo: 'a/b' }).check().then(x => x.error != null || x.newer === false, () => false), true, 0);
+
+  // version installée : installateur publié dans une release
+  current = '0.1.0';
+  const exe = Buffer.from('faux installateur'), sha = crypto.createHash('sha256').update(exe).digest('hex');
+  const A = 'https://github.com/Vifi31/Phototheque/releases/download/v0.40.0/';
+  net.release = { tag_name: 'v0.40.0', html_url: 'https://github.com/Vifi31/Phototheque/releases/tag/v0.40.0', name: '0.40.0', body: 'Notes', assets: [
+    { name: 'Phototheque-0.40.0-installation.exe', size: exe.length, browser_download_url: A + 'Phototheque-0.40.0-installation.exe' }, { name: 'SHA256SUMS', size: 99, browser_download_url: A + 'SHA256SUMS' }] };
+  net.files = { [A + 'Phototheque-0.40.0-installation.exe']: exe, [A + 'SHA256SUMS']: `${sha} *Phototheque-0.40.0-installation.exe\n` };
+  up = mk({ installed: true });
+  c = await up.check();
+  check('installation : release détectée, installateur téléchargeable', c.mode + '/' + c.source + '/' + c.latest + '/' + c.canApply, 'installed/release/0.40.0/true', 0);
+  const dl = await up.apply();
+  check('installation : installateur enregistré et vérifié', dl.installerReady && fs.readFileSync(dl.file).equals(exe) && dl.sha256 === sha, true, 0);
+  net.files[A + 'SHA256SUMS'] = `${'0'.repeat(64)} *Phototheque-0.40.0-installation.exe\n`; fs.rmSync(dl.file);
+  await up.check();
+  check('installation : empreinte différente = rejet, rien d\'enregistré', await up.apply().then(() => 'ok', e => e.status + '/' + fs.existsSync(dl.file)), '409/false', 0);
+  net.files[A + 'SHA256SUMS'] = 'pas une empreinte\n'; await up.check();
+  check('installation : empreinte absente de SHA256SUMS = refus', await up.apply().then(() => 'ok', e => e.status), 409, 0);
+  net.release = null; net.main = '0.41.0'; c = await up.check();
+  check('installation : seulement le code source plus récent = pas d\'installateur à proposer', c.newer + '/' + c.canApply + '/' + !!c.note, 'false/false/true', 0);
+
+  // copie git : un « GitHub » local (dépôt nu) et deux copies de travail
+  const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' });
+  if (git(TMP, '--version').status !== 0) check('git absent : essais de mise à jour par git ignorés', true, true, 0);
+  else {
+    const bare = path.join(TMP, 'github.git'), A1 = path.join(TMP, 'copie-a'), B1 = path.join(TMP, 'copie-b');
+    git(TMP, 'init', '--bare', '-b', 'main', bare);
+    git(TMP, 'clone', '-q', bare, A1);
+    git(A1, 'checkout', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(A1, 'package.json'), JSON.stringify({ name: 'x', version: '0.1.0' })); fs.writeFileSync(path.join(A1, 'a.txt'), 'un');
+    git(A1, 'add', '-A'); git(A1, 'commit', '-q', '-m', 'v1'); git(A1, 'push', '-q', 'origin', 'main');
+    git(TMP, 'clone', '-q', bare, B1);
+    const ver = dir => JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
+    let npmCalls = 0;
+    const realExec = (cmd, args, o) => { if (/^npm/.test(cmd)) { npmCalls++; return Promise.resolve({ code: 0, stdout: 'ok', stderr: '' }); } const r = spawnSync(cmd, args, { cwd: o.cwd, encoding: 'utf8' }); return Promise.resolve({ code: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }); };
+    const upg = dir => U.createUpdater({ root: dir, version: () => ver(dir), fetch: fakeFetch, exec: realExec });
+    net.release = null; net.main = '0.2.0';
+    const ug = upg(B1);
+    c = await ug.check();
+    check('git : copie reconnue, mise à jour possible', c.mode + '/' + c.newer + '/' + c.canApply, 'git/true/true', 0);
+    // publication d'une version 0.2.0 depuis la copie A
+    fs.writeFileSync(path.join(A1, 'package.json'), JSON.stringify({ name: 'x', version: '0.2.0' })); fs.writeFileSync(path.join(A1, 'a.txt'), 'deux');
+    git(A1, 'commit', '-q', '-am', 'v2'); git(A1, 'push', '-q', 'origin', 'main');
+    // modification locale : refus, rien d'écrasé
+    fs.writeFileSync(path.join(B1, 'a.txt'), 'modifié ici');
+    check('git : modification locale = refus, fichier intact', await ug.apply().then(() => 'ok', e => e.status + '/' + fs.readFileSync(path.join(B1, 'a.txt'), 'utf8')), '409/modifié ici', 0);
+    git(B1, 'checkout', '--', 'a.txt');
+    // commit local non publié : refus
+    fs.writeFileSync(path.join(B1, 'b.txt'), 'local'); git(B1, 'add', '-A'); git(B1, 'commit', '-q', '-m', 'local');
+    await ug.check();
+    check('git : commit local non publié = refus', await ug.apply().then(() => 'ok', e => e.status + '/' + /pas publiés/.test(e.message)), '409/true', 0);
+    git(B1, 'reset', '-q', '--hard', 'HEAD~1');
+    await ug.check();
+    const r = await ug.apply();
+    check('git : mise à jour appliquée (version, fichier, redémarrage demandé)', ver(B1) + '/' + fs.readFileSync(path.join(B1, 'a.txt'), 'utf8') + '/' + r.updated + '/' + r.restartRequired, '0.2.0/deux/true/true', 0);
+    check('git : dépendances modifiées = npm install lancé', npmCalls, 1, 0);
+    net.main = '0.2.0'; current = ver(B1);
+    const c2 = await upg(B1).check();
+    check('git : ensuite, à jour', c2.newer, false, 0);
+  }
+}
+
 // ---------- bilan ----------
 console.log(`\n${'='.repeat(46)}\nRésultat : ${ok} OK, ${ko} échec(s)`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* nettoyage best effort */ }

@@ -37,6 +37,7 @@ import { createMetadata, cleanMetadataSettings, DESTINATIONS, NAMINGS, MODES as 
 import { DOC_FIELDS, LABELS_FR } from './lib/xmp.mjs';
 import { XMP_DIR } from './lib/paths.mjs';
 import { createAi, aiRoutes } from './lib/ai.mjs';
+import { createUpdater, changelogSince } from './lib/update.mjs';
 import { installInfo, verifyDist, keyId, PUBLIC_KEY_FILE, SUMS_FILE, SIG_FILE } from './lib/dist.mjs';
 
 const PUBLIC = path.join(ROOT, 'public');
@@ -78,6 +79,7 @@ const lock = createLock({ getLock: () => store.security?.lock, setLock: l => { s
 const admin = setupAdmin({ root: ROOT, getStore: () => store, saveStore: () => saveStore(db, store) });
 const dbAdmin = setupDbAdmin({ getDb: () => db, getError: () => null, getStore: () => store, mirrorFile: STORE_FILE, dbFile: DB_FILE });
 
+const updater = createUpdater({ root: ROOT, version: () => currentVersion(), installed: INSTALLED, repo: APP.repository || undefined });
 function currentVersion() { try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; } catch { return ''; } }
 const buildState = () => ({
   app: { name: APP.name, slug: APP.slug, icon: APP.icon, tagline: APP.tagline },
@@ -219,6 +221,25 @@ async function api(req, res, url) {
     if (!fs.existsSync(path.join(ROOT, SUMS_FILE))) return json(res, 200, { ok: false, dev: true, error: 'Version de développement : aucune empreinte de distribution à vérifier (voir Manifeste).' });
     const r = verifyDist(ROOT); logHistory(db, 'install.verify', `Vérification de l’installation : ${r.ok ? 'conforme' : r.error}`, { ok: r.ok, signed: r.signed });
     return json(res, 200, r);
+  }
+
+  // ---- À propos : version installée ; mise à jour depuis GitHub (lib/update.mjs, seulement sur demande) ----
+  if (p === '/api/about' && m === 'GET') {
+    let notes = []; try { notes = changelogSince(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), null, { only: currentVersion() }); } catch { /* pas de journal des versions */ }
+    const pub = path.join(ROOT, ...PUBLIC_KEY_FILE.split('/'));
+    return json(res, 200, { product: APP.product, holder: APP.holder, description: APP.description, version: currentVersion(), installed: INSTALLED, mode: await updater.mode(), info: installInfo(ROOT),
+      program: ROOT, data: path.dirname(DATA_DIR), node: process.version, repo: updater.repo, notes, distributable: fs.existsSync(path.join(ROOT, SUMS_FILE)), signedFile: fs.existsSync(path.join(ROOT, SIG_FILE)), keyId: fs.existsSync(pub) ? keyId(fs.readFileSync(pub, 'utf8')) : null });
+  }
+  if (p === '/api/update' && m === 'GET') return json(res, 200, { last: updater.status(), mode: await updater.mode(), version: currentVersion() });
+  if (p === '/api/update/check' && m === 'POST') {
+    const r = await updater.check(); logHistory(db, 'update.check', r.error ? 'Recherche de mise à jour : ' + r.error : r.newer ? `Mise à jour disponible : ${r.current} → ${r.latest}` : 'Recherche de mise à jour : à jour', { current: r.current, latest: r.latest });
+    return json(res, 200, r);
+  }
+  if (p === '/api/update/apply' && m === 'POST') {
+    const b = await readBody(req); if (b.confirm !== true) return json(res, 400, { error: 'Confirmation requise' });
+    if ([...JOBS.values()].some(j => j.status === 'running')) return json(res, 409, { error: 'Un travail est en cours : attendez sa fin avant de mettre à jour' });
+    try { const r = await updater.apply(); logHistory(db, 'update.apply', r.message, { from: r.current, to: r.latest, mode: r.mode }); return json(res, 200, r); }
+    catch (e) { return json(res, e.status ?? 500, { error: String(e.message || e) }); }
   }
 
   // ---- IA facultative (lib/ai.mjs) ----

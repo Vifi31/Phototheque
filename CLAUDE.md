@@ -191,6 +191,7 @@ bibliothèque).
    multiplateforme, empreintes + signature Ed25519, mise à jour vérifiée avec la clé installée,
    docs INSTALLATION / SAUVEGARDE / FONCTIONNALITES / DEPENDANCES) — **livré en v0.30.0** (§27).
    Piège : les .ps1 de `distribution/` doivent rester en UTF-8 **avec BOM** (PowerShell 5.1).
+   Menu « À propos » (version, recherche et mise à jour depuis GitHub, `lib/update.mjs`) — **livré en v0.37.0** (§33).
    Tout le cahier des charges a une première version ; limites dans `docs/FONCTIONNALITES.md`.
    Filtre « Mots-clés » dans la barre de la Photothèque (sans / avec / un mot-clé, effectifs en direct)
    et propositions de mots-clés pendant la frappe (`UI.keywordInput`, synonymes compris) —

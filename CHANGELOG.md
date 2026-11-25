@@ -4,6 +4,33 @@ Toutes les versions notables de Photothèque. Format suivi :
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et
 [Versionnement sémantique](https://semver.org/lang/fr/).
 
+## [0.37.0] — 2026-11-25
+
+### Ajouté
+
+- **Menu « À propos »** (barre latérale) avec deux onglets :
+  - **Version** : version installée, type d'installation (copie git, installateur Windows ou copie simple), date
+    d'installation, dossiers du programme et des données, Node.js, clé de signature de l'éditeur, bouton
+    « Vérifier l'installation » (empreintes et signature), nouveautés de la version installée (CHANGELOG).
+  - **Mise à jour** : « Rechercher une mise à jour » interroge GitHub (`Vifi31/Phototheque`, champ `repository` de
+    `app.config.json`) **uniquement au clic** ; affiche la version disponible et ses nouveautés, puis propose la mise à jour.
+- `lib/update.mjs` : comparaison de versions, lecture de la dernière « release » et de `package.json` / `CHANGELOG.md` de la
+  branche `main`. Mise à jour selon l'installation :
+  - **copie git** : `git fetch` + fusion en avance rapide, puis `npm install` si les dépendances ont changé ; refusée (rien
+    n'est écrasé) s'il y a des fichiers du programme modifiés, des commits locaux non publiés ou une autre branche que `main` ;
+    redémarrage à faire ensuite ;
+  - **installation par l'installateur** : téléchargement de l'installateur publié dans la release GitHub, empreinte SHA-256
+    vérifiée avec `SHA256SUMS` de la release (refus sinon), enregistré dans Téléchargements ; l'installateur reste à lancer
+    (il vérifie la signature avec la clé de la version installée) ;
+  - autre copie : lien vers la page du projet.
+- Routes : `GET /api/about`, `GET /api/update`, `POST /api/update/check`, `POST /api/update/apply` (confirmation requise,
+  refusée pendant un travail en cours) ; entrées dans le journal d'historique.
+
+### Limites
+
+- La recherche et la mise à jour par git sont essayées (GitHub réel pour la recherche ; dépôts git locaux pour la mise à jour).
+  Le téléchargement d'un installateur est testé avec un GitHub simulé : **aucune release n'est encore publiée** sur GitHub.
+
 ## [0.36.0] — 2026-11-15
 
 ### Ajouté

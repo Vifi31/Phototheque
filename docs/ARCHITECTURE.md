@@ -942,3 +942,13 @@ les confirmations se font par un second clic sur le bouton, pas par
   puis ajoutées par ET au reste (`add` : texte libre, exclusions, collection / album / support / dossier, variantes).
   `addGroup` fait de la période et des dimensions un seul critère. Les paramètres des critères sont ajoutés en dernier (ordre des `?`).
 * `cleanFilters` ne garde `match` que s'il vaut `any` et s'il accompagne au moins un critère. `filtersFrom` (serveur) le lit.
+
+## 33. À propos et mise à jour (v0.37.0)
+
+* `lib/update.mjs` (`createUpdater`) : `check()` lit `releases/latest` (404 toléré) et `main/package.json` + `CHANGELOG.md` ; seules les
+  adresses https GitHub sont contactées (`HOSTS`), délai 15 s, aucune donnée personnelle. `apply()` agit sur le résultat de la
+  dernière recherche : mode `git` (`applyGit` : branche `main`, pas de modification locale, pas de commit non publié, `merge --ff-only`,
+  `npm install` si `package*.json` changent) ou `installed` (`downloadInstaller` : SHA-256 contre `SHA256SUMS` de la release, enregistré
+  dans Téléchargements). `fetch` et `exec` sont injectables (tests).
+* `server.mjs` : `/api/about`, `/api/update`, `/api/update/check`, `/api/update/apply` ; `public/app.js` : `viewAbout` (onglets Version / Mise à jour).
+* Le serveur doit être relancé après une mise à jour par git (les modules sont chargés en mémoire).
